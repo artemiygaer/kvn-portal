@@ -93,6 +93,10 @@ class OfflineReleaseTests(unittest.TestCase):
         self.assertNotIn("client_max_body_size 128m", (ROOT / "tools/kvnctl.py").read_text(encoding="utf-8"))
 
     @unittest.skipIf(os.name == "nt", "Исполняемый rollback-тест запускается в Linux-контейнере")
+    @unittest.skipUnless(
+        hasattr(os, "geteuid") and os.geteuid() == 0,
+        "для исполняемого rollback-теста нужен Linux root",
+    )
     @unittest.skipUnless(shutil.which("bash"), "В образе нет bash")
     def test_release_load_failure_precedes_source_mutation_and_preserves_runtime(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -155,6 +159,10 @@ class OfflineReleaseTests(unittest.TestCase):
         self.assertIn("не рекомендуется для сервера 1 ГБ", settings)
 
     @unittest.skipIf(os.name == "nt", "Переходный e2e запускается в Linux-контейнере")
+    @unittest.skipUnless(
+        hasattr(os, "geteuid") and os.geteuid() == 0,
+        "для переходного e2e нужен Linux root",
+    )
     @unittest.skipUnless(shutil.which("bash"), "В образе нет bash")
     def test_legacy_bootstrap_then_full_release_has_no_build_or_pull(self):
         with tempfile.TemporaryDirectory() as tmp:
