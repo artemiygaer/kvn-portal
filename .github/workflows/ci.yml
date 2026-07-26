@@ -34,6 +34,7 @@ jobs:
       - name: Bash и Compose
         run: |
           bash -n setup.sh update.sh tools/*.sh amneziawg/*.sh wireguard/*.sh ocserv/*.sh portal/*.sh
+          install -m 600 /dev/null ocserv/ocserv.env
           docker compose -f docker-compose.yml config --quiet
       - name: Portal image tests
         run: docker build --target test -t kvn-portal:test portal

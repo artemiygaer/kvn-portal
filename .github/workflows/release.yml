@@ -39,6 +39,7 @@ jobs:
           python3 tools/docs_check.py
           python3 -m unittest discover -s tests -v
           bash -n setup.sh update.sh tools/*.sh amneziawg/*.sh wireguard/*.sh ocserv/*.sh portal/*.sh
+          install -m 600 /dev/null ocserv/ocserv.env
           docker compose -f docker-compose.yml config --quiet
           docker build --target test -t kvn-portal:test portal
       - name: Сборка linux/amd64 release
