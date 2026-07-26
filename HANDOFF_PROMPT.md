@@ -142,7 +142,15 @@ canonical deploy через `tools/publication_manifest.py`. При несовп
 - `publication-manifest.json`;
 - `SHA256SUMS`.
 
-Для private Release token создаётся только на Debian-сервере:
+Публичный репозиторий работает без token:
+
+```bash
+sudo python3 tools/kvnctl.py updates configure \
+  --enable true --channel stable --asset-preference release --clear-token
+sudo python3 tools/kvnctl.py updates status
+```
+
+Если репозиторий снова станет private, token создаётся только на Debian-сервере:
 
 ```bash
 sudo python3 tools/kvnctl.py updates configure \
