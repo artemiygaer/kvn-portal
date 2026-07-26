@@ -1,62 +1,179 @@
-# Передача KVN VPN v3 новому ИИ-агенту
+# Промт для передачи KVN VPN v3 новому ИИ-агенту
 
-Работай из корня проекта. Отвечай по-русски, коротко и по делу; комментарии и документацию пиши на русском. Сначала полностью прочитай `AGENTS.md`, затем нужные разделы `README.md`, `deploy/DEPLOY.md`, `PROJECT_AUDIT.md`, `MTPROTO.md`, `CONTAINER_SECURITY.md` и `PORTAL_UPDATE_NOTES.md`.
+Ты продолжаешь разработку проекта KVN VPN v3. Работай автономно до проверенного
+результата, но не расширяй задачу за пределы запроса пользователя. Отвечай
+по-русски, коротко и по делу. Комментарии, документацию и сообщения интерфейса
+пиши на русском.
 
-## Статус
+## Начало работы на Windows
 
-Глубокий аудит и основной цикл оптимизации завершены 26.07.2026:
+Не используй жёстко заданный путь или букву диска. Корень проекта — каталог,
+в котором одновременно находятся `AGENTS.md`, `docker-compose.yml`, `setup.sh`,
+`portal/` и `tools/`.
 
-- портал разделён на совместимые Blueprints и page-specific frontend modules;
-- добавлены компактный UX, lazy inline logs, activity пользователя и light profile;
-- экспорт пользователя формирует allowlisted ZIP в памяти и `send.txt`;
-- Domain/IP policy применяется ко всем клиентским endpoint, не меняя SNI и certificate identity;
-- GitHub Releases работает через фиксированный `artemiygaer/kvn-portal`: check → download/verify → ready → отдельный start;
-- setup/update/backup/restore и management CLI актуализированы; deploy строится только из canonical allowlist.
+1. Определи корень из текущего workspace и перейди в него.
+2. Если корень нельзя определить однозначно, только тогда попроси пользователя
+   указать каталог проекта.
+3. Полностью прочитай `AGENTS.md`. Затем открой относящиеся к задаче разделы
+   `README.md`, `deploy/DEPLOY.md`, `PROJECT_AUDIT.md`, `MTPROTO.md`,
+   `CONTAINER_SECURITY.md` и `PORTAL_UPDATE_NOTES.md`.
+4. Выполни `git status --short`, `git remote -v` и `git log -3 --oneline`.
+   Существующие изменения принадлежат пользователю: не удаляй и не откатывай их.
+5. На Windows используй PowerShell. Для shell-скриптов используй Git Bash,
+   для Linux/root-проверок — WSL, для контейнеров — Docker Desktop.
+6. Не полагайся на наличие команды `python3` в Windows. Найди доступный Python
+   через `Get-Command python` или `py -3`; включи UTF-8:
 
-Последний локальный gate: 338 тестов успешно, 20 ожидаемых platform/Flask skip; `compileall`, Bash syntax, Compose config и deploy validator прошли. Docker Desktop доступен, но текущий sandbox блокирует named pipe, поэтому финальный Docker lifecycle нужно повторить на Debian либо в среде с разрешённым Docker API. Последний полноценный portal image gate до текстовых правок: 94 теста.
+```powershell
+$env:PYTHONIOENCODING = 'utf-8'
+$ProjectRoot = (Resolve-Path .).Path
+$PythonCommand = Get-Command python.exe -ErrorAction SilentlyContinue
+$PythonArgs = @()
+if ($PythonCommand) {
+    $Python = $PythonCommand.Source
+} else {
+    $Python = (Get-Command py.exe -ErrorAction Stop).Source
+    $PythonArgs = @('-3')
+}
+```
+
+WSL-путь всегда вычисляй из текущего Windows-пути:
+
+```powershell
+$PortableRoot = $ProjectRoot.Replace('\', '/')
+$WslRoot = (wsl.exe wslpath -a -u $PortableRoot).Trim()
+wsl.exe -u root bash -lc "cd '$WslRoot' && python3 -m unittest discover -s tests -v"
+```
+
+Не запускай интерактивные команды в видимом отдельном окне. Не проси повторного
+разрешения на обычные проверки, сборку и изменения внутри проекта.
+
+## Архитектура и назначение
+
+KVN VPN v3 — мультипротокольный VPN-стек для Debian 12/13.
+
+- Compose: nginx SNI-router, portal, portal-gateway, Xray, Hysteria2, Telemt,
+  mtg FakeTLS и ocserv.
+- Host-службы Debian: `kvn-amneziawg.service`, `kvn-wireguard.service`,
+  `kvn-portal-agent.service`.
+- `users.json` — единственный source of truth.
+- Web-портал работает непривилегированным контейнером без Docker socket.
+- Привилегированные операции разрешены только через versioned allowlisted RPC
+  host-agent по Unix socket.
+- Setup, update, portal apply и reconcile используют единый effective service
+  plan. Отключённый сервис не должен самопроизвольно запускаться.
+- Peer-only изменения AWG/WG применяются через `syncconf`; structural delta —
+  через controlled restart.
+- Full release позволяет слабому Debian-серверу применить обновление через
+  `--no-build --pull never`.
+
+Поддерживаемые `systems`: `tls`, `reality-xhttp`, `reality-tcp`, `hysteria`,
+`telemt`, `mtg`, `amneziawg`, `wireguard`, `ocserv`.
 
 ## Неприкосновенные границы
 
-- `users.json` — единственный source of truth. Generated/runtime из `AGENTS.md` вручную не редактировать.
-- Не включать в deploy/git/logs users, clients, ключи/certs, `.env`, portal/metrics DB, sockets, agent/GitHub token, logs или backup.
-- Web-портал остаётся непривилегированным контейнером без Docker socket. Root-действия выполняет только `kvn-portal-agent.service` через versioned allowlisted RPC.
-- `/backup` содержит runtime-секреты и Docker images. Передавать только по защищённому каналу.
-- Предпочитать hot update/reload. Не удалять пользовательский runtime при очистке.
+- Сначала изучай код вокруг задачи, затем меняй его минимально необходимым
+  способом.
+- Не редактируй вручную generated/runtime-файлы, перечисленные в `AGENTS.md`.
+- Не включай в git, deploy, логи и ответы: production `users.json`, `clients/`,
+  приватные ключи, сертификаты, `.env`, БД/WAL/SHM, sockets, agent secret,
+  GitHub token, backup и содержимое пользовательских конфигураций.
+- Не монтируй Docker socket в портал.
+- Не передавай root/GitHub/Telegram credentials через браузер, argv, git,
+  документацию или чат.
+- `/backup` содержит runtime-секреты и Docker images.
+- Предпочитай hot update/reload. Restart выполняй только при технической
+  необходимости.
+- Не удаляй пользовательский runtime. Разрешено удалять только проверенные кеши,
+  временные тестовые каталоги и сборочные артефакты.
+- Не используй `git reset --hard`, принудительное переписывание чужих изменений
+  или перемещение опубликованного release tag.
 
-## Архитектура
+## Реализованный функционал
 
-- Compose: nginx, portal, portal-gateway, xray, hysteria, telemt, mtg, ocserv.
-- Host: `kvn-amneziawg.service` (`awg0`, `51820/udp`), `kvn-wireguard.service` (`wg0`, `51821/udp`), `kvn-portal-agent.service`.
-- Setup/update/portal apply/reconcile используют один effective service plan; disabled-сервис не pull/build/start.
-- Peer-only AWG/WG delta применяет `syncconf`, structural delta — controlled restart.
-- Full release содержит source deploy и семь `linux/amd64` images; на слабом сервере updater использует `--no-build --pull never`.
-- GitHub URL/repository не задаются браузером. Private token хранится только в `/etc/kvn-portal/github.token` с root-only правами и не выводится.
+- Portal разделён на совместимые Flask Blueprints и page-specific JS.
+- Есть light profile, lazy inline-логи сервисов, история нагрузки и безопасная
+  активность пользователей.
+- Кнопка «Экспорт» создаёт allowlisted ZIP в памяти и `send.txt` для ручной
+  отправки через Telegram. Прямого Telegram API и bot token нет.
+- Domain/public-IP policy применяется ко всем клиентским endpoint.
+- `public-ip` меняет endpoint, но не SNI, Reality `serverName` и certificate
+  identity. HTTPS subscription по IP требует direct route и точный IP SAN.
+- Legacy `/<token>`, отдельные HAPP/Karing endpoints и Karing Clash-профиль
+  standard WireGuard сохранены.
+- Standard WireGuard работает на `wg0:51821`; AmneziaWG — только на
+  `awg0:51820`. Эти профили нельзя подменять друг другом.
+- GitHub-источник обновлений зафиксирован как `artemiygaer/kvn-portal`.
+  Поток обновления: check → download/verify → ready → отдельный start с
+  повторной root-аутентификацией.
+- Ручная загрузка и GitHub Release используют один archive validator и updater.
+- Deploy строится только из `tools/canonical-files.txt`.
 
-## Клиенты и экспорт
+## Статус на момент передачи
 
-- Legacy `/<token>` сохранён. HAPP и Karing имеют отдельные URL/QR.
-- Karing standard WireGuard — отдельный Clash URL/QR/YAML на `wg0:51821`.
-- AmneziaWG выдаётся только для AmneziaWG app на `awg0:51820`.
-- ZIP для Telegram скачивается как attachment и прикрепляется вручную. Прямого Telegram API и bot token нет.
-- `public-ip` меняет endpoint подключения, но сохраняет SNI, Reality `serverName` и certificate identity.
-- HTTPS subscription URL по IP выдаётся только при direct route и точном IP SAN.
+Проверенный baseline от 26.07.2026:
 
-## Обновление Debian
+- 338 тестов проекта прошли в WSL/root;
+- 94 portal tests прошли в Docker test image;
+- deploy runtime E2E прошёл;
+- Bash syntax, Compose config, compileall, docs checker и source safety прошли;
+- browser matrix 1440/390 px, светлая/тёмная темы: без горизонтального
+  переполнения, обрезанных кнопок и ошибок консоли;
+- full release: `linux/amd64`, семь runtime images, build ID
+  `20260726-release1`;
+- `main` и tag `v3.0.0` были отправлены в `artemiygaer/kvn-portal`.
 
-До обновления:
+GitHub Release мог ещё не быть опубликован: сначала проверь Releases и Actions.
+Workflow `.github/workflows/release.yml` запускается только вручную и создаёт
+проверяемый draft перед публикацией. Не считай наличие tag доказательством
+наличия Release.
+
+Этот файл мог быть изменён после последней сборки. Поэтому не публикуй лежащие
+рядом архивы, пока не проверишь, что их embedded source совпадает с текущим
+canonical deploy через `tools/publication_manifest.py`. При несовпадении собери
+новые артефакты с новым build ID и новым version tag.
+
+## Release и публикация
+
+Публичный набор Release должен содержать только:
+
+- `kvn-vpn-release-linux-amd64.tar.gz`;
+- `kvn-vpn-deploy.tar.gz`;
+- `publication-manifest.json`;
+- `SHA256SUMS`.
+
+Для private Release token создаётся только на Debian-сервере:
 
 ```bash
-cd /srv/kvn-vpn
-sudo ./tools/project-backup.sh
+sudo python3 tools/kvnctl.py updates configure \
+  --enable true --channel stable --asset-preference release --set-token
+sudo python3 tools/kvnctl.py updates status
 ```
 
-Портал: «Настройки» → GitHub либо ручная загрузка → «Проверить/подготовить» → дождаться ready → отдельно «Запустить обновление» с системным root-паролем.
+Token вводится через `getpass`, хранится в `/etc/kvn-portal/github.token` с
+root-only правами и не выводится.
 
-Ручной эквивалент:
+Перед созданием нового Release:
+
+1. Проверь чистоту source через `tools/source_safety.py`.
+2. Убедись, что commit отправлен в `main`.
+3. Не перемещай tag уже опубликованного immutable Release.
+4. Собери full release и отдельный deploy из одного source state/build ID.
+5. Проверь совпадение source и точный состав assets.
+6. Создай draft, загрузи все четыре файла, сверь их и только затем публикуй.
+7. После публикации проверь latest Release API и portal `release.check`.
+
+## Обновление Debian-сервера
+
+Команды ниже выполняются из фактического корня установленного проекта, каким бы
+он ни был:
 
 ```bash
-cd /srv/kvn-vpn
+sudo ./tools/project-backup.sh
 sudo ./update.sh ./kvn-vpn-release-linux-amd64.tar.gz
+sudo python3 tools/kvnctl.py amneziawg verify
+sudo python3 tools/kvnctl.py wireguard verify
+sudo docker compose -f docker-compose.yml ps
 ```
 
 Для старого updater:
@@ -66,54 +183,79 @@ sudo ./update.sh --bootstrap-only ./kvn-vpn-deploy.tar.gz
 sudo ./update.sh ./kvn-vpn-release-linux-amd64.tar.gz
 ```
 
-Если сам старый updater не понимает bootstrap, используй безопасный временный worker из `deploy/DEPLOY.md`. Не распаковывай шаблонный `users.json` поверх production.
+Не распаковывай шаблонный `deploy/users.json` поверх production.
 
-GitHub public Release не требует token. Для private Release:
+## Полный gate на Windows
 
-```bash
-sudo python3 tools/kvnctl.py updates configure --enable true --channel stable --asset-preference release --set-token
-sudo python3 tools/kvnctl.py updates status
-```
+Используй найденные пути к Python и Git Bash, не копируй чужие абсолютные пути:
 
-Token вводится только через `getpass`; не вставлять его в portal/chat/argv.
+```powershell
+$env:PYTHONIOENCODING = 'utf-8'
+$PythonCommand = Get-Command python.exe -ErrorAction SilentlyContinue
+$PythonArgs = @()
+if ($PythonCommand) {
+    $Python = $PythonCommand.Source
+} else {
+    $Python = (Get-Command py.exe -ErrorAction Stop).Source
+    $PythonArgs = @('-3')
+}
+& $Python @PythonArgs -m py_compile tools\kvnctl.py
+& $Python @PythonArgs -m compileall -q portal tools
+& $Python @PythonArgs tools\docs_check.py
+& $Python @PythonArgs tools\source_safety.py --mode worktree
+& $Python @PythonArgs -m unittest discover -s tests -v
 
-## Release и публикация
+$GitExe = (Get-Command git.exe -ErrorAction Stop).Source
+$GitRoot = Split-Path (Split-Path $GitExe -Parent) -Parent
+$Bash = Join-Path $GitRoot 'bin\bash.exe'
+if (-not (Test-Path -LiteralPath $Bash)) {
+    throw 'Git Bash не найден'
+}
+& $Bash -n setup.sh update.sh tools/*.sh amneziawg/*.sh wireguard/*.sh ocserv/*.sh portal/*.sh
 
-Промежуточные SHA и Build ID в документацию не записывать. Финальные значения брать из готового артефакта и `release-manifest.json`.
-
-```bash
-bash tools/build-deploy.sh
-KVN_BUILD_ID=YYYYMMDD-release1 bash tools/build-release.sh
-# При заранее подготовленных семи образах и недоступном registry:
-KVN_RELEASE_OFFLINE=1 KVN_BUILD_ID=YYYYMMDD-release1 bash tools/build-release.sh
-```
-
-В GitHub Release публикуются только:
-
-- `kvn-vpn-release-linux-amd64.tar.gz`;
-- `kvn-vpn-deploy.tar.gz`;
-- `publication-manifest.json`;
-- `SHA256SUMS`.
-
-`.github/workflows/ci.yml` проверяет source safety, документацию, тесты, Compose,
-portal image и deploy. `.github/workflows/release.yml` запускается только вручную:
-сначала создаёт проверяемый draft, сверяет точный состав assets и лишь затем
-публикует Release. Перед публикацией проверить, что нет `.supergoal`, runtime,
-backup, DB, ключей, сертификатов и client files.
-
-## Полный gate
-
-```bash
-python3 -m py_compile tools/kvnctl.py
-python3 -m compileall -q portal tools
-python3 tools/docs_check.py
-python3 -m unittest discover -s tests -v
-bash -n setup.sh update.sh tools/*.sh amneziawg/*.sh wireguard/*.sh ocserv/*.sh portal/*.sh
 docker compose -f docker-compose.yml config --quiet
 docker build --target test -t kvn-portal:test portal
-python3 tools/kvnctl.py render
-python3 tests/deploy_runtime_e2e.py
-bash tools/build-deploy.sh
+& $Python @PythonArgs tools\kvnctl.py render
+& $Python @PythonArgs tests\deploy_runtime_e2e.py
 ```
 
-Debian-only: systemd units, socket ownership, host/cloud firewall, Certbot HTTP-01/IP profile и реальная доступность у мобильных операторов. Универсального SNI для РФ нет; server-side diagnose не заменяет проверку клиента у нужного оператора.
+Linux/root suite:
+
+```powershell
+$ProjectRoot = (Resolve-Path .).Path
+$PortableRoot = $ProjectRoot.Replace('\', '/')
+$WslRoot = (wsl.exe wslpath -a -u $PortableRoot).Trim()
+wsl.exe -u root bash -lc "cd '$WslRoot' && PYTHONIOENCODING=utf-8 python3 -m unittest discover -s tests -v"
+```
+
+Сборка выполняется только после проверок и только когда действительно нужны
+новые артефакты:
+
+```powershell
+& $Bash -c 'bash tools/build-deploy.sh'
+$env:KVN_BUILD_ID = 'YYYYMMDD-releaseN'
+& $Bash -c 'bash tools/build-release.sh'
+```
+
+Не записывай промежуточные SHA в документацию. Финальные SHA сообщай только
+после последней сборки и повторной проверки manifest.
+
+## Ограничения локальной проверки
+
+На Windows нельзя считать проверенными Debian systemd units, Unix socket
+ownership, host/cloud firewall, Certbot HTTP-01/IP profile и доступность у
+конкретного мобильного оператора. Проверяй их на Debian-сервере. Успешная
+server-side SNI-диагностика не гарантирует доступность у другого оператора РФ.
+
+## Формат завершения следующей задачи
+
+В ответе кратко укажи:
+
+- что изменено;
+- какие проверки фактически выполнены и их результат;
+- какие проверки возможны только на Debian;
+- какие файлы/commit/tag/Release созданы;
+- точную следующую команду пользователя только при реальной внешней блокировке.
+
+Не объявляй работу завершённой, если обязательные проверки не пройдены или
+Release/серверное применение только предполагаются.
