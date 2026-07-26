@@ -50,7 +50,7 @@ class UpgradeContractTests(unittest.TestCase):
     def test_maintenance_operations_share_bounded_flock_before_mutation(self):
         cases = {
             "setup.sh": "apt-get update",
-            "update.sh": 'WORKER_DIR="$(mktemp -d)"',
+            "update.sh": 'WORKER_DIR="$(mktemp -d "$UPDATE_TMP_ROOT/worker.XXXXXXXXXX")"',
             "tools/project-backup.sh": 'staging="$(mktemp -d)"',
             "tools/restore-backup.sh": 'staging="$(mktemp -d)"',
         }
@@ -60,6 +60,13 @@ class UpgradeContractTests(unittest.TestCase):
                 self.assertIn("/run/lock/kvn-vpn-maintenance.lock", text)
                 self.assertIn("flock -w", text)
                 self.assertLess(text.index("flock -w"), text.index(mutation))
+
+    def test_update_large_temporaries_use_project_filesystem(self):
+        source = (ROOT / "update.sh").read_text(encoding="utf-8")
+        self.assertIn('UPDATE_TMP_ROOT="${KVN_UPDATE_TMP_ROOT:-$ROOT_DIR/.update-tmp}"', source)
+        self.assertIn('export TMPDIR="$UPDATE_TMP_ROOT"', source)
+        self.assertIn('mktemp -d "$UPDATE_TMP_ROOT/worker.XXXXXXXXXX"', source)
+        self.assertIn('mktemp -d "$UPDATE_TMP_ROOT/source.XXXXXXXXXX"', source)
 
     @unittest.skipUnless(os.name == "posix" and shutil.which("flock"), "нужен Linux flock")
     def test_maintenance_lock_rejects_concurrent_owner(self):

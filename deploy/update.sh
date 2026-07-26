@@ -63,8 +63,15 @@ if [ "${KVN_MAINTENANCE_LOCKED:-0}" != "1" ]; then
     export KVN_MAINTENANCE_LOCKED=1
 fi
 cd "$ROOT_DIR"
+UPDATE_TMP_ROOT="${KVN_UPDATE_TMP_ROOT:-$ROOT_DIR/.update-tmp}"
+if [ -L "$UPDATE_TMP_ROOT" ]; then
+    echo "[ОШИБКА] Каталог временных файлов не должен быть символической ссылкой: $UPDATE_TMP_ROOT" >&2
+    exit 1
+fi
+install -d -m 700 "$UPDATE_TMP_ROOT"
+export TMPDIR="$UPDATE_TMP_ROOT"
 if [ "${KVN_UPDATE_WORKER:-0}" != "1" ]; then
-    WORKER_DIR="$(mktemp -d)"
+    WORKER_DIR="$(mktemp -d "$UPDATE_TMP_ROOT/worker.XXXXXXXXXX")"
     trap 'rm -rf -- "$WORKER_DIR"' EXIT
     UPDATE_OFFLINE=0
     case "$(basename "$ARCHIVE")" in
@@ -174,7 +181,7 @@ if ! python3 "$INSPECTOR" "$ARCHIVE"; then
     exit 1
 fi
 
-TMP_DIR="$(mktemp -d)"
+TMP_DIR="$(mktemp -d "$UPDATE_TMP_ROOT/source.XXXXXXXXXX")"
 tar --extract --gzip --file "$ARCHIVE" --directory "$TMP_DIR" --no-same-owner --no-same-permissions
 SRC="$TMP_DIR/deploy"
 if [ ! -d "$SRC" ]; then

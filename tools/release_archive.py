@@ -270,7 +270,11 @@ def validate_release(path: Path) -> dict:
                     raise ReleaseValidationError(
                         f"upstream-образ без immutable digest: {item.get('ref', '')}"
                     )
-            with tempfile.TemporaryDirectory() as tmp:
+            # Release может быть значительно больше отдельного tmpfs /tmp.
+            # Проверяем его на том же filesystem, где уже лежит сам архив.
+            with tempfile.TemporaryDirectory(
+                dir=path.parent, prefix=".kvn-release-validate-",
+            ) as tmp:
                 source_path = Path(tmp) / SOURCE_NAME
                 images_path = Path(tmp) / IMAGES_NAME
                 for name, destination in ((SOURCE_NAME, source_path), (IMAGES_NAME, images_path)):
@@ -366,7 +370,9 @@ def verify_loaded_images(manifest_path: Path) -> dict[str, str]:
                 # containerd image store после docker load может вернуть descriptor ID
                 # и не восстановить RepoDigests. Экспорт одного tag даёт исходный
                 # config digest без большого временного архива всех семи образов.
-                saved_config_ids.update(_saved_image_config_ids([ref]))
+                saved_config_ids.update(
+                    _saved_image_config_ids([ref], temp_parent=manifest_path.parent)
+                )
             identity_matches = saved_config_ids.get(ref) == expected.get("id")
         if not identity_matches or platform != PLATFORM:
             raise ReleaseValidationError(f"загруженный образ не совпадает: {expected.get('ref', '')}")
@@ -374,9 +380,13 @@ def verify_loaded_images(manifest_path: Path) -> dict[str, str]:
     return verified
 
 
-def _saved_image_config_ids(refs: list[str]) -> dict[str, str]:
+def _saved_image_config_ids(
+    refs: list[str], *, temp_parent: Path | None = None,
+) -> dict[str, str]:
     """Получает config digests загруженных local images независимо от image store Docker."""
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(
+        dir=temp_parent, prefix=".kvn-image-verify-",
+    ) as tmp:
         archive_path = Path(tmp) / "loaded-local-images.tar"
         try:
             result = subprocess.run(

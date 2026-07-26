@@ -183,6 +183,19 @@ class ReleaseArchiveTests(unittest.TestCase):
         self.assertEqual(validated["platform"], "linux/amd64")
         self.assertEqual([item["ref"] for item in validated["images"]["items"]], list(EXPECTED_IMAGE_REFS))
 
+    def test_release_validation_uses_archive_filesystem_not_system_tmp(self):
+        create_release(self.release, "build-20260713", self.source, self.images, self.metadata)
+        temporary_directory = tempfile.TemporaryDirectory
+        with mock.patch(
+            "tools.release_archive.tempfile.TemporaryDirectory",
+            side_effect=temporary_directory,
+        ) as created:
+            validate_release(self.release)
+        created.assert_called_once_with(
+            dir=self.release.parent,
+            prefix=".kvn-release-validate-",
+        )
+
     def test_manifest_rejects_upstream_image_without_repo_digest(self):
         metadata = [dict(item) for item in self.metadata]
         for item in metadata:
@@ -264,7 +277,9 @@ class ReleaseArchiveTests(unittest.TestCase):
                 verify_loaded_images(manifest_path),
                 {"kvn-portal:local": config_id},
             )
-            saved.assert_called_once_with(["kvn-portal:local"])
+            saved.assert_called_once_with(
+                ["kvn-portal:local"], temp_parent=manifest_path.parent,
+            )
 
     def test_loaded_upstream_image_uses_saved_config_digest_without_repo_digests(self):
         config_id = "sha256:" + "a" * 64
@@ -295,7 +310,9 @@ class ReleaseArchiveTests(unittest.TestCase):
                 verify_loaded_images(manifest_path),
                 {"nginx:1.31.1-alpine": config_id},
             )
-            saved.assert_called_once_with(["nginx:1.31.1-alpine"])
+            saved.assert_called_once_with(
+                ["nginx:1.31.1-alpine"], temp_parent=manifest_path.parent,
+            )
 
     def test_validator_rejects_hash_platform_member_runtime_symlink_and_oversize(self):
         create_release(self.release, "build-20260713", self.source, self.images, self.metadata)
