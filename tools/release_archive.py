@@ -343,7 +343,7 @@ def verify_loaded_images(manifest_path: Path) -> dict[str, str]:
     if len(inspected) != len(items):
         raise ReleaseValidationError("docker inspect вернул неверное число образов")
     verified: dict[str, str] = {}
-    saved_config_ids: dict[str, str] | None = None
+    saved_config_ids: dict[str, str] = {}
     for expected, actual in zip(items, inspected, strict=True):
         platform = f"{actual.get('Os', '')}/{actual.get('Architecture', '')}"
         expected_digests = set(expected.get("repo_digests") or [])
@@ -360,15 +360,14 @@ def verify_loaded_images(manifest_path: Path) -> dict[str, str]:
             or bool(expected_digests & actual_digests)
         )
         identity_matches = digest_id and digest_provenance
-        if not identity_matches and str(expected.get("ref", "")).startswith("kvn-"):
-            if saved_config_ids is None:
-                local_refs = [
-                    item["ref"]
-                    for item in items
-                    if str(item.get("ref", "")).startswith("kvn-")
-                ]
-                saved_config_ids = _saved_image_config_ids(local_refs)
-            identity_matches = saved_config_ids.get(expected["ref"]) == expected.get("id")
+        if not identity_matches:
+            ref = expected["ref"]
+            if ref not in saved_config_ids:
+                # containerd image store после docker load может вернуть descriptor ID
+                # и не восстановить RepoDigests. Экспорт одного tag даёт исходный
+                # config digest без большого временного архива всех семи образов.
+                saved_config_ids.update(_saved_image_config_ids([ref]))
+            identity_matches = saved_config_ids.get(ref) == expected.get("id")
         if not identity_matches or platform != PLATFORM:
             raise ReleaseValidationError(f"загруженный образ не совпадает: {expected.get('ref', '')}")
         verified[expected["ref"]] = expected["id"]

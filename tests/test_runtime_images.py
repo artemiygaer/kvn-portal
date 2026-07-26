@@ -266,6 +266,37 @@ class ReleaseArchiveTests(unittest.TestCase):
             )
             saved.assert_called_once_with(["kvn-portal:local"])
 
+    def test_loaded_upstream_image_uses_saved_config_digest_without_repo_digests(self):
+        config_id = "sha256:" + "a" * 64
+        descriptor_id = "sha256:" + "b" * 64
+        manifest_path = self.root / "release-manifest.json"
+        manifest_path.write_text(json.dumps({
+            "images": {"items": [{
+                "ref": "nginx:1.31.1-alpine",
+                "id": config_id,
+                "platform": "linux/amd64",
+                "repo_digests": ["nginx@sha256:" + "c" * 64],
+            }]},
+        }), encoding="utf-8")
+        inspected = mock.Mock(returncode=0, stdout=json.dumps([{
+            "Id": descriptor_id,
+            "Os": "linux",
+            "Architecture": "amd64",
+            "RepoDigests": [],
+        }]), stderr="")
+        with (
+            mock.patch("tools.release_archive.subprocess.run", return_value=inspected),
+            mock.patch(
+                "tools.release_archive._saved_image_config_ids",
+                return_value={"nginx:1.31.1-alpine": config_id},
+            ) as saved,
+        ):
+            self.assertEqual(
+                verify_loaded_images(manifest_path),
+                {"nginx:1.31.1-alpine": config_id},
+            )
+            saved.assert_called_once_with(["nginx:1.31.1-alpine"])
+
     def test_validator_rejects_hash_platform_member_runtime_symlink_and_oversize(self):
         create_release(self.release, "build-20260713", self.source, self.images, self.metadata)
         cases = {
