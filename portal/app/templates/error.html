@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Ошибка {{ code }} — KVN VPN{% endblock %}
+{% block content %}
+<section class="panel auth" role="alert" aria-labelledby="error-title">
+  <span class="eyebrow">Ошибка {{ code }}</span>
+  <h1 id="error-title">{{ message }}</h1>
+  {% if g.session %}<p><a class="button" href="{{ public_url('dashboard') }}">Вернуться к сводке</a></p>{% else %}<p><a class="button" href="{{ public_url('login') }}">Вернуться ко входу</a></p>{% endif %}
+</section>
+{% endblock %}

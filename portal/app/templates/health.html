@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Диагностика — KVN VPN{% endblock %}
+{% block content %}
+<header class="topbar"><div><span class="eyebrow">Состояние</span><h1>Диагностика</h1></div><a class="button quiet" href="{{ public_url('dashboard') }}">На главную</a></header>
+<section class="panel">
+  <h2>Сервисы</h2>
+  <div class="grid">
+    {% for name,item in data.services.items() %}
+    <article class="metric-card"><div class="status-line"><strong>{{ name }}</strong><span class="status {{ 'ok' if item.active else 'down' }}">{{ 'работает' if item.active else 'остановлен' }}</span></div></article>
+    {% else %}
+    <p class="empty-state" role="status">Данные по сервисам временно недоступны.</p>
+    {% endfor %}
+  </div>
+</section>
+<section class="panel">
+  <h2>Проблемы</h2>
+  {% for item in data.diagnostics %}
+  <article class="diagnostic"><strong>{{ item.reason }}</strong><code>{{ item.command }}</code></article>
+  {% else %}
+  <p class="empty-state" role="status">Критических проблем не обнаружено.</p>
+  {% endfor %}
+</section>
+{% endblock %}

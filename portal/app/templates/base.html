@@ -1,0 +1,76 @@
+{% from "partials/navigation.html" import navigation_links, command_links with context %}
+<!doctype html>
+<html lang="{{ g.lang|default('ru') }}" data-theme="system">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>{% block title %}KVN VPN{% endblock %}</title>
+  <link rel="icon" href="{{ public_url('static', filename='icon.svg') }}" type="image/svg+xml">
+  {% block vendor_head %}{% endblock %}
+  <link rel="stylesheet" href="{{ public_url('static', filename='style.css') }}">
+  <script src="{{ public_url('static', filename='base.js') }}" defer></script>
+  {% block page_scripts %}{% endblock %}
+</head>
+<body>
+  <a class="skip-link" href="#content">{{ t('skip') }}</a>
+  <div class="app-layout{% if not g.session %} auth-layout{% endif %}">
+    {% if g.session %}
+    <aside class="sidebar" aria-label="Основная навигация">
+      <a class="brand" href="{{ public_url('dashboard') }}"><span class="brand-mark" aria-hidden="true">K</span><span>KVN VPN<small>{{ t('panel') }}</small></span></a>
+      <nav class="nav-list" aria-label="Разделы портала">
+        {{ navigation_links(navigation_items, true) }}
+        <details class="nav-advanced"{% if navigation_group_active(navigation_items, request.endpoint, primary=false) %} open{% endif %}>
+          <summary>{{ t('advanced') }}</summary>
+          <div>{{ navigation_links(navigation_items, false) }}</div>
+        </details>
+      </nav>
+      <form method="post" action="{{ public_url('logout') }}" class="logout-form">
+        <input type="hidden" name="csrf_token" value="{{ g.session.csrf_token }}">
+        <button class="secondary" type="submit">{{ t('logout') }}</button>
+      </form>
+    </aside>
+    {% endif %}
+    <div class="page-column">
+      <div class="utility-bar">
+        {% if g.session %}<div class="session-meta"><span>{{ t('login_ip') }}: <code>{{ g.session.ip }}</code></span><span>{{ t('build') }}: <code>{{ build_id }}</code></span></div>{% endif %}
+        <div class="utility-actions">
+          {% if g.session %}<button class="command-button secondary" type="button" data-command-open aria-haspopup="dialog" aria-controls="command-palette" title="{{ t('command_hint') }}">{{ t('command_palette') }} <kbd>Ctrl K</kbd></button>{% endif %}
+          <button class="icon-button secondary" type="button" data-theme-toggle aria-label="Переключить цветовую тему" title="Переключить цветовую тему">{{ t('theme') }}</button>
+        </div>
+      </div>
+      {% if g.session %}
+      <details class="mobile-menu" data-mobile-menu>
+        <summary aria-controls="mobile-nav">{{ t('menu') }}</summary>
+        <nav class="mobile-nav" id="mobile-nav" aria-label="Навигация на мобильном устройстве">
+          {{ navigation_links(navigation_items) }}
+          <form method="post" action="{{ public_url('logout') }}"><input type="hidden" name="csrf_token" value="{{ g.session.csrf_token }}"><button type="submit">{{ t('logout') }}</button></form>
+        </nav>
+      </details>
+      {% endif %}
+      <main id="content" class="shell{% block main_class %}{% endblock %}" tabindex="-1">{% block content %}{% endblock %}</main>
+    </div>
+  </div>
+  <dialog class="confirm-dialog" data-confirm-dialog aria-labelledby="confirm-title" aria-describedby="confirm-text">
+    <form method="dialog"><button class="dialog-close" value="cancel" aria-label="{{ t('cancel') }}">×</button><p class="eyebrow">{{ t('confirm_required') }}</p><h2 id="confirm-title">{{ t('confirm_action') }}</h2><p id="confirm-text" data-confirm-text></p><div class="dialog-actions"><button class="secondary" value="cancel" autofocus>{{ t('cancel') }}</button><button class="danger" value="confirm">{{ t('confirm') }}</button></div></form>
+  </dialog>
+  {% if g.session %}
+  <dialog class="command-dialog" id="command-palette" data-command-palette aria-labelledby="command-title">
+    <form method="dialog">
+      <button class="dialog-close" value="cancel" aria-label="{{ t('cancel') }}">×</button>
+      <p class="eyebrow">{{ t('quick_actions') }}</p>
+      <h2 id="command-title">{{ t('command_palette') }}</h2>
+      <label>{{ t('search_command') }}<input type="search" data-command-search autocomplete="off" placeholder="{{ t('search_command_placeholder') }}"></label>
+      <div class="command-results" data-command-results>
+        {{ command_links(navigation_items) }}
+        <a class="command-item" href="{{ public_url('user_create') }}" data-command-item data-keywords="new user create добавить пользователь">
+          <strong>{{ t('add_user') }}</strong><span>{{ t('create_user_hint') }}</span>
+        </a>
+      </div>
+      <p class="empty-state command-empty" data-command-empty hidden>{{ t('command_empty') }}</p>
+    </form>
+  </dialog>
+  {% endif %}
+  <div class="toast" role="status" aria-live="polite" aria-atomic="true" data-live-region></div>
+</body>
+</html>

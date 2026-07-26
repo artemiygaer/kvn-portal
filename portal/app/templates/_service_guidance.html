@@ -1,0 +1,57 @@
+{% macro service_help(entry, compact=false) %}
+{% if entry %}
+<div data-service-guide="{{ entry.key }}">
+  <p class="muted">{{ entry.purpose }}</p>
+  <details class="protocol-editor">
+    <summary>{{ 'Подробнее' if compact else 'Порты, клиенты и применение' }}</summary>
+    <div class="protocol-editor-body">
+      <dl class="network-facts">
+        <div><dt>Порты</dt><dd>{{ entry.ports|join(', ') }}</dd></div>
+        <div><dt>Клиенты</dt><dd>{{ entry.clients|join(', ') }}</dd></div>
+        <div><dt>Учётные данные</dt><dd>{{ entry.credential_scope }}</dd></div>
+        <div><dt>SNI</dt><dd>{{ entry.sni_scope }}</dd></div>
+      </dl>
+      <p><strong>Применение:</strong> {{ entry.apply_behavior }}</p>
+      <p><strong>Быстрая диагностика:</strong> <code>{{ entry.diagnostics }}</code></p>
+      {% if entry.limitations %}
+      <ul>
+        {% for limitation in entry.limitations %}<li>{{ limitation }}</li>{% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+  </details>
+</div>
+{% endif %}
+{% endmacro %}
+
+{% macro guidance_note(key, open=false) %}
+{% set topic = guidance_topics.get(key) %}
+{% if topic %}
+<details class="protocol-editor" data-guidance-topic="{{ key }}"{% if open %} open{% endif %}>
+  <summary>{{ topic.title }}</summary>
+  <div class="protocol-editor-body">
+    <p>{{ topic.summary }}</p>
+    <ul>{% for detail in topic.details %}<li>{{ detail }}</li>{% endfor %}</ul>
+  </div>
+</details>
+{% endif %}
+{% endmacro %}
+
+{% macro catalog_table(entries) %}
+<div class="table-wrap" data-service-catalog tabindex="0" aria-label="Каталог сервисов: таблица с горизонтальной прокруткой">
+  <table class="user-matrix service-catalog-table">
+    <thead><tr><th>Сервис</th><th>Назначение</th><th>Порты</th><th>Клиенты</th><th>Применение и диагностика</th></tr></thead>
+    <tbody>
+      {% for entry in entries %}
+      <tr data-catalog-entry="{{ entry.key }}">
+        <td><strong>{{ entry.label }}</strong><br><small class="muted"><code>{{ entry.key }}</code></small></td>
+        <td>{{ entry.purpose }}</td>
+        <td>{{ entry.ports|join(', ') }}</td>
+        <td>{{ entry.clients|join(', ') }}</td>
+        <td>{{ entry.apply_behavior }}<br><code>{{ entry.diagnostics }}</code></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endmacro %}

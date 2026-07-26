@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Обновление проекта — KVN VPN{% endblock %}
+{% block content %}
+<section class="panel" role="status" aria-labelledby="update-result-title">
+  <span class="eyebrow">ID операции: {{ result.correlation_id }}</span>
+  <h1 id="update-result-title">Обновление проекта</h1>
+  <p>{{ 'Обновление запущено. Портал может временно перезапуститься.' if result.ok else 'Обновление не удалось запустить.' }}</p>
+  <dl>
+    <dt>Архив</dt><dd><code>{{ result.archive }}</code></dd>
+    <dt>Режим</dt><dd><code>{{ result.mode }}</code></dd>
+    <dt>Тип архива</dt><dd><code>{{ result.archive_kind }}</code></dd>
+    {% if result.release_source %}<dt>Source SHA-256</dt><dd><code>{{ result.release_source.sha256 }}</code></dd>{% endif %}
+    {% if result.release_images %}<dt>Images SHA-256</dt><dd><code>{{ result.release_images.sha256 }}</code></dd>{% endif %}
+    <dt>Размер</dt><dd><code>{{ result.archive_size }} bytes</code></dd>
+    <dt>SHA-256</dt><dd><code>{{ result.archive_sha256 }}</code></dd>
+    <dt>Проверено файлов</dt><dd><code>{{ result.archive_members }}</code></dd>
+    <dt>Служба systemd</dt><dd><code>{{ result.unit }}</code></dd>
+    <dt>Журнал</dt><dd><code>{{ result.journal_command }}</code></dd>
+    <dt>Recovery</dt><dd><code>{{ result.recovery_command }}</code></dd>
+    <dt>Build до запуска</dt><dd><code>{{ build_before }}</code></dd>
+    <dt>Build после обновления</dt><dd>Проверьте в shell портала после завершения unit.</dd>
+  </dl>
+  {% if result.command and result.command.stderr %}<div class="notice notice-error" role="alert"><pre>{{ result.command.stderr }}</pre></div>{% endif %}
+  <div class="notice notice-warning">
+    <strong>Проверка после завершения</strong>
+    <ul>
+      <li><code>sudo {{ result.journal_command }}</code></li>
+      <li><code>{{ result.recovery_command }}</code></li>
+      <li><code>sudo python3 tools/kvnctl.py portal status</code></li>
+      <li><code>sudo python3 tools/kvnctl.py amneziawg verify</code></li>
+      <li><code>sudo python3 tools/kvnctl.py wireguard verify</code></li>
+      <li><code>sudo docker compose -f docker-compose.yml ps</code></li>
+    </ul>
+  </div>
+  <div class="actions"><a class="button" href="{{ public_url('settings_view') }}">К настройкам</a><a class="button secondary" href="{{ public_url('logs_view', service='agent') }}">Логи agent</a></div>
+</section>
+{% endblock %}

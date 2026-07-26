@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Результат настройки — KVN VPN{% endblock %}
+{% block content %}
+{% set apply=result.apply if result.apply else {} %}
+{% set outcome=apply.outcome|default('no-op' if not result.changed else 'applied') %}
+<section class="panel result-panel" role="status" aria-labelledby="protocol-result-title">
+  <div class="status-line"><span class="eyebrow">Xray</span><span class="status {{ 'down' if outcome == 'failed' else ('stale' if outcome == 'fallback' else 'ok') }}">{{ {'failed':'нужно повторить','fallback':'резервное применение','applied':'применено','no-op':'без изменений'}.get(outcome, outcome) }}</span></div>
+  <h1 id="protocol-result-title">{{ action }}</h1>
+  <p>{{ 'Desired state сохранён в users.json, но runtime требует reconcile.' if apply.reconcile_required else ('Изменение применено.' if result.changed else 'Значение уже было установлено.') }}</p>
+  {% if apply.warnings %}<div class="notice notice-warning" role="alert"><ul>{% for warning in apply.warnings %}<li>{{ warning }}</li>{% endfor %}</ul></div>{% endif %}
+  <div class="actions result-actions">
+    {% if apply.reconcile_required %}<form method="post" action="{{ public_url('reconcile_state') }}"><input type="hidden" name="csrf_token" value="{{ g.session.csrf_token }}"><button class="warning" type="submit">Повторить применение</button></form>{% endif %}
+    <a class="button secondary" href="{{ public_url('network_view') }}">Вернуться к сети</a>
+  </div>
+</section>
+{% endblock %}

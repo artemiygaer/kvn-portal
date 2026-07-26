@@ -1,0 +1,68 @@
+{% from "_service_guidance.html" import guidance_note with context %}
+{% macro export_trigger(user_name, settings, compact=false) -%}
+{% set mode = settings.get('address_mode', 'server') %}
+<a
+  class="button {{ 'secondary compact' if compact else '' }}"
+  href="{{ public_url('user_export_zip', name=user_name, address_mode=mode) }}"
+  data-user-export-trigger
+  data-user-name="{{ user_name }}"
+  data-export-zip-url="{{ public_url('user_export_zip', name=user_name) }}"
+  data-export-text-url="{{ public_url('user_export_text', name=user_name) }}"
+>Экспорт</a>
+{% endmacro %}
+
+{% macro export_dialog(settings) -%}
+{% set mode = settings.get('address_mode', 'server') %}
+{% set public_ip = settings.get('public_ip', '') %}
+{% set subscription = settings.get('subscription', {}) %}
+<dialog
+  class="confirm-dialog"
+  data-user-export-dialog
+  data-default-mode="{{ mode }}"
+  data-include-alternate="{{ 'true' if settings.get('include_alternate') else 'false' }}"
+  aria-labelledby="user-export-title"
+  aria-describedby="user-export-help user-export-status"
+>
+  <form method="dialog">
+    <button class="dialog-close" value="cancel" aria-label="Закрыть экспорт">×</button>
+    <span class="eyebrow">Безопасная передача</span>
+    <h2 id="user-export-title">Экспорт пользователя <span data-export-user></span></h2>
+    <p class="muted" id="user-export-help">Выберите endpoint только для этого скачивания. Разовый выбор не меняет настройки сервера.</p>
+
+    <fieldset class="check-grid">
+      <legend>Адрес подключения</legend>
+      <label>
+        <input type="radio" name="export-address-mode" value="server" data-export-mode{% if mode == 'server' %} checked{% endif %}>
+        Домен / основной адрес — <code>{{ settings.get('server_address', 'не задан') }}</code>
+      </label>
+      <label>
+        <input type="radio" name="export-address-mode" value="public-ip" data-export-mode{% if mode == 'public-ip' %} checked{% endif %}{% if not public_ip %} disabled{% endif %}>
+        Публичный IP — <code>{{ public_ip or 'сначала задайте в настройках' }}</code>
+      </label>
+    </fieldset>
+    {{ guidance_note('domain-ip') }}
+
+    {% if public_ip %}
+    <div class="notice {{ 'notice-success' if subscription.get('ready') else 'notice-warning' }}" data-export-ip-readiness>
+      <strong>{{ 'IP-подписки готовы' if subscription.get('ready') else 'IP-пакет готов, HTTPS-подписки ограничены' }}</strong><br>
+      Route :{{ subscription.get('port', 2096) }} — {{ 'готов' if subscription.get('route_ready') else 'не готов' }};
+      IP SAN — {{ 'готов' if subscription.get('certificate_ready') else 'не найден' }}.
+      {% if not subscription.get('certificate_ready') %}<a href="{{ public_url('certificates_view') }}">Проверить сертификат</a>.{% endif %}
+    </div>
+    {% else %}
+    <div class="notice notice-warning">
+      Для IP-пакета сначала укажите публичный IPv4 в <a href="{{ public_url('settings_view') }}#client-export">настройках экспорта</a>.
+    </div>
+    {% endif %}
+
+    <p class="form-status" id="user-export-status" role="status" aria-live="polite" data-export-status></p>
+    <div class="dialog-actions">
+      <button type="button" class="secondary" data-export-copy>Скопировать текст</button>
+      <a class="button secondary" href="#" data-export-text-download download>Скачать send.txt</a>
+      <a class="button" href="#" data-export-zip download>ZIP для Telegram</a>
+    </div>
+    <a class="button quiet" href="#" data-export-alternate hidden download>Скачать резервный ZIP</a>
+    <p class="form-hint">Конфиги загружаются по авторизованному no-store запросу. Их содержимое не помещается в HTML, URL или журнал аудита.</p>
+  </form>
+</dialog>
+{% endmacro %}

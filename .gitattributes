@@ -1,0 +1,15 @@
+* text=auto
+
+*.sh text eol=lf
+*.py text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+Dockerfile text eol=lf
+
+*.whl binary
+*.png binary
+*.ico binary
+*.tar binary
+*.gz binary

@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% from "_service_guidance.html" import catalog_table, guidance_note with context %}
+{% block title %}{{ t('project') }} — KVN VPN{% endblock %}
+{% macro command_block(id, title, body) %}
+<article class="command-block">
+  <div class="status-line"><h3>{{ title }}</h3><button type="button" class="secondary compact" data-copy-target="{{ id }}">Скопировать</button></div>
+  <pre><code id="{{ id }}">{{ body }}</code></pre>
+</article>
+{% endmacro %}
+{% block content %}
+<header class="topbar">
+  <div>
+    <span class="eyebrow">KVN VPN</span>
+    <h1>{{ t('project') }}</h1>
+    <p class="muted">Мультипротокольный VPN-стек для Debian 12/13 с порталом, host-agent и Docker Compose сервисами.</p>
+  </div>
+  <a class="button quiet" href="{{ public_url('dashboard') }}">{{ t('go_home') }}</a>
+</header>
+
+<section class="panel">
+  <div class="section-heading"><div><h2>Архитектура</h2><p class="muted">`users.json` остаётся единственным source of truth.</p></div></div>
+  <dl class="fact-grid">
+    <div><dt>Портал</dt><dd>Flask UI, доступ только через HTTPS, login/password и приватный route.</dd></div>
+    <div><dt>Host-agent</dt><dd>Привилегированные операции выполняются allowlisted RPC по Unix socket.</dd></div>
+    <div><dt>Docker Compose</dt><dd>nginx, xray, hysteria, telemt, mtg, ocserv и портал.</dd></div>
+    <div><dt>Host-службы</dt><dd>AmneziaWG `awg0`, WireGuard `wg0`, portal-agent.</dd></div>
+  </dl>
+</section>
+
+<section class="panel" id="service-catalog">
+  <div class="section-heading">
+    <div>
+      <h2>Каталог сервисов</h2>
+      <p class="muted">Девять пользовательских систем и операторские компоненты используют одну справку во всём портале.</p>
+    </div>
+  </div>
+  {{ catalog_table(service_catalog.values()) }}
+  {{ guidance_note('wireguard-pair') }}
+  {{ guidance_note('happ-karing') }}
+  {{ guidance_note('reality-sni') }}
+</section>
+
+<section class="panel">
+  <div class="section-heading"><div><h2>Порты и пути</h2><p class="muted">Проверяйте firewall host и cloud provider одновременно.</p></div></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Зона</th><th>Значение</th></tr></thead>
+    <tbody>
+      <tr><td>Порты</td><td><code>443/tcp</code>, <code>443/udp</code>, <code>4443/udp</code>, <code>51820/udp</code>, <code>51821/udp</code>, <code>2096/tcp</code>, <code>2443-2448/tcp</code>, <code>80/tcp</code></td></tr>
+      <tr><td>Source</td><td><code>tools/</code>, <code>portal/</code>, <code>setup.sh</code>, <code>update.sh</code>, <code>docker-compose.yml</code></td></tr>
+      <tr><td>Runtime</td><td><code>users.json</code>, <code>clients/</code>, <code>portal-data/</code>, <code>site-certs/</code>, <code>certs/</code>, <code>/backup</code></td></tr>
+      <tr><td>Generated</td><td><code>nginx/nginx.conf</code>, <code>xray/config.json</code>, <code>hy2/config.yaml</code>, <code>telemt/config.toml</code>, <code>amneziawg/awg0.conf</code>, <code>wireguard/wg0.conf</code></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+{% set cmd_setup %}sudo ./setup.sh{% endset %}
+{% set cmd_update %}sudo ./update.sh ./kvn-vpn-release-linux-amd64.tar.gz{% endset %}
+{% set cmd_bootstrap %}sudo ./update.sh --bootstrap-only ./kvn-vpn-deploy.tar.gz
+sudo ./update.sh ./kvn-vpn-release-linux-amd64.tar.gz{% endset %}
+{% set cmd_github %}sudo python3 tools/kvnctl.py updates configure --enable true --channel stable --asset-preference release
+sudo python3 tools/kvnctl.py updates status{% endset %}
+{% set cmd_apply %}python3 tools/kvnctl.py render
+sudo ./amneziawg/sync-host-service.sh
+sudo ./wireguard/sync-host-service.sh
+sudo docker compose -f docker-compose.yml up -d --build --remove-orphans{% endset %}
+{% set cmd_host_apply %}# То же из портала: Сервисы → amneziawg/wireguard → Применить конфиг
+sudo ./amneziawg/sync-host-service.sh
+sudo ./wireguard/sync-host-service.sh{% endset %}
+{% set cmd_backup %}sudo ./tools/project-backup.sh
+sudo ls -lh /backup/kvn-vpn-backup-*.tar{% endset %}
+{% set cmd_restore %}sudo ./tools/restore-backup.sh /backup/kvn-vpn-backup-YYYYMMDD-HHMMSS-host.tar /opt/kvn-vpn
+cd /opt/kvn-vpn
+sudo ./setup.sh{% endset %}
+{% set cmd_diag %}python3 tools/kvnctl.py portal status
+python3 tools/kvnctl.py amneziawg verify
+python3 tools/kvnctl.py wireguard verify
+sudo docker compose -f docker-compose.yml ps
+sudo journalctl -u kvn-portal-agent.service -n 200 --no-pager{% endset %}
+{% set cmd_prod %}python3 -m py_compile tools/kvnctl.py
+python3 -m compileall -q portal
+python3 -m unittest discover -s tests -v
+bash -n setup.sh update.sh tools/*.sh amneziawg/*.sh wireguard/*.sh ocserv/*.sh portal/*.sh
+docker compose -f docker-compose.yml config --quiet
+bash tools/build-deploy.sh{% endset %}
+
+<section class="panel">
+  <div class="section-heading"><div><h2>Команды</h2><p class="muted">Команды не содержат секретов и рассчитаны на выполнение из корня проекта.</p></div></div>
+  <div class="command-list">
+    {{ command_block('cmd-setup', 'Первичная установка', cmd_setup) }}
+    {{ command_block('cmd-update', 'Ручное обновление full release', cmd_update) }}
+    {{ command_block('cmd-bootstrap', 'Восстановление старого updater', cmd_bootstrap) }}
+    {{ command_block('cmd-github', 'GitHub Releases без token', cmd_github) }}
+    {{ command_block('cmd-apply', 'Render и применение состояния', cmd_apply) }}
+    {{ command_block('cmd-host-apply', 'Принудительное применение host VPN', cmd_host_apply) }}
+    {{ command_block('cmd-backup', 'Создание бэкапа', cmd_backup) }}
+    {{ command_block('cmd-restore', 'Восстановление на другом сервере', cmd_restore) }}
+    {{ command_block('cmd-diagnostics', 'Диагностика', cmd_diag) }}
+    {{ command_block('cmd-prod-check', 'Проверка перед продом', cmd_prod) }}
+  </div>
+</section>
+
+<section class="panel">
+  <div class="section-heading"><div><h2>Обновление и экспорт</h2><p class="muted">Два источника используют один проверяемый updater.</p></div></div>
+  <ul class="plain-list">
+    <li>Портал: «Настройки» → ручная загрузка или GitHub → проверка → состояние ready → отдельный запуск с root-паролем.</li>
+    <li>Private GitHub token задаётся только через серверный <code>getpass</code> и хранится root-only; не вставляйте его в портал или чат.</li>
+    <li>Экспорт пользователя: скачайте «ZIP для Telegram» и прикрепите к сообщению вручную либо скопируйте <code>send.txt</code>. Прямой отправки через Telegram API нет.</li>
+    <li>IP-экспорт меняет endpoint, но сохраняет SNI и certificate identity; IP-подписке нужен точный IP SAN.</li>
+  </ul>
+</section>
+{% endblock %}

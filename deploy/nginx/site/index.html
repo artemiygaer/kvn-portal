@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Сервисная страница</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      line-height: 1.55;
+      color: #1f2933;
+      background: #f6f7f9;
+    }
+    main {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 56px 20px;
+    }
+    h1 {
+      margin: 0 0 14px;
+      font-size: 30px;
+      font-weight: 700;
+    }
+    p { margin: 0 0 16px; }
+    section {
+      margin-top: 28px;
+      padding-top: 22px;
+      border-top: 1px solid #d8dde5;
+    }
+    ul { padding-left: 20px; }
+    li { margin: 8px 0; }
+    small { color: #64748b; }
+    @media (prefers-color-scheme: dark) {
+      body { color: #d9e2ec; background: #111827; }
+      section { border-color: #334155; }
+      small { color: #94a3b8; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Сервисная страница</h1>
+    <p>Этот узел используется для служебных сетевых задач и проверки доступности HTTPS.</p>
+    <section>
+      <h2>Статус</h2>
+      <ul>
+        <li>Узел: Сервисная страница.</li>
+        <li>HTTPS доступен.</li>
+        <li>Адрес: будет задан при setup.</li>
+        <li>Страница обновляется автоматически при деплое.</li>
+      </ul>
+    </section>
+    <section>
+      <small>Если вы попали сюда случайно, дополнительных действий не требуется.</small>
+    </section>
+  </main>
+</body>
+</html>

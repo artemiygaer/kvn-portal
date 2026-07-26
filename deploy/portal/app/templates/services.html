@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% from "_service_guidance.html" import service_help with context %}
+{% block title %}{{ t('services') }} — KVN VPN{% endblock %}
+{% block page_scripts %}
+<script src="{{ public_url('static', filename='services.js') }}" defer></script>
+<script src="{{ public_url('static', filename='service-logs.js') }}" defer></script>
+{% endblock %}
+{% block content %}
+<header class="topbar">
+  <div><span class="eyebrow">{{ t('panel') }}</span><h1>{{ t('services') }}</h1><p class="muted">{{ t('service_management_hint') }}</p></div>
+  <a class="button quiet" href="{{ public_url('dashboard') }}">{{ t('go_home') }}</a>
+</header>
+<section class="panel service-toolbar" aria-label="{{ t('filter_services') }}">
+  <label>{{ t('service_search') }}<input type="search" data-service-filter placeholder="xray, wireguard, nginx"></label>
+  <label>{{ t('service_state') }}<select data-service-status><option value="all">{{ t('all') }}</option><option value="running">{{ t('running') }}</option><option value="stopped">{{ t('stopped') }}</option></select></label>
+  <label>{{ t('service_kind') }}<select data-service-kind><option value="all">{{ t('all') }}</option><option value="host">{{ t('host_service') }}</option><option value="docker">{{ t('docker_service') }}</option></select></label>
+</section>
+<p class="muted filter-results" data-service-count role="status" aria-live="polite"></p>
+<div class="service-grid" data-service-grid>
+  {% set labels={'start':t('start'),'reload':t('reload'),'restart':t('restart'),'stop':t('stop'),'enable':t('enable'),'disable':t('disable'),'apply':t('apply')} %}
+  {% for item in services %}
+  {% set guide = service_guide(item.service) %}
+  {% set enabled = item.enabled if item.enabled is defined else true %}
+  {% set kind = 'host' if guide and guide.host_service else 'docker' %}
+  <article class="panel service-card" data-service-card data-service-name="{{ item.service|lower }} {{ (guide.label if guide else '')|lower }} {{ (guide.purpose if guide else '')|lower }}" data-service-active="{{ 'running' if item.active else 'stopped' }}" data-service-kind="{{ kind }}">
+    <div class="status-line">
+      <h2>{{ guide.label if guide else item.service }} <small class="muted"><code>{{ item.service }}</code></small></h2>
+      <div class="service-card-meta">
+        <span class="service-tag">{{ t('host_service') if kind == 'host' else t('docker_service') }}</span>
+        <span class="status {{ 'ok' if item.active else 'down' }}">{{ t('running') if item.active else t('stopped') }}</span>
+      </div>
+    </div>
+    <dl class="fact-grid">
+      <div><dt>Runtime</dt><dd>{{ t('running') if item.active else t('stopped') }}</dd></div>
+      <div><dt>Постоянное состояние</dt><dd>{{ 'включён' if enabled else 'отключён' }}</dd></div>
+    </dl>
+    {{ service_help(guide) }}
+    <div class="action-group service-actions">
+      {% for action in service_actions[item.service] %}
+      {% if (item.active and action != 'start') or ((not item.active) and action in ['start','enable','disable','apply']) %}
+      <form method="post" action="{{ public_url('service_action', service=item.service) }}"{% if action in ['stop','restart','disable','apply'] %} data-confirm="{{ labels[action] }}" data-object="{{ item.service }}"{% endif %}>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="action" value="{{ action }}">
+        {% if action in ['stop','restart','disable','apply'] %}<input type="hidden" name="confirmation_token" value="{{ confirmations[item.service ~ ':' ~ action] }}">{% endif %}
+        <button type="submit" class="{% if action in ['stop','disable'] %}danger{% elif action in ['restart','reload','apply'] %}warning{% elif action in ['start','enable'] %}success{% else %}secondary{% endif %}">{{ labels[action] }}</button>
+      </form>
+      {% endif %}
+      {% endfor %}
+      <button class="quiet compact" type="button" data-inline-log-toggle aria-expanded="false" aria-controls="service-log-{{ loop.index }}">Логи</button>
+    </div>
+    <section class="inline-log-panel" id="service-log-{{ loop.index }}" data-inline-log-panel data-inline-log-endpoint="{{ public_url('logs_json', service=item.service, tail=120, since=30) }}" hidden>
+      <div class="inline-log-toolbar">
+        <strong>Последние события</strong>
+        <div class="actions">
+          <button class="secondary compact" type="button" data-inline-log-refresh>Обновить</button>
+          <a href="{{ public_url('logs_view', service=item.service, tail=200, since=60) }}">Полный журнал</a>
+        </div>
+      </div>
+      <p class="form-status" role="status" aria-live="polite" data-inline-log-status>Журнал ещё не запрашивался.</p>
+      <pre class="logs inline-service-log wrap" tabindex="0" data-inline-log-view>Раскройте панель, чтобы получить ограниченную выборку.</pre>
+    </section>
+  </article>
+  {% else %}
+  <section class="panel empty-state" role="status">Сервисы не найдены. Проверьте docker compose profiles и host-agent.</section>
+  {% endfor %}
+  <section class="panel empty-state" role="status" data-service-empty hidden>{{ t('service_filters_empty') }}</section>
+</div>
+{% endblock %}

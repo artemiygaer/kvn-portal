@@ -1,0 +1,119 @@
+name: Build release
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_id:
+        description: "Build ID: YYYYMMDD-releaseN"
+        required: true
+        type: string
+      tag:
+        description: "Production tag vX.Y.Z; нужен только при publish=true"
+        required: false
+        type: string
+      publish:
+        description: "Создать production GitHub Release"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: release-${{ inputs.build_id }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Проверка source
+        run: |
+          python3 tools/source_safety.py --mode tracked
+          python3 tools/docs_check.py
+          python3 -m unittest discover -s tests -v
+          bash -n setup.sh update.sh tools/*.sh amneziawg/*.sh wireguard/*.sh ocserv/*.sh portal/*.sh
+          docker compose -f docker-compose.yml config --quiet
+          docker build --target test -t kvn-portal:test portal
+      - name: Сборка linux/amd64 release
+        env:
+          KVN_BUILD_ID: ${{ inputs.build_id }}
+        run: |
+          bash tools/build-release.sh
+          bash tools/build-deploy.sh
+      - name: Проверка и manifest публикации
+        run: |
+          python3 -m tools.release_archive inspect kvn-vpn-release-linux-amd64.tar.gz
+          python3 tools/deploy_archive.py kvn-vpn-deploy.tar.gz
+          python3 tools/publication_manifest.py \
+            --release kvn-vpn-release-linux-amd64.tar.gz \
+            --deploy kvn-vpn-deploy.tar.gz \
+            --output publication-manifest.json
+          sha256sum \
+            kvn-vpn-release-linux-amd64.tar.gz \
+            kvn-vpn-deploy.tar.gz \
+            publication-manifest.json > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kvn-release-${{ inputs.build_id }}
+          path: |
+            kvn-vpn-release-linux-amd64.tar.gz
+            kvn-vpn-deploy.tar.gz
+            publication-manifest.json
+            SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+      - name: Attestation
+        if: ${{ inputs.publish }}
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            kvn-vpn-release-linux-amd64.tar.gz
+            kvn-vpn-deploy.tar.gz
+      - name: Проверка production tag
+        if: ${{ inputs.publish }}
+        env:
+          TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "$TAG" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "publish=true требует tag вида vX.Y.Z" >&2; exit 1 ;;
+          esac
+          ! gh release view "$TAG" >/dev/null 2>&1
+      - name: Публикация проверенного draft
+        if: ${{ inputs.publish }}
+        env:
+          TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" \
+            --draft \
+            --target "$GITHUB_SHA" \
+            --generate-notes
+          trap 'gh release delete "$TAG" --yes >/dev/null 2>&1 || true' ERR
+          gh release upload "$TAG" \
+            kvn-vpn-release-linux-amd64.tar.gz \
+            kvn-vpn-deploy.tar.gz \
+            publication-manifest.json \
+            SHA256SUMS
+          expected="$(printf '%s\n' \
+            kvn-vpn-release-linux-amd64.tar.gz \
+            kvn-vpn-deploy.tar.gz \
+            publication-manifest.json \
+            SHA256SUMS | sort)"
+          actual="$(gh release view "$TAG" --json assets --jq '.assets[].name' | sort)"
+          if [ "$actual" != "$expected" ]; then
+            echo "Состав draft Release не совпадает с publication contract" >&2
+            exit 1
+          fi
+          gh release edit "$TAG" --draft=false
+          trap - ERR

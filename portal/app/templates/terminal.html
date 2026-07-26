@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}{{ t('terminal') }} — KVN VPN{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div><p class="eyebrow">Host-agent</p><h1>{{ t('terminal_title') }}</h1><p class="muted">{{ t('terminal_hint') }}</p></div>
+  <div class="actions">
+    <a class="button quiet" href="{{ public_url('root_shell_view') }}">{{ t('root_shell_nav') }}</a>
+    <a class="button quiet" href="{{ public_url('logs_view') }}">{{ t('logs') }}</a>
+  </div>
+</header>
+
+<section class="notice notice-warning" role="status">
+  {{ t('terminal_intro') }}
+</section>
+
+{% if result %}
+<section class="panel terminal-result" role="status" aria-labelledby="terminal-result-title">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">{{ t('terminal_output') }}</p>
+      <h2 id="terminal-result-title">{{ result.title }}</h2>
+    </div>
+    <span class="status {{ 'ok' if result.ok else 'down' }}">rc={{ result.command.returncode if result.command else 'n/a' }}</span>
+  </div>
+  <dl class="fact-grid">
+    <div><dt>{{ t('terminal_command') }}</dt><dd><code>{{ result.id }}</code></dd></div>
+    <div><dt>{{ 'Correlation' if g.lang == 'en' else 'ID операции' }}</dt><dd><code>{{ result.correlation_id }}</code></dd></div>
+    <div><dt>{{ 'Duration' if g.lang == 'en' else 'Длительность' }}</dt><dd>{{ result.command.duration_ms if result.command else 0 }} ms</dd></div>
+    <div><dt>{{ 'Group' if g.lang == 'en' else 'Группа' }}</dt><dd>{{ result.group }}</dd></div>
+  </dl>
+  {% set output = (result.command.stdout if result.command else '') or (result.command.stderr if result.command else '') %}
+  <div class="log-tools">
+    <button class="secondary" type="button" data-copy-target="terminal-output">Копировать вывод</button>
+  </div>
+  <pre class="logs wrap terminal-output" id="terminal-output" tabindex="0">{{ output or t('terminal_no_output') }}</pre>
+  {% if result.command and result.command.stdout and result.command.stderr %}
+  <h3>stderr</h3>
+  <pre class="logs wrap terminal-output" tabindex="0">{{ result.command.stderr }}</pre>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if groups %}
+<div class="terminal-grid">
+  {% for group, commands in groups.items() %}
+  <section class="panel terminal-group">
+    <h2>{{ group }}</h2>
+    <div class="terminal-command-list">
+      {% for command in commands %}
+      <article class="terminal-command">
+        <div>
+          <h3>{{ command.title }}</h3>
+          <p class="muted">{{ command.description }}</p>
+        </div>
+        <form method="post"{% if command.requires_confirmation %} data-confirm="{{ t('terminal_confirm') }}" data-object="{{ command.title }}"{% endif %}>
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="command" value="{{ command.id }}">
+          {% if command.requires_confirmation %}<input type="hidden" name="confirmation_token" value="{{ confirmations[command.id] }}">{% endif %}
+          <button type="submit" class="{{ 'warning' if command.requires_confirmation else 'secondary' }}">{{ t('terminal_run') }}</button>
+        </form>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+</div>
+{% else %}
+<section class="panel empty-state" role="status">{{ t('terminal_empty') }}</section>
+{% endif %}
+{% endblock %}

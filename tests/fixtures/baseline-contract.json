@@ -1,0 +1,58 @@
+{
+  "client_export": {
+    "connection_host": "vpn.example.test",
+    "protocols": {
+      "tls": {"scheme": "vless", "port": 443, "security": "tls", "sni": "tls.example.test"},
+      "reality-xhttp": {"scheme": "vless", "port": 443, "security": "reality", "type": "xhttp", "sni": "xhttp.example.test"},
+      "reality-tcp": {"scheme": "vless", "port": 443, "security": "reality", "type": "tcp", "sni": "tcp.example.test"},
+      "hysteria": {"scheme": "hysteria2", "port": 443, "sni": "hy.example.test"},
+      "telemt": {"scheme": "tg", "port": 443},
+      "mtg": {"scheme": "tg", "port": 443},
+      "amneziawg": {"port": 51820},
+      "wireguard": {"port": 51821},
+      "ocserv": {"scheme": "https", "port": 443, "host": "oc.example.test"}
+    },
+    "profiles": {
+      "happ": "https://vpn.example.test:2096/happ/0123456789abcdef0123456789abcdef",
+      "karing": "https://vpn.example.test:2096/karing/0123456789abcdef0123456789abcdef",
+      "karing-wg": "https://vpn.example.test:2096/karing-wg/0123456789abcdef0123456789abcdef",
+      "legacy_order": ["hysteria2", "vless", "vless", "vless"]
+    }
+  },
+  "cli_commands": [
+    "add-user", "amneziawg", "edit-user", "export-links", "export-user", "interactive",
+    "letsencrypt", "links", "list-users", "mtproto", "portal", "reconcile",
+    "remove-user", "render", "service-plan", "show", "sni-routes", "updates", "wireguard"
+  ],
+  "portal_route_endpoints": [
+    "audit_export", "audit_view", "backup_download", "backups_view",
+    "certificate_action", "certificates_view", "dashboard", "dashboard_json",
+    "health_view", "hysteria_auth", "internal_health", "login", "logout",
+    "logs_json", "logs_view", "metrics_history_json", "network_json",
+    "network_protocol_apply", "network_sni_apply", "network_view", "project_info",
+    "project_release_check", "project_release_prepare",
+    "project_update_discard", "project_update_prepare", "project_update_start",
+    "reconcile_state", "root_shell_view", "service_action", "services_list",
+    "settings_view", "terminal_shell_close", "terminal_shell_open",
+    "terminal_shell_read", "terminal_shell_resize", "terminal_shell_write",
+    "terminal_view", "user_action", "user_activity_json", "user_create",
+    "user_detail", "user_download", "user_edit", "user_export_text",
+    "user_export_zip", "user_file_preview",
+    "user_inline_file", "user_toggle", "users_list"
+  ],
+  "rpc_methods": [
+    "amneziawg.status", "backup.list", "certificate.action", "certificates.status",
+    "client.export.settings", "client.export.update", "dashboard.snapshot",
+    "domain.advice", "health.host", "health.summary",
+    "logs.tail", "maintenance.commands", "maintenance.run", "metrics.current",
+    "metrics.history", "mtproto.apply", "mtproto.diagnose", "mtproto.status",
+    "network.topology", "ping", "portal.credentials", "portal.performance",
+    "portal.performance.update", "project.backup", "project.release.check",
+    "project.release.prepare", "project.release.settings", "project.update", "project.update.inspect",
+    "protocol.apply", "protocol.stats", "service.action",
+    "service.status", "shell.close", "shell.open", "shell.read", "shell.resize",
+    "shell.write", "sni.apply", "sni.diagnose", "sni.routes", "state.apply",
+    "state.reconcile", "state.user", "state.users", "stats.containers",
+    "user.activity", "user.export", "user.file"
+  ]
+}

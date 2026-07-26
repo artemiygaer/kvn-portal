@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{{ t('root_shell_nav') }} — KVN VPN{% endblock %}
+{% block main_class %} shell-wide shell-console{% endblock %}
+{% block vendor_head %}
+  <link rel="stylesheet" href="{{ public_url('static', filename='vendor/xterm/xterm.css') }}">
+  <script src="{{ public_url('static', filename='vendor/xterm/xterm.js') }}" defer></script>
+  <script src="{{ public_url('static', filename='vendor/xterm/addon-fit.js') }}" defer></script>
+{% endblock %}
+{% block page_scripts %}<script src="{{ public_url('static', filename='root-shell.js') }}" defer></script>{% endblock %}
+{% block content %}
+<header class="page-header shell-console-header">
+  <div><p class="eyebrow">PTY</p><h1>{{ t('root_shell_nav') }}</h1><p class="muted">{{ t('root_shell_hint') }}</p></div>
+  <a class="button quiet" href="{{ public_url('terminal_view') }}">{{ t('terminal') }}</a>
+</header>
+
+{% include "root_shell_panel.html" %}
+{% endblock %}

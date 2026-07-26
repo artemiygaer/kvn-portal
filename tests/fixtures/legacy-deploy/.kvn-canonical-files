@@ -1,0 +1,6 @@
+docker-compose.yml
+setup.sh
+update.sh
+tools/kvnctl.py
+portal/Dockerfile
+portal/app/__init__.py

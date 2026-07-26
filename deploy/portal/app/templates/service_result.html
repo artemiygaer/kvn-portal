@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Результат — KVN VPN{% endblock %}
+{% block content %}
+{% set action_labels={'start':'запуск','stop':'остановка','restart':'перезапуск','reload':'перечитывание','enable':'постоянное включение','disable':'постоянное отключение','apply':'применение конфига'} %}
+<section class="panel" role="status" aria-labelledby="service-result-title">
+  <span class="eyebrow">ID операции: {{ result.correlation_id }}</span>
+  <div class="status-line">
+    <h1 id="service-result-title">{{ result.service }}: {{ action_labels.get(result.action, 'операция') }}</h1>
+    <span class="status {{ 'ok' if result.ok else 'down' }}">{{ 'выполнено' if result.ok else 'ошибка' }}</span>
+  </div>
+  <p>{{ 'Операция выполнена.' if result.ok else 'Операция не завершена или проверка состояния не пройдена.' }}</p>
+  {% if result.warning %}<div class="alert" role="alert">{{ result.warning }}</div>{% endif %}
+  <dl class="fact-grid">
+    <div><dt>До</dt><dd>{{ 'работал' if result.before.active else 'остановлен' }}</dd></div>
+    <div><dt>После</dt><dd>{{ 'работает' if result.after.active else 'остановлен' }}</dd></div>
+    <div><dt>Проверка</dt><dd>{{ 'успешно' if result.health.ok else 'ошибка' }}</dd></div>
+    <div><dt>Время</dt><dd>{{ result.duration_ms }} мс</dd></div>
+  </dl>
+  {% if result.fallback %}<div class="notice notice-warning"><strong>Использован fallback.</strong> Сервис был перезапущен после неуспешного reload.</div>{% endif %}
+  {% if result.apply and result.apply.fallbacks %}<div class="notice notice-warning"><strong>Использован безопасный резервный режим.</strong><ul>{% for item in result.apply.fallbacks %}<li>{{ item }}</li>{% endfor %}</ul></div>{% endif %}
+  {% if result.apply and result.apply.warnings %}<div class="notice notice-error" role="alert"><strong>Конфигурация применена не полностью.</strong><ul>{% for warning in result.apply.warnings %}<li>{{ warning }}</li>{% endfor %}</ul></div>{% endif %}
+  <div class="actions"><a class="button" href="{{ public_url('services_list') }}">К сервисам</a><a class="button secondary" href="{{ public_url('logs_view', service=result.service) }}">Логи сервиса</a></div>
+</section>
+{% endblock %}

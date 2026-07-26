@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Бэкап проекта — KVN VPN{% endblock %}
+{% block content %}
+<section class="panel" role="status" aria-labelledby="backup-result-title">
+  <span class="eyebrow">ID операции: {{ result.correlation_id }}</span>
+  <h1 id="backup-result-title">Бэкап проекта</h1>
+  <p>{{ 'Создание бэкапа запущено.' if result.ok else 'Создание бэкапа не удалось запустить.' }}</p>
+  <dl>
+    <dt>Каталог</dt><dd><code>{{ result.backup_dir }}</code></dd>
+    <dt>Служба systemd</dt><dd><code>{{ result.unit }}</code></dd>
+    <dt>Журнал</dt><dd><code>{{ result.journal_command }}</code></dd>
+  </dl>
+  {% if result.command and result.command.stderr %}<div class="notice notice-error" role="alert"><pre>{{ result.command.stderr }}</pre></div>{% endif %}
+  <div class="notice notice-warning">
+    <strong>Проверка после завершения</strong>
+    <ul>
+      <li><code>sudo {{ result.journal_command }}</code></li>
+      <li><code>sudo ls -lh /backup/kvn-vpn-backup-*.tar</code></li>
+      <li><code>sudo ./tools/restore-backup.sh /backup/kvn-vpn-backup-*.tar /opt/kvn-vpn</code></li>
+    </ul>
+  </div>
+  <div class="actions"><a class="button" href="{{ public_url('backups_view') }}">К бэкапам</a><a class="button secondary" href="{{ public_url('logs_view', service='agent') }}">Логи agent</a></div>
+</section>
+{% endblock %}

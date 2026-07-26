@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Сертификаты — KVN VPN{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div><p class="eyebrow">TLS</p><h1>Сертификаты</h1><p class="muted">Сроки, выпуск и развёртывание цепочек Let's Encrypt</p></div>
+</header>
+{% set expiry_labels={'expired':'истёк','critical':'критично','warning':'скоро истекает','ok':'действителен','unknown':'неизвестно'} %}
+{% set target_labels={'site':'Сайт и подписки','ocserv':'OpenConnect'} %}
+{% set action_labels={'issue-configured':'Выпустить','renew':'Продлить','reissue':'Перевыпустить','deploy':'Развернуть'} %}
+{% set action_help={'issue-configured':'Получить первый сертификат для настроенных доменов.','renew':'Продлить существующую цепочку, если подошёл срок.','reissue':'Принудительно выпустить новую цепочку.','deploy':'Повторно установить уже полученный сертификат.'} %}
+<div class="service-grid">
+{% for cert in data.certificates %}
+  <article class="panel certificate-card">
+    <div class="status-line"><h2>{{ target_labels.get(cert.target, cert.target) }}</h2><span class="status {{ 'down' if cert.expiry in ['expired','critical'] else ('stale' if cert.expiry in ['warning','unknown'] else 'ok') }}">{{ expiry_labels.get(cert.expiry, 'неизвестно') }}</span></div>
+    <dl class="fact-grid">
+      <div><dt>Источник</dt><dd>{{ 'Let\'s Encrypt' if cert.source == 'letsencrypt' else cert.source }}</dd></div>
+      <div><dt>Центр сертификации</dt><dd>{{ cert.issuer or 'не определён' }}</dd></div>
+      <div><dt>Домены</dt><dd>{{ cert.domains|join(', ') or 'не настроены' }}</dd></div>
+      <div><dt>SAN</dt><dd>{{ cert.sans|join(', ') or 'нет' }}</dd></div>
+      <div><dt>Действителен до</dt><dd>{{ cert.not_after_display or cert.not_after or 'неизвестно' }}</dd></div>
+    </dl>
+    <div class="action-group certificate-actions" aria-label="Действия сертификата {{ target_labels.get(cert.target, cert.target) }}">
+    {% for action in ['issue-configured','renew','reissue','deploy'] %}
+      <form class="action-tile" method="post" action="{{ public_url('certificate_action') }}" data-confirm="{{ action_labels[action] }}" data-object="{{ target_labels.get(cert.target, cert.target) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="{{ action }}"><input type="hidden" name="target" value="{{ cert.target }}"><input type="hidden" name="confirmation_token" value="{{ confirmations[action ~ ':' ~ cert.target] }}">
+        <button type="submit" class="{{ 'danger' if action == 'reissue' else ('quiet' if action == 'deploy' else ('warning' if action == 'renew' else 'secondary')) }}">{{ action_labels[action] }}</button><small>{{ action_help[action] }}</small>
+      </form>
+    {% endfor %}
+    </div>
+  </article>
+{% else %}
+  <section class="panel empty-state" role="status">Сертификаты не найдены. Проверьте настройки доменов и host-agent.</section>
+{% endfor %}
+</div>
+{% endblock %}

@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}{{ t('backups') }} — KVN VPN{% endblock %}
+{% block content %}
+<header class="topbar">
+  <div>
+    <span class="eyebrow">KVN VPN</span>
+    <h1>{{ t('backups') }}</h1>
+    <p class="muted">Архив содержит проект, runtime-данные и Docker-образы для переноса на другой сервер.</p>
+  </div>
+  <a class="button quiet" href="{{ public_url('dashboard') }}">{{ t('go_home') }}</a>
+</header>
+
+<div class="notice notice-warning" role="status">
+  Бэкап содержит секреты пользователей, ключи, базы портала и конфигурации. Храните архив как приватный файл.
+</div>
+
+<section class="panel">
+  <div class="section-heading">
+    <div>
+      <h2>Создать бэкап</h2>
+      <p class="muted">Host-agent запустит `tools/project-backup.sh` через systemd. Готовый `.tar` появится в `/backup`.</p>
+    </div>
+  </div>
+  <form method="post" data-confirm="Создать бэкап проекта" data-object="{{ backup_dir }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" class="warning">Создать архив</button>
+  </form>
+</section>
+
+<section class="panel">
+  <div class="section-heading">
+    <div>
+      <h2>Архивы</h2>
+      <p class="muted">Источник: <code>{{ data.directory or backup_dir }}</code></p>
+    </div>
+  </div>
+  {% if not data.available %}
+  <p class="empty-state" role="status">Каталог бэкапов на host пока недоступен. Создайте `/backup` и проверьте права.</p>
+  {% elif not backup_mount_available %}
+  <div class="notice notice-error" role="alert">Каталог `/backup` не смонтирован в portal контейнер. Список виден через agent, но скачивание недоступно до обновления Compose.</div>
+  {% endif %}
+
+  {% if backups %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Файл</th><th>Размер</th><th>Создан</th><th>Статус</th><th>Действие</th></tr></thead>
+    <tbody>
+    {% for item in backups %}
+      <tr>
+        <td><code>{{ item.name }}</code></td>
+        <td>{{ item.size_display }}</td>
+        <td>{{ item.mtime_display }}</td>
+        <td><span class="status {{ 'ok' if item.readable else 'down' }}">{{ 'доступен' if item.readable else 'не читается' }}</span></td>
+        <td>{% if item.can_download %}<a class="button secondary compact" href="{{ public_url('backup_download', filename=item.name) }}">Скачать</a>{% else %}<span class="muted">недоступно</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% elif data.available %}
+  <p class="empty-state" role="status">Архивов пока нет. Запустите создание бэкапа и обновите страницу после завершения unit.</p>
+  {% endif %}
+</section>
+{% endblock %}

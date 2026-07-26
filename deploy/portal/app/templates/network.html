@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}{{ t('network') }} · KVN VPN{% endblock %}
+{% block page_scripts %}<script src="{{ public_url('static', filename='network.js') }}" defer></script>{% endblock %}
+{% block main_class %} shell-wide{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div><p class="eyebrow">KVN VPN</p><h1>{{ t('network') }}</h1><p class="muted">{{ t('network_hint') }}</p></div>
+  <div class="network-actions"><button type="button" class="secondary" data-network-refresh>Обновить</button><a class="button secondary" href="{{ public_url('services_list') }}">{{ t('services') }}</a><a class="button secondary" href="{{ public_url('settings_view') }}">{{ t('settings') }}</a></div>
+</header>
+
+<section class="panel network-map" data-network data-endpoint="{{ public_url('network_json') }}" data-background-refresh="{{ 'true' if performance.features.background_refresh else 'false' }}" aria-busy="false">
+  <div class="section-heading">
+    <div><h2>{{ 'Путь соединения' if g.lang == 'ru' else 'Connection path' }}</h2><p class="muted">ingress → router/direct → backend</p></div>
+    <span class="status {{ 'down' if data.error else ('stale' if data.stale else 'ok') }}" data-network-status role="status" aria-live="polite">{{ data.error or (t('stale') if data.stale else t('actual')) }}</span>
+  </div>
+  <label class="network-filter">{{ 'Фильтр протоколов' if g.lang == 'ru' else 'Filter protocols' }}<input type="search" data-network-filter autocomplete="off" placeholder="Reality, WireGuard, 443…"></label>
+
+  {% if data.error %}<p class="notice notice-warning" role="alert">{{ data.error }}</p>{% endif %}
+
+  <div class="network-flow" aria-label="ingress → router/direct → backend">
+    <section class="network-zone" data-network-zone="ingress" aria-labelledby="network-ingress-title">
+      <p class="eyebrow">01 · ingress</p><h2 id="network-ingress-title">{{ 'Внешние порты' if g.lang == 'ru' else 'Public ingress' }}</h2>
+      <div class="network-node-list">
+        {% for ingress in data.ingress %}<article class="network-node"><strong>{{ ingress.port }}/{{ ingress.protocol }}</strong><span>{{ ingress.role }}</span></article>{% else %}<p class="empty-state" role="status">{{ 'Топология временно недоступна.' if g.lang == 'ru' else 'Topology is temporarily unavailable.' }}</p>{% endfor %}
+      </div>
+    </section>
+
+    <div class="network-arrow" aria-hidden="true">→</div>
+    <section class="network-zone" data-network-zone="routing" aria-labelledby="network-routing-title">
+      <p class="eyebrow">02 · routing/direct</p><h2 id="network-routing-title">{{ 'Маршрутизация' if g.lang == 'ru' else 'Routing' }}</h2>
+      <div class="network-node-list">
+        {% for route in data.routes %}<article class="network-node"><strong>{{ route.kind }}</strong><span>{{ route.system }}{% if route.default %} · {{ route.default }}{% endif %}</span></article>{% else %}<article class="network-node"><strong>direct</strong><span>UDP / host transport</span></article>{% endfor %}
+      </div>
+    </section>
+
+    <div class="network-arrow" aria-hidden="true">→</div>
+    <section class="network-zone network-zone-protocols" data-network-zone="protocols" aria-labelledby="network-protocols-title">
+      <p class="eyebrow">03 · backend</p><h2 id="network-protocols-title">{{ t('protocols') }}</h2>
+      <div class="network-protocol-grid">
+        {% for protocol in data.protocols %}
+        <article class="network-protocol-card" data-protocol-card data-protocol="{{ protocol.system }}" data-search="{{ protocol.label }} {{ protocol.system }} {{ protocol.transport }} {{ protocol.backend }} {{ protocol.ingress|join(' ') }}">
+          <div class="status-line"><h3>{{ protocol.label }}</h3><span class="status {{ protocol.runtime.status }}" data-runtime-status>{{ protocol.runtime.label }}</span></div>
+          <p class="network-transport">{{ protocol.transport }}</p>
+          <dl class="network-facts">
+            <div><dt>Ingress</dt><dd>{{ protocol.ingress|join(', ') }}</dd></div>
+            <div><dt>Backend</dt><dd><code>{{ protocol.backend }}</code> · {{ protocol.backend_kind }}</dd></div>
+            <div><dt>{{ 'Доступ' if g.lang == 'ru' else 'Access' }}</dt><dd>{{ protocol.users.enabled }} / {{ protocol.users.assigned }} {{ 'включено' if g.lang == 'ru' else 'enabled' }}</dd></div>
+            <div><dt>SNI</dt><dd>{% if protocol.sni.scope == 'not_applicable' %}not applicable{% else %}{{ protocol.sni.scope }}{% if protocol.sni.default %} · {{ protocol.sni.default }}{% endif %}{% endif %}</dd></div>
+          </dl>
+          {% if protocol.facts %}<dl class="network-facts protocol-specific-facts">
+            {% for key,value in protocol.facts.items() %}{% if key != 'metrics' %}<div><dt>{{ key|replace('_', ' ') }}</dt><dd>{{ value }}</dd></div>{% endif %}{% endfor %}
+          </dl>{% endif %}
+          {% if protocol.runtime.counters %}<div class="protocol-counters" aria-label="{{ 'Агрегированные показатели' if g.lang == 'ru' else 'Aggregated metrics' }}">
+            {% for key,value in protocol.runtime.counters.items() %}<span><strong>{{ value }}</strong><small>{{ key }}</small></span>{% endfor %}
+          </div>{% endif %}
+          {% if protocol.runtime.certificate %}<p class="protocol-certificate"><span class="status {{ 'ok' if protocol.runtime.certificate.expiry == 'ok' else 'stale' }}">TLS {{ protocol.runtime.certificate.expiry }}</span>{% if protocol.runtime.certificate.expires_days is number %} · {{ protocol.runtime.certificate.expires_days }} {{ 'дн.' if g.lang == 'ru' else 'days' }}{% endif %}</p>{% endif %}
+          <span class="status {{ 'on' if protocol.enabled else 'off' }}">{{ 'включён' if protocol.enabled and g.lang == 'ru' else ('enabled' if protocol.enabled else ('отключён' if g.lang == 'ru' else 'disabled')) }}</span>
+          {% if protocol.system in ['tls', 'reality-xhttp', 'reality-tcp'] %}
+          <details class="protocol-editor"{% if protocol.system == 'reality-xhttp' %} open{% endif %}>
+            <summary>{{ 'Настроить Xray' if g.lang == 'ru' else 'Configure Xray' }}</summary>
+            <div class="protocol-editor-body">
+              <dl class="network-facts">
+                <div><dt>Default SNI</dt><dd><code>{{ protocol.sni.default }}</code></dd></div>
+                <div><dt>Aliases</dt><dd>{% for alias in protocol.sni.aliases %}<code>{{ alias }}</code>{% if not loop.last %}, {% endif %}{% else %}—{% endfor %}</dd></div>
+                {% if protocol.system.startswith('reality-') %}<div><dt>Reality target</dt><dd><code>{{ protocol.sni.target }}</code></dd></div><div><dt>serverNames</dt><dd>{% for name in protocol.sni.server_names %}<code>{{ name }}</code>{% if not loop.last %}, {% endif %}{% else %}—{% endfor %}</dd></div>{% endif %}
+                {% if protocol.system == 'reality-xhttp' %}<div><dt>XHTTP path</dt><dd><code>{{ protocol.settings.path }}</code></dd></div><div><dt>XHTTP mode</dt><dd><code>{{ protocol.settings.xhttp_mode }}</code></dd></div>{% endif %}
+              </dl>
+              {% if protocol.sni.aliases %}
+              <form method="post" action="{{ public_url('network_sni_apply') }}" data-confirm="{{ 'Изменить default SNI' if g.lang == 'ru' else 'Change default SNI' }}" data-object="{{ protocol.label }}: {{ 'Xray, nginx и клиентские подписки' if g.lang == 'ru' else 'Xray, nginx, and client subscriptions' }}">
+                <input type="hidden" name="csrf_token" value="{{ g.session.csrf_token }}"><input type="hidden" name="revision" value="{{ data.revision }}"><input type="hidden" name="system" value="{{ protocol.system }}"><input type="hidden" name="action" value="set-default">
+                <label>Default SNI<select name="sni">{% for alias in protocol.sni.aliases %}<option value="{{ alias }}"{% if alias == protocol.sni.default %} selected{% endif %}>{{ alias }}</option>{% endfor %}</select></label><button type="submit" class="secondary">{{ 'Сохранить default' if g.lang == 'ru' else 'Save default' }}</button>
+              </form>
+              {% endif %}
+              <form method="post" action="{{ public_url('network_sni_apply') }}" data-confirm="{{ 'Добавить SNI alias' if g.lang == 'ru' else 'Add SNI alias' }}" data-object="{{ protocol.label }}: {{ 'Xray, nginx и клиентские подписки' if g.lang == 'ru' else 'Xray, nginx, and client subscriptions' }}">
+                <input type="hidden" name="csrf_token" value="{{ g.session.csrf_token }}"><input type="hidden" name="revision" value="{{ data.revision }}"><input type="hidden" name="system" value="{{ protocol.system }}"><input type="hidden" name="action" value="add-alias">
+                <label>{{ 'Новый alias' if g.lang == 'ru' else 'New alias' }}<input name="sni" type="text" inputmode="url" placeholder="example.com" required></label><button type="submit">{{ 'Добавить' if g.lang == 'ru' else 'Add' }}</button>
+              </form>
+              {% if protocol.system == 'reality-xhttp' %}
+              <form method="post" action="{{ public_url('network_protocol_apply') }}" data-confirm="{{ 'Изменить режим Reality xHTTP' if g.lang == 'ru' else 'Change Reality xHTTP mode' }}" data-object="{{ 'Сервер Xray, HAPP и клиентские ссылки' if g.lang == 'ru' else 'Xray server, HAPP, and client links' }}">
+                <input type="hidden" name="csrf_token" value="{{ g.session.csrf_token }}"><input type="hidden" name="revision" value="{{ data.revision }}">
+                <label>XHTTP mode<select name="mode">{% for mode in ['stream-one', 'stream-up', 'packet-up'] %}<option value="{{ mode }}"{% if mode == protocol.settings.xhttp_mode %} selected{% endif %}>{{ mode }}</option>{% endfor %}</select></label><button type="submit" class="warning">{{ 'Применить mode' if g.lang == 'ru' else 'Apply mode' }}</button>
+              </form>
+              {% endif %}
+            </div>
+          </details>
+          {% endif %}
+          <nav class="protocol-links" aria-label="{{ protocol.label }}: {{ 'действия' if g.lang == 'ru' else 'actions' }}">{% for link in protocol.links %}<a href="{{ link.url }}">{{ link.label }}</a>{% endfor %}</nav>
+        </article>
+        {% else %}<p class="empty-state" role="status">{{ 'Протоколы появятся после восстановления host-agent.' if g.lang == 'ru' else 'Protocols will appear after host-agent recovery.' }}</p>{% endfor %}
+      </div>
+      <p class="empty-state" data-network-empty hidden>{{ 'Ничего не найдено.' if g.lang == 'ru' else 'No protocols found.' }}</p>
+    </section>
+  </div>
+</section>
+
+<section class="panel domain-advisor" aria-labelledby="domain-advisor-title">
+  <div class="section-heading"><div><p class="eyebrow">{{ 'Стратегия SNI' if g.lang == 'ru' else 'SNI strategy' }}</p><h2 id="domain-advisor-title">{{ 'Советник доменов' if g.lang == 'ru' else 'Domain advisor' }}</h2><p class="muted">{{ 'Проверка DNS/TLS только для чтения. Ничего не сохраняет и не управляет DNS-провайдером.' if g.lang == 'ru' else 'Read-only DNS/TLS check. It does not save state or manage your DNS provider.' }}</p></div></div>
+  <form method="get" class="domain-advisor-form">
+    <label>{{ 'Базовая DNS-зона' if g.lang == 'ru' else 'Base DNS zone' }}<input name="zone" value="{{ domain_zone }}" placeholder="gaer.loc.cc" inputmode="url" required></label>
+    <button type="submit" class="secondary">{{ 'Оценить' if g.lang == 'ru' else 'Assess' }}</button>
+  </form>
+  {% if domain_advice_error %}<p class="notice notice-error" role="alert">{{ domain_advice_error }}</p>{% endif %}
+  {% if domain_advice %}
+  <div class="status-line domain-advisor-summary"><strong>{{ domain_advice.zone }}</strong><span class="status {{ 'ok' if domain_advice.status == 'ready' else 'stale' }}">{{ ('готово' if g.lang == 'ru' else 'ready') if domain_advice.status == 'ready' else ('требует внимания' if g.lang == 'ru' else 'needs attention') }}</span></div>
+  <div class="table-scroll"><table data-domain-advice><thead><tr><th>{{ 'Роль' if g.lang == 'ru' else 'Role' }}</th><th>{{ 'Имя хоста' if g.lang == 'ru' else 'Hostname' }}</th><th>DNS</th><th>TLS / SAN</th><th>{{ 'Этот сервер' if g.lang == 'ru' else 'Same server' }}</th><th>{{ 'Рекомендация' if g.lang == 'ru' else 'Recommendation' }}</th></tr></thead><tbody>
+    {% for item in domain_advice.hostnames %}<tr><td>{{ item.role }}</td><td><code>{{ item.hostname }}</code></td><td><span class="status {{ 'ok' if item.dns == 'ok' else 'stale' }}">{{ item.dns }}</span></td><td>{{ item.tls }} / {{ item.cert_match }}</td><td>{{ ('да' if g.lang == 'ru' else 'yes') if item.same_server else ('нет' if g.lang == 'ru' else 'no') }}</td><td><code>{{ item.recommendation }}</code></td></tr>{% endfor %}
+  </tbody></table></div>
+  <h3>{{ 'Политика протоколов' if g.lang == 'ru' else 'Protocol policy' }}</h3>
+  <div class="domain-policy-grid">{% for item in domain_advice.protocols %}<article><strong>{{ system_label(item.system) }}</strong><span>{{ item.recommendation }}</span>{% if item.same_server %}<small class="notice-error">{{ 'Опасное совпадение с сервером' if g.lang == 'ru' else 'Same-server hard warning' }}</small>{% endif %}</article>{% endfor %}</div>
+  <p class="form-hint">{{ 'Порядок применения: DNS → сертификат/SAN → SNI route → проверка клиента. Для Reality предпочтителен внешний cover, не собственный сервер.' if g.lang == 'ru' else 'Apply in order: DNS → certificate/SAN → SNI route → client verification. Reality should prefer an external cover, not this server.' }}</p>
+  {% else %}<p class="empty-state" role="status">{{ 'Введите зону для безопасной проверки предложенных имён.' if g.lang == 'ru' else 'Enter a zone to safely check proposed hostnames.' }}</p>{% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Сертификат — KVN VPN{% endblock %}
+{% block content %}
+{% set action_labels={'issue-configured':'Выпуск','renew':'Продление','reissue':'Перевыпуск','deploy':'Развёртывание'} %}
+<section class="panel" role="status" aria-labelledby="certificate-result-title">
+  <h1 id="certificate-result-title">{{ action_labels.get(result.action, result.action) }}: {{ result.target }}</h1>
+  <p>{{ 'Выполнено, затронутые сервисы перечитали конфигурацию.' if result.ok else 'Операция не завершена.' }}</p>
+  {% if result.command and (result.command.stderr or result.command.stdout) %}
+  <div class="notice {{ 'notice-error' if not result.ok else 'notice-warning' }}">
+    <pre>{{ result.command.stderr or result.command.stdout }}</pre>
+  </div>
+  {% endif %}
+  <a class="button" href="{{ public_url('certificates_view') }}">К сертификатам</a>
+</section>
+{% endblock %}

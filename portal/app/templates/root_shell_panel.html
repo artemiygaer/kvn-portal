@@ -1,0 +1,41 @@
+<section class="panel root-shell-panel"
+         data-root-shell
+         data-open-endpoint="{{ public_url('terminal_shell_open') }}"
+         data-read-endpoint="{{ public_url('terminal_shell_read') }}"
+         data-write-endpoint="{{ public_url('terminal_shell_write') }}"
+         data-resize-endpoint="{{ public_url('terminal_shell_resize') }}"
+         data-close-endpoint="{{ public_url('terminal_shell_close') }}"
+         data-csrf="{{ csrf_token }}"
+         aria-labelledby="root-shell-title">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">PTY</p>
+      <h2 id="root-shell-title">{{ t('root_shell_title') }}</h2>
+      <p class="muted">{{ t('root_shell_hint') }}</p>
+    </div>
+    <span class="status stale" data-shell-status role="status">{{ t('root_shell_status') }}: offline</span>
+  </div>
+  <p class="notice notice-error root-shell-warning">{{ t('root_shell_warning') }}</p>
+  <form class="root-shell-connect" data-shell-open-form>
+    <label for="root-password">{{ t('root_password') }}
+      <input id="root-password" name="root_password" type="password" autocomplete="current-password" required>
+    </label>
+    <button type="submit" class="warning">{{ t('root_connect') }}</button>
+  </form>
+  <div class="root-shell-toolbar">
+    <button type="button" class="secondary compact" data-shell-control="interrupt" disabled>Ctrl+C</button>
+    <button type="button" class="secondary compact" data-shell-control="eof" disabled>Ctrl+D</button>
+    <button type="button" class="danger compact" data-shell-close disabled>{{ t('root_disconnect') }}</button>
+  </div>
+  <div class="root-shell-terminal"
+       data-shell-terminal
+       tabindex="0"
+       role="application"
+       aria-label="{{ t('root_shell_output') }}"
+       aria-describedby="root-shell-keyboard-hint"
+       aria-disabled="true">
+    <div class="root-shell-xterm" data-shell-xterm></div>
+    <pre class="root-shell-output" data-shell-output hidden></pre>
+  </div>
+  <p class="muted root-shell-keyboard-hint" id="root-shell-keyboard-hint">{{ t('root_shell_keyboard_hint') }}</p>
+</section>

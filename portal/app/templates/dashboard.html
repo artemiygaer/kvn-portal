@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}{{ portal_name }}{% endblock %}
+{% block page_scripts %}<script src="{{ public_url('static', filename='dashboard.js') }}" defer></script>{% endblock %}
+{% block content %}
+<header class="page-header"><div><p class="eyebrow">KVN VPN</p><h1>{{ portal_name }}</h1><p class="muted">{{ t('overview_subtitle') }}</p></div><a class="button" href="{{ public_url('users_list') }}">{{ t('manage_users') }}</a></header>
+<section class="panel" data-dashboard data-endpoint="{{ public_url('dashboard_json') }}" data-history-endpoint="{{ public_url('metrics_history_json') }}" data-monitoring-enabled="{{ 'true' if performance.features.monitoring else 'false' }}" data-background-refresh="{{ 'true' if performance.features.background_refresh else 'false' }}" aria-busy="false">
+  <div class="section-heading"><h2>{{ t('current_status') }}</h2><div class="dashboard-refresh"><span class="poll-status muted" data-poll-status>{{ t('refresh_every') if performance.features.background_refresh else 'Только ручное обновление' }}</span><button type="button" class="secondary" data-dashboard-refresh>Обновить</button></div></div>
+  <div class="metric-grid">
+    {% for card in summary.cards %}<article class="metric-card" data-card="{{ card.id }}"><div class="status-line"><span>{{ card.label }}</span><span class="status {{ card.status }}" data-card-status>{{ card.status_label }}</span></div><strong class="metric-value" data-card-value>{{ card.value }}</strong><span class="muted" data-card-detail>{{ card.detail }}</span></article>{% else %}<p class="empty-state" role="status">Сводка временно недоступна.</p>{% endfor %}
+  </div>
+</section>
+{% if performance.features.monitoring %}
+<section class="panel chart-panel" data-history aria-busy="false">
+  <div class="section-heading"><div><h2>{{ t('load_history') }}</h2><p class="muted">{{ t('history_retention') }}</p></div><div class="chart-controls"><label>{{ t('period') }}<select data-history-range><option value="1">{{ t('one_hour') }}</option><option value="6">{{ t('six_hours') }}</option><option value="24" selected>{{ t('twenty_four_hours') }}</option><option value="72">{{ t('three_days') }}</option></select></label><label>{{ t('step') }}<select data-history-step><option value="auto" selected>{{ t('auto') }}</option><option value="1">{{ t('one_minute') }}</option><option value="5">{{ t('five_minutes') }}</option><option value="15">{{ t('fifteen_minutes') }}</option><option value="60">{{ t('one_hour') }}</option></select></label></div></div>
+  <p class="muted" role="status" aria-live="polite" data-history-status>{{ 'Loading history…' if g.lang == 'en' else 'Загрузка истории…' }}</p>
+  <div class="chart-grid">
+    {% for id,label,key,unit,max_value,extra_current,extra_total,extra_label,extra_unit in [('cpu',t('cpu'),'cpu_percent','%',100,'load1','',('Load' if g.lang == 'en' else 'нагрузка'),''),('memory',t('memory'),'memory_percent','%',100,'memory_used','memory_total',('RAM' if g.lang == 'en' else 'память'),'Б'),('disk',t('disk'),'disk_percent','%',100,'disk_used','disk_total',('Disk' if g.lang == 'en' else 'диск'),'Б'),('network',t('network_in'),'rx_bytes_per_second','Б/с',0,'','','','')] %}
+    <article class="chart-card" data-chart data-metric="{{ key }}" data-unit="{{ unit }}" data-max="{{ max_value }}"{% if extra_current %} data-extra-current="{{ extra_current }}" data-extra-label="{{ extra_label }}" data-extra-unit="{{ extra_unit }}"{% endif %}{% if extra_total %} data-extra-total="{{ extra_total }}"{% endif %}>
+      <h3>{{ label }}</h3>
+      <div class="chart-kpis" aria-hidden="true">
+        <span><strong data-chart-now>—</strong><small>{{ 'Now' if g.lang == 'en' else 'Сейчас' }}</small></span>
+        <span><strong data-chart-min>—</strong><small>{{ 'Min' if g.lang == 'en' else 'Мин' }}</small></span>
+        <span><strong data-chart-max>—</strong><small>{{ 'Max' if g.lang == 'en' else 'Макс' }}</small></span>
+      </div>
+      <svg viewBox="0 0 600 180" role="img" aria-labelledby="chart-{{ id }}-title chart-{{ id }}-desc"><title id="chart-{{ id }}-title">{{ label }}</title><desc id="chart-{{ id }}-desc">{{ 'Chart will appear after history loads.' if g.lang == 'en' else 'График появится после загрузки истории.' }}</desc><path class="chart-area" data-chart-area></path><path class="chart-line" data-chart-line></path></svg>
+      <p class="chart-summary muted" data-chart-summary>{{ 'No data.' if g.lang == 'en' else 'Нет данных.' }}</p>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% else %}
+<section class="panel"><div class="empty-state" role="status"><strong>Мониторинг отключён.</strong><br>История метрик не собирается, чтобы снизить нагрузку. Включить её можно в настройках портала.</div></section>
+{% endif %}
+<section class="quick-grid" aria-label="Быстрые действия"><a class="panel quick-card" href="{{ public_url('services_list') }}"><strong>{{ t('services') }}</strong><span>{{ t('service_actions') }}</span></a><a class="panel quick-card" href="{{ public_url('logs_view') }}"><strong>{{ t('logs') }}</strong><span>{{ t('log_diagnostics') }}</span></a><a class="panel quick-card" href="{{ public_url('root_shell_view') }}"><strong>{{ t('root_shell_nav') }}</strong><span>{{ t('root_shell_hint') }}</span></a><a class="panel quick-card" href="{{ public_url('terminal_view') }}"><strong>{{ t('terminal') }}</strong><span>{{ t('terminal_hint') }}</span></a><a class="panel quick-card" href="{{ public_url('health_view') }}"><strong>{{ t('health') }}</strong><span>{{ t('health_checks') }}</span></a></section>
+{% endblock %}

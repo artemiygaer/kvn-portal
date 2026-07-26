@@ -1,0 +1,409 @@
+{% extends "base.html" %}
+{% from "_service_guidance.html" import guidance_note, service_help with context %}
+{% block title %}{{ t('settings') }} — KVN VPN{% endblock %}
+{% block page_scripts %}<script src="{{ public_url('static', filename='update.js') }}" defer></script><script src="{{ public_url('static', filename='user-export.js') }}" defer></script>{% endblock %}
+{% block content %}
+<header class="topbar">
+  <div><span class="eyebrow">KVN VPN</span><h1>{{ t('portal_settings') }}</h1><p class="muted">{{ t('password_policy') }}</p></div>
+  <a class="button quiet" href="{{ public_url('dashboard') }}">{{ t('go_home') }}</a>
+</header>
+{% if notice %}<div class="notice notice-success" role="status">{{ notice }}</div>{% endif %}
+{% if error %}<div class="alert" role="alert">{{ error }}</div>{% endif %}
+
+<nav class="settings-nav" aria-label="Разделы настроек">
+  <a href="#interface">Интерфейс</a><a href="#portal-performance">Нагрузка</a><a href="#client-export">Экспорт</a><a href="#security">Безопасность</a><a href="#project-update">Обновление</a><a href="#mtproto-settings">MTProto</a><a href="#sni-settings">SNI</a>
+</nav>
+
+<section class="panel" id="interface">
+  <h2>{{ t('language') }}</h2>
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="action" value="language">
+    <label for="language">{{ t('language') }}</label>
+    <select id="language" name="language">
+      <option value="ru"{% if g.lang == 'ru' %} selected{% endif %}>{{ t('russian') }}</option>
+      <option value="en"{% if g.lang == 'en' %} selected{% endif %}>{{ t('english') }}</option>
+    </select>
+    <button type="submit">{{ t('save_language') }}</button>
+  </form>
+</section>
+
+<section class="panel" id="portal-performance">
+  <div class="section-heading">
+    <div><h2>Нагрузка портала</h2><p class="muted">Облегчённый режим отключает сбор истории метрик и автоматические фоновые запросы. Управление VPN остаётся доступным.</p></div>
+    <span class="status {{ 'ok' if performance.profile == 'standard' else 'stale' }}">{{ {'standard': 'стандартный', 'light': 'облегчённый', 'custom': 'свой'}[performance.profile] }}</span>
+  </div>
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="action" value="performance">
+    <input type="hidden" name="revision" value="{{ performance.revision }}">
+    <label for="performance-profile">Профиль</label>
+    <select id="performance-profile" name="profile">
+      <option value="standard"{% if performance.profile == 'standard' %} selected{% endif %}>Стандартный — мониторинг и автообновление</option>
+      <option value="light"{% if performance.profile == 'light' %} selected{% endif %}>Облегчённый — минимум фоновой нагрузки</option>
+      <option value="custom"{% if performance.profile == 'custom' %} selected{% endif %}>Свой — параметры ниже</option>
+    </select>
+    <div class="check-grid">
+      <label><input type="checkbox" name="monitoring"{% if performance.features.monitoring %} checked{% endif %}> Собирать и хранить метрики CPU, RAM, диска и сети</label>
+      <label><input type="checkbox" name="background_refresh"{% if performance.features.background_refresh %} checked{% endif %}> Автоматически обновлять сводку и карту сети</label>
+    </div>
+    <p class="form-hint">Для независимого выбора переключателей установите профиль «Свой». Ручное обновление доступно всегда.</p>
+    <button type="submit">Сохранить режим</button>
+  </form>
+  {% set endpoint = performance.get('endpoint', {}) %}
+  {% if endpoint.get('host_kind') == 'ipv4' %}
+  <div class="notice {{ 'notice-success' if endpoint.get('public_ready') else 'notice-warning' }}" role="status">
+    <strong>{{ 'IP HTTPS готов' if endpoint.get('public_ready') else 'IP HTTPS ожидает сертификат' }}</strong><br>
+    Портал: <code>{{ endpoint.get('host', '') }}</code>. Self-signed fallback {{ 'разрешён' if endpoint.get('allow_self_signed_ip') else 'запрещён' }}; route открывается только при совпадающем IP SAN.
+  </div>
+  {% endif %}
+</section>
+
+<section class="panel" id="client-export">
+  <div class="section-heading">
+    <div>
+      <h2>Адреса клиентского экспорта</h2>
+      <p class="muted">Выберите default для новых файлов. SNI, Reality serverName и сертификатная identity останутся доменными.</p>
+    </div>
+    <span class="status {{ 'ok' if client_export.address_mode == 'server' else 'stale' }}">{{ 'домен' if client_export.address_mode == 'server' else 'публичный IP' }}</span>
+  </div>
+  {{ guidance_note('domain-ip') }}
+  {{ guidance_note('happ-karing') }}
+  <form method="post" data-client-export-form novalidate>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="action" value="client_export">
+    <input type="hidden" name="revision" value="{{ client_export.revision }}">
+    <fieldset class="check-grid">
+      <legend>Основной пакет</legend>
+      <label><input type="radio" name="address_mode" value="server"{% if client_export.address_mode == 'server' %} checked{% endif %}> Домен / адрес сервера <code>{{ client_export.server_address or 'не задан' }}</code></label>
+      <label><input type="radio" name="address_mode" value="public-ip"{% if client_export.address_mode == 'public-ip' %} checked{% endif %}> Публичный IPv4</label>
+    </fieldset>
+    <label for="client-export-public-ip">Публичный IPv4 для резервного экспорта</label>
+    <input
+      id="client-export-public-ip"
+      name="public_ip"
+      value="{{ client_export.public_ip }}"
+      inputmode="decimal"
+      autocomplete="off"
+      maxlength="15"
+      placeholder="8.8.4.4"
+      aria-describedby="client-export-ip-hint client-export-error client-export-preview"
+    >
+    <p class="form-hint" id="client-export-ip-hint">Только глобальный IPv4 без порта/CIDR. IP меняет endpoint клиента, но не SNI и сертификат.</p>
+    <div class="check-grid">
+      <label><input type="checkbox" name="include_alternate"{% if client_export.include_alternate %} checked{% endif %}> Предлагать второй, резервный пакет в окне экспорта</label>
+    </div>
+    <p class="form-status" id="client-export-error" role="alert" data-client-export-error>{{ client_export_error }}</p>
+    <p class="form-status" id="client-export-preview" role="status" aria-live="polite" data-client-export-preview>Основной endpoint: <code>{{ client_export.effective_address }}</code>.</p>
+    <button type="submit">Сохранить адреса экспорта</button>
+  </form>
+
+  {% set subscription = client_export.subscription %}
+  {% if client_export.public_ip %}
+  <dl class="fact-grid">
+    <div><dt>IP-пакет</dt><dd><span class="status ok">доступен</span></dd></div>
+    <div><dt>Route подписки :{{ subscription.port }}</dt><dd><span class="status {{ 'ok' if subscription.route_ready else 'down' }}">{{ 'готов' if subscription.route_ready else 'не готов' }}</span></dd></div>
+    <div><dt>IP SAN сертификата</dt><dd><span class="status {{ 'ok' if subscription.certificate_ready else 'down' }}">{{ 'совпадает' if subscription.certificate_ready else 'не найден' }}</span></dd></div>
+    <div><dt>HAPP/Karing по IP</dt><dd><span class="status {{ 'ok' if subscription.ready else 'stale' }}">{{ 'готовы' if subscription.ready else 'не выдаются по IP' }}</span></dd></div>
+  </dl>
+  {% if not subscription.ready %}
+  <div class="notice notice-warning" role="status">
+    ZIP с IP доступен, но HTTPS URL подписок останется доменным, пока route и точный IP SAN не готовы.
+    <a href="{{ public_url('certificates_view') }}">Открыть сертификаты</a>.
+  </div>
+  {% endif %}
+  {% else %}
+  <p class="empty-state" role="status">Публичный IPv4 ещё не задан. Доменный экспорт продолжает работать без изменений.</p>
+  {% endif %}
+</section>
+
+<section class="panel" id="security">
+  <h2>{{ t('admin_password') }}</h2>
+  <form method="post" autocomplete="on">
+    <input class="visually-hidden" name="username" value="{{ admin_login }}" autocomplete="username" tabindex="-1" aria-hidden="true">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="action" value="password">
+    <label for="current_password">{{ t('current_password') }}</label>
+    <input id="current_password" name="current_password" type="password" autocomplete="current-password" required>
+    <label for="new_password">{{ t('new_password') }}</label>
+    <input id="new_password" name="new_password" type="password" autocomplete="new-password" minlength="12" required>
+    <label for="repeat_password">{{ t('repeat_password') }}</label>
+    <input id="repeat_password" name="repeat_password" type="password" autocomplete="new-password" minlength="12" required>
+    <button type="submit" class="warning">{{ t('change_password') }}</button>
+  </form>
+</section>
+
+<section class="panel" id="project-update">
+  <div class="section-heading">
+    <div>
+      <h2>Обновление проекта</h2>
+      <p class="muted">Проверка, подготовка и запуск — отдельные действия. Текущая сборка: <code>{{ build_id }}</code>.</p>
+    </div>
+  </div>
+  <div class="update-flow">
+  <div class="widget-grid update-source-grid">
+    <article class="update-source-card github-update-card" data-github-update data-current-build="{{ build_id }}">
+      <div class="section-heading">
+        <div>
+          <h3>GitHub Releases</h3>
+          <p class="muted"><code>{{ github_settings.repository }}</code></p>
+        </div>
+        {% if github_settings.enabled is sameas true %}
+        <span class="status ok">включено</span>
+        {% elif github_settings.enabled is sameas false %}
+        <span class="status stale">отключено</span>
+        {% else %}
+        <span class="status bad">agent недоступен</span>
+        {% endif %}
+      </div>
+      <dl class="update-meta compact-meta">
+        <div><dt>Канал</dt><dd><code>{{ github_settings.channel }}</code>{% if github_settings.tag %} / <code>{{ github_settings.tag }}</code>{% endif %}</dd></div>
+        <div><dt>Предпочтение</dt><dd>{{ 'Полный offline release' if github_settings.asset_preference == 'release' else 'Source deploy' if github_settings.asset_preference == 'deploy' else 'неизвестно' }}</dd></div>
+      </dl>
+      <p class="form-hint">Для приватного репозитория credential хранится только у root-agent. Портал не показывает его наличие или значение.</p>
+      {% if github_settings_error %}
+      <div class="notice notice-warning" role="status">{{ github_settings_error }}</div>
+      {% elif github_settings.enabled is sameas false %}
+      <div class="notice notice-warning" role="status">Источник отключён. Включение: <code>sudo python3 tools/kvnctl.py updates configure --enable true</code>. Ручная загрузка доступна справа.</div>
+      {% endif %}
+      <form method="post" action="{{ public_url('project_release_check') }}" data-github-check aria-describedby="github-update-status">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="secondary" data-github-check-button{% if github_settings.enabled is not sameas true %} disabled{% endif %}>Проверить GitHub</button>
+      </form>
+      <div class="update-progress github-progress" data-github-progress role="status" aria-live="polite" hidden>
+        <strong data-github-progress-text>Проверка Release…</strong>
+        <progress aria-label="Проверка или загрузка GitHub Release"></progress>
+      </div>
+      <p class="form-status{% if github_error %} widget-error{% endif %}" id="github-update-status" data-github-status role="status" aria-live="polite">{{ github_error }}</p>
+
+      <div class="github-release"{% if not github_release %} hidden{% endif %} data-github-release>
+        <div class="status-line">
+          <div>
+            <span class="status {{ 'stale' if github_release and github_release.up_to_date else 'ok' }}" data-github-version-state>{{ 'Уже установлено' if github_release and github_release.up_to_date else 'Доступно обновление' }}</span>
+            <h4 data-github-release-name>{{ github_release.release_name if github_release else '' }}</h4>
+          </div>
+          <code data-github-release-tag>{{ github_release.tag if github_release else '' }}</code>
+        </div>
+        <p class="muted">Опубликовано: <time data-github-published>{{ github_release.published_at if github_release else '—' }}</time></p>
+        <div class="table-wrap compact-table">
+          <table>
+            <thead><tr><th>Asset</th><th>Размер</th><th>SHA-256</th></tr></thead>
+            <tbody data-github-assets>
+            {% if github_release %}
+              {% for asset in github_release.assets %}
+              <tr{% if asset.id == github_release.asset.id %} data-selected="true"{% endif %}>
+                <td>{{ asset.name }}{% if asset.id == github_release.asset.id %} <span class="status ok">выбран</span>{% endif %}</td>
+                <td>{{ '%.1f'|format(asset.size / 1048576) }} МБ</td>
+                <td><code>{{ asset.sha256 }}</code></td>
+              </tr>
+              {% endfor %}
+            {% endif %}
+            </tbody>
+          </table>
+        </div>
+        <details class="advanced-details release-notes-details"{% if github_release and github_release.notes %} open{% endif %}>
+          <summary>Примечания к Release</summary>
+          <pre class="release-notes" data-github-notes>{{ github_release.notes if github_release and github_release.notes else 'Примечания не опубликованы.' }}</pre>
+        </details>
+        <form method="post" action="{{ public_url('project_release_prepare') }}" data-github-prepare aria-describedby="github-update-status">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="release_id" data-github-release-id value="{{ github_release.release_id if github_release else '' }}">
+          <input type="hidden" name="asset_id" data-github-asset-id value="{{ github_release.asset.id if github_release else '' }}">
+          <input type="hidden" name="asset_sha256" data-github-asset-sha256 value="{{ github_release.asset.sha256 if github_release else '' }}">
+          <button type="submit" data-github-prepare-button>{{ 'Скачать повторно и проверить' if github_release and github_release.up_to_date else 'Скачать и проверить' }}</button>
+        </form>
+      </div>
+    </article>
+
+    <article class="update-source-card manual-update-card">
+      <div class="section-heading">
+        <div><h3>Ручная загрузка</h3><p class="muted">Офлайн-резерв при сбое GitHub, DNS или rate limit.</p></div>
+        <span class="status stale">fallback</span>
+      </div>
+      <form method="post" action="{{ public_url('project_update_prepare') }}" enctype="multipart/form-data" data-update-prepare aria-describedby="update-upload-hint update-upload-status">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="archive">Архив обновления</label>
+        <input id="archive" name="archive" type="file" accept=".tar.gz,application/gzip,application/x-gzip" required>
+        <p class="form-hint" id="update-upload-hint">Допустимы только штатные <code>kvn-vpn-release-linux-amd64.tar.gz</code> и <code>kvn-vpn-deploy.tar.gz</code>. Загрузка не запускает обновление. Source deploy совместим, но использует online build/pull и не рекомендуется для сервера 1 ГБ; предпочтителен полный release.</p>
+        <div class="update-actions">
+          <button type="submit" data-update-submit>{{ 'Заменить архив' if prepared_update else 'Загрузить и проверить' }}</button>
+          <button type="button" class="secondary" data-update-cancel hidden>Отменить</button>
+          <button type="button" class="secondary" data-update-retry hidden>Повторить</button>
+        </div>
+        <div class="update-progress" data-update-progress data-state="idle" role="status" aria-live="polite" hidden>
+          <div class="status-line"><strong data-update-status id="update-upload-status">Ожидание файла</strong><span data-update-percent>0%</span></div>
+          <progress data-update-progress-bar value="0" max="100" aria-label="Прогресс загрузки архива" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">0%</progress>
+        </div>
+      </form>
+      <details class="advanced-details manual-update-instructions">
+        <summary>Обновление вручную с сервера</summary>
+        <ol>
+          <li>Создайте бэкап: <code>sudo ./tools/project-backup.sh</code></li>
+          <li>Проверьте архив: <code>sha256sum &lt;archive&gt;</code></li>
+          <li>Запустите: <code>sudo ./update.sh &lt;archive&gt;</code></li>
+          <li>Если старый updater не принимает новый архив: <code>sudo ./update.sh --bootstrap-only &lt;archive&gt;</code>, затем повторите полный запуск.</li>
+        </ol>
+      </details>
+    </article>
+  </div>
+
+  {% if prepared_update %}
+  <div class="update-ready-card" role="region" aria-labelledby="update-ready-title" data-update-ready data-prepared-update-id="{{ prepared_update.id }}">
+    <div class="status-line" role="status" aria-live="polite">
+      <div><span class="status ok">Готово</span><h3 id="update-ready-title">Готов к обновлению</h3></div>
+      <span class="muted">Проверено на сервере · {{ 'GitHub' if prepared_update.metadata.source == 'github' else 'ручная загрузка' }}</span>
+    </div>
+    <dl class="update-meta">
+      <div><dt>Архив</dt><dd>{{ prepared_update.archive_name }}</dd></div>
+      <div><dt>Тип</dt><dd>{{ 'Полный release' if prepared_update.archive_kind == 'release' else 'Source deploy' }}</dd></div>
+      <div><dt>Размер</dt><dd>{{ '%.1f'|format(prepared_update.archive_size / 1048576) }} МБ</dd></div>
+      <div><dt>SHA-256</dt><dd><code>{{ prepared_update.archive_sha256 }}</code></dd></div>
+      {% if prepared_update.metadata.tag %}<div><dt>Release</dt><dd><code>{{ prepared_update.metadata.tag }}</code></dd></div>{% endif %}
+    </dl>
+    <form method="post" action="{{ public_url('project_update_start') }}" data-confirm="Запустить обновление проекта" data-object="{{ prepared_update.archive_name }}" data-sensitive-submit aria-describedby="project-update-hint project-update-status">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="prepared_id" value="{{ prepared_update.id }}">
+      <label for="update_mode">Режим обновления</label>
+      <select id="update_mode" name="update_mode">
+        <option value="full">Полное применение</option>
+        <option value="bootstrap-only">Только updater и host-agent</option>
+      </select>
+      <p class="form-hint">Bootstrap-only не перезапускает VPN и контейнеры. Для сервера 1 ГБ рекомендуется полный release.</p>
+      <label for="update_root_password">Root-пароль для подтверждения запуска</label>
+      <input id="update_root_password" name="root_password" type="password" autocomplete="current-password" required>
+      <p class="form-hint" id="project-update-hint">Пароль используется только для этой команды, очищается после формирования запроса и не сохраняется порталом.</p>
+      <div class="update-actions">
+        <button type="submit" class="warning" data-sensitive-submit-button>Запустить обновление</button>
+      </div>
+      <p class="form-status" id="project-update-status" data-sensitive-submit-status role="status" aria-live="polite"></p>
+    </form>
+    <form method="post" action="{{ public_url('project_update_discard') }}" data-confirm="Удалить подготовленный архив" data-object="{{ prepared_update.archive_name }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="prepared_id" value="{{ prepared_update.id }}">
+      <button type="submit" class="quiet">Удалить подготовленный архив</button>
+    </form>
+  </div>
+  {% else %}
+  <p class="empty-state" data-update-ready-empty role="status">Проверенного архива пока нет. После загрузки здесь появится отдельная команда запуска.</p>
+  {% endif %}
+  </div>
+</section>
+
+<section class="panel" id="mtproto-settings">
+  <div class="section-heading">
+    <div>
+      <h2>Маскировка MTProto</h2>
+      <p class="muted">Public-вход остаётся на 443/TCP через SNI-router; прямые порты 2446/2447 доступны как резерв.</p>
+    </div>
+  </div>
+  <div class="notice notice-warning" role="status">
+    Собственный SNI полезен только при согласованных DNS, SAN сертификата и правдоподобном сайте. Полную блокировку IP/TCP/TLS гарантированно обойти невозможно.
+  </div>
+  {{ guidance_note('telegram-pair') }}
+  {% if mtproto_data %}
+  <div class="settings-grid">
+    {% for system, item in mtproto_data.services.items() %}
+    <article class="service-card">
+      <div class="section-heading">
+        <div><h3>{{ item.label }}</h3><p class="muted"><code>{{ item.sni }}</code> → <code>{{ item.target }}</code></p></div>
+        <span class="status {{ 'ok' if item.origin == 'local-site' else 'stale' }}">{{ 'свой сайт' if item.origin == 'local-site' else 'внешний сайт' }}</span>
+      </div>
+      {{ service_help(service_guide(system), true) }}
+      <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="action" value="mtproto_origin">
+        <input type="hidden" name="revision" value="{{ mtproto_data.revision }}">
+        <input type="hidden" name="system" value="{{ system }}">
+        <label for="mtproto-origin-{{ system }}">Источник camouflage</label>
+        <select id="mtproto-origin-{{ system }}" name="origin">
+          <option value="external"{% if item.origin == 'external' %} selected{% endif %}>Внешний HTTPS-сайт</option>
+          <option value="local-site"{% if item.origin == 'local-site' %} selected{% endif %}>Собственный сайт внутри nginx:8443</option>
+        </select>
+        <button type="submit">Применить режим</button>
+      </form>
+      <form method="post" class="inline-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="action" value="mtproto_diagnose">
+        <input type="hidden" name="system" value="{{ system }}">
+        <button type="submit" class="secondary">Диагностика {{ system }}</button>
+      </form>
+    </article>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if mtproto_diagnosis %}
+  <div class="notice {{ 'notice-success' if mtproto_diagnosis.status == 'ready' else 'notice-warning' }}" role="status">
+    <strong>{{ mtproto_diagnosis.system }}: {{ mtproto_diagnosis.status }}</strong> — SNI <code>{{ mtproto_diagnosis.sni }}</code>, target <code>{{ mtproto_diagnosis.target }}</code>.
+    <ul>{% for check in mtproto_diagnosis.checks %}<li><code>{{ check.id }}</code>: {{ check.status }} / {{ check.detail }}</li>{% endfor %}</ul>
+    <span class="muted">Проверка ограничена {{ mtproto_diagnosis.timeout_seconds }} секундами и не показывает IP или secrets.</span>
+  </div>
+  {% endif %}
+</section>
+
+<section class="panel" id="sni-settings">
+  <div class="section-heading">
+    <div>
+      <h2>SNI сервисов</h2>
+      <p class="muted">Per-user SNI доступны для VLESS/Reality/Hysteria. Telemt, mtg и OpenConnect используют SNI уровня сервиса.</p>
+    </div>
+  </div>
+  {{ guidance_note('reality-sni') }}
+  <form method="post" class="inline-form" aria-label="Диагностика SNI">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="action" value="sni_diagnose">
+    <label for="sni-diagnose">Проверить DNS и TLS SNI</label>
+    <input id="sni-diagnose" name="sni" type="text" inputmode="url" placeholder="example.com" required>
+    <button type="submit" class="secondary">Проверить</button>
+  </form>
+  {% if sni_diagnosis %}
+  <div class="notice {{ 'notice-success' if sni_diagnosis.reason == 'ok' else 'notice-warning' }}" role="status">
+    SNI <code>{{ sni_diagnosis.sni }}</code>: DNS — <code>{{ sni_diagnosis.dns }}</code>, TLS — <code>{{ sni_diagnosis.tls }}</code>, результат — <code>{{ sni_diagnosis.reason }}</code>.
+    <span class="muted">Проверка выполняется с этого сервера и не гарантирует доступность у другого оператора или в другом регионе.</span>
+  </div>
+  {% endif %}
+  {% if sni_data %}
+  <div class="table-wrap"><table class="sni-table"><thead><tr><th>Сервис</th><th>Тип</th><th>Default</th><th>Aliases</th><th>Действия</th></tr></thead><tbody>
+  {% for system in sni_data.systems %}
+    {% set route = sni_data.routes[system] %}
+    {% set removable_aliases = route.aliases|reject('equalto', route.default)|list %}
+    <tr>
+      <td data-label="Сервис">{{ system_label(system) }}</td>
+      <td data-label="Тип"><span class="status {{ 'ok' if route.user_selectable else 'stale' }}">{{ 'выбор в профиле пользователя' if route.user_selectable else 'SNI уровня сервиса' }}</span></td>
+      <td data-label="Default"><code>{{ route.default }}</code></td>
+      <td data-label="Aliases">{% for alias in route.aliases %}<code>{{ alias }}</code>{% if not loop.last %} {% endif %}{% else %}<span class="muted">нет</span>{% endfor %}</td>
+      <td class="actions" data-label="Действия">
+        <form method="post" class="inline-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="action" value="sni_set_default">
+          <input type="hidden" name="revision" value="{{ sni_data.revision }}">
+          <input type="hidden" name="system" value="{{ system }}">
+          <select name="sni">{% for choice in route.choices %}<option value="{{ choice }}"{% if choice == route.default %} selected{% endif %}>{{ choice }}</option>{% endfor %}</select>
+          <button type="submit" class="secondary">Default</button>
+        </form>
+        <form method="post" class="inline-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="action" value="sni_add">
+          <input type="hidden" name="revision" value="{{ sni_data.revision }}">
+          <input type="hidden" name="system" value="{{ system }}">
+          <input name="sni" placeholder="example.com" required>
+          <button type="submit">Добавить</button>
+        </form>
+        {% if removable_aliases %}
+        <form method="post" class="inline-form" data-confirm="Удалить SNI alias" data-object="{{ system_label(system) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="action" value="sni_remove_alias">
+          <input type="hidden" name="revision" value="{{ sni_data.revision }}">
+          <input type="hidden" name="system" value="{{ system }}">
+          <select name="sni">{% for alias in removable_aliases %}<option value="{{ alias }}">{{ alias }}</option>{% endfor %}</select>
+          <button type="submit" class="danger">Удалить</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody></table></div>
+  {% else %}
+  <p class="empty-state" role="status">SNI-данные временно недоступны. Проверьте host-agent и `users.json`.</p>
+  {% endif %}
+</section>
+{% endblock %}

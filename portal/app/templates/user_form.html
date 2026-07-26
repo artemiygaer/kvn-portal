@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% from "_service_guidance.html" import guidance_note with context %}
+{% block title %}{{ 'Новый пользователь' if mode=='create' else 'Редактирование' }} — KVN VPN{% endblock %}
+{% block content %}
+<section class="panel form-panel">
+  <h1>{{ 'Новый пользователь' if mode=='create' else 'Редактирование пользователя' }}</h1>
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="revision" value="{{ data.revision }}">
+    {% if mode=='create' %}
+    <label>Имя<input name="name" required pattern="[A-Za-z0-9_.-]{2,32}"></label>
+    {% else %}
+    <input type="hidden" name="name" value="{{ user.name }}">
+    <label>Имя<input name="new_name" value="{{ user.name }}" required pattern="[A-Za-z0-9_.-]{2,32}"></label>
+    {% endif %}
+    <label>Описание<input name="description" maxlength="200" value="{{ user.description if user else '' }}"></label>
+    <label>Устройство
+      <select name="device">
+        <option value="">Без профиля</option>
+        {% for device in data.devices %}<option value="{{ device }}"{% if user and user.device==device %} selected{% endif %}>{{ device }}</option>{% endfor %}
+      </select>
+    </label>
+
+    <fieldset>
+      <legend>Системы</legend>
+      <div class="check-grid" data-system-guidance>
+        {% for system in data.systems %}
+        {% set guide = service_guide(system) %}
+        <label>
+          <input type="checkbox" name="systems" value="{{ system }}"{% if (user and system in user.systems) or (not user and guide and guide.default_user_enabled) %} checked{% endif %}>
+          <span>
+            <strong>{{ guide.label if guide else system_label(system) }}</strong><br>
+            {% if guide %}<small class="muted">{{ guide.purpose }}</small>{% endif %}
+          </span>
+        </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+    <p class="form-hint">Порты, клиенты, применение и диагностика собраны в <a href="{{ public_url('project_info') }}#service-catalog">каталоге сервисов</a>.</p>
+    {{ guidance_note('wireguard-pair') }}
+    {{ guidance_note('happ-karing') }}
+
+    <details>
+      <summary>Индивидуальные SNI</summary>
+      {{ guidance_note('reality-sni') }}
+      {% for system in data.sni_systems|default([]) %}
+      {% set choices = data.sni_choices.get(system, []) if data.sni_choices else [] %}
+      <label>{{ system_label(system) }}
+        <select name="sni_{{ system }}">
+          <option value="">По умолчанию{% if choices %}: {{ choices[0] }}{% endif %}</option>
+          {% for choice in choices %}<option value="{{ choice }}"{% if user and user.sni_overrides.get(system)==choice %} selected{% endif %}>{{ choice }}</option>{% endfor %}
+        </select>
+      </label>
+      {% endfor %}
+    </details>
+
+    {% if mode=='create' %}
+    <details>
+      <summary>Задать секреты вручную</summary>
+      <p class="muted">Пустые поля будут созданы автоматически.</p>
+      <label>UUID<input name="uuid" autocomplete="off"></label>
+      <label>Пароль Hysteria<input type="password" name="hysteria_password" autocomplete="new-password" maxlength="128"></label>
+      <label>Секрет Telemt<input type="password" name="telemt_secret" autocomplete="new-password" maxlength="64"></label>
+      <label>Пароль OpenConnect<input type="password" name="ocserv_password" autocomplete="new-password" maxlength="128"></label>
+    </details>
+    {% else %}
+    <label>Новый пароль OpenConnect<input type="password" name="ocserv_password" autocomplete="new-password" maxlength="128" placeholder="Оставьте пустым без изменений"></label>
+    {% endif %}
+    <label class="check"><input type="checkbox" name="enabled"{% if not user or user.enabled %} checked{% endif %}>Пользователь включён</label>
+    <div class="actions"><button type="submit">Сохранить</button><a href="{{ public_url('users_list') }}">Отмена</a></div>
+  </form>
+</section>
+{% endblock %}

@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% from "_user_export.html" import export_trigger, export_dialog with context %}
+{% from "_service_guidance.html" import guidance_note with context %}
+{% block page_scripts %}<script src="{{ public_url('static', filename='user-activity.js') }}" defer></script><script src="{{ public_url('static', filename='user-export.js') }}" defer></script>{% endblock %}
+{% block title %}{{ data.user.name }} — KVN VPN{% endblock %}
+{% macro file_card(file) -%}
+<article class="file-card {{ 'file-card-primary' if is_qr_file(file.kind) else '' }}">
+  <div><strong>{{ file.label }}</strong><small class="muted">{{ file.name }} · {{ file.size }} байт</small></div>
+  {% if is_qr_file(file.kind) %}
+  <a class="qr-link" href="{{ public_url('user_file_preview', name=data.user.name, filename=file.name) }}"><img src="{{ public_url('user_inline_file', name=data.user.name, filename=file.name) }}" alt="{{ file.label }} пользователя {{ data.user.name }}" width="220" height="220"></a>
+  {% endif %}
+  <div class="actions">
+    {% if file.can_preview %}<a class="button secondary" href="{{ public_url('user_file_preview', name=data.user.name, filename=file.name) }}">Открыть</a>{% endif %}
+    {% if file.can_download %}<a href="{{ public_url('user_download', name=data.user.name, filename=file.name) }}">Скачать</a>{% endif %}
+  </div>
+</article>
+{% endmacro %}
+{% block content %}
+<header class="topbar">
+  <div><span class="eyebrow">Пользователь</span><h1>{{ data.user.name }}</h1></div>
+  <div class="actions">{{ export_trigger(data.user.name, client_export) }}<a class="button secondary" href="{{ public_url('user_edit', name=data.user.name) }}">Редактировать</a><form method="post" action="{{ public_url('user_toggle', name=data.user.name) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="revision" value="{{ data.revision }}"><input type="hidden" name="enabled" value="{{ 'false' if data.user.enabled else 'true' }}"><button class="secondary" type="submit">{{ 'Отключить' if data.user.enabled else 'Включить' }}</button></form></div>
+</header>
+
+<section class="panel">
+  <p>{{ data.user.description or 'Без описания' }}</p>
+  <dl class="fact-grid">
+    <div><dt>Статус</dt><dd><span class="status {{ 'on' if data.user.enabled else 'off' }}">{{ 'включён' if data.user.enabled else 'отключён' }}</span></dd></div>
+    <div><dt>Системы</dt><dd>{{ data.user.systems|system_labels }}</dd></div>
+    <div><dt>UUID</dt><dd>{{ data.user.uuid_mask }}</dd></div>
+    <div><dt>Подписка</dt><dd>{{ data.user.subscription_mask }}</dd></div>
+  </dl>
+</section>
+
+<section class="panel" data-user-activity data-endpoint="{{ public_url('user_activity_json', name=data.user.name) }}" data-background-refresh="{{ 'true' if background_activity else 'false' }}">
+  <div class="section-heading"><div><h2>Активность по протоколам</h2><p class="muted">Только доступные протоколу счётчики. IP, endpoint, ключи и содержимое конфигов не собираются.</p></div><button class="secondary" type="button" data-user-activity-refresh>Обновить</button></div>
+  <p class="form-status" role="status" aria-live="polite" data-user-activity-status>Данные ещё не запрашивались.</p>
+  <div class="activity-grid" data-user-activity-rows><p class="empty-state">Нажмите «Обновить», чтобы получить runtime-сводку.</p></div>
+</section>
+
+<section class="panel" data-user-events>
+  <div class="section-heading"><div><h2>Последние действия</h2><p class="muted">Без IP, секретов и содержимого клиентских файлов.</p></div><button class="secondary" type="button" data-user-activity-refresh>Обновить</button></div>
+  <div class="event-list" data-user-event-rows><p class="empty-state">События будут загружены вместе с активностью.</p></div>
+</section>
+
+<section class="panel">
+  <div class="section-heading"><div><h2>WireGuard и AmneziaWG</h2><p class="muted">{{ guidance_topics['wireguard-pair'].summary }}</p></div></div>
+  {{ guidance_note('wireguard-pair') }}
+  <div class="file-grid">
+    {% set ns = namespace(count=0) %}
+    {% for file in data.user.files if client_file_group(file.kind) == 'tunnels' %}{% set ns.count = ns.count + 1 %}{{ file_card(file) }}{% endfor %}
+    {% if ns.count == 0 %}<p class="empty-state" role="status">Файлы WireGuard/AmneziaWG ещё не созданы или протоколы не включены.</p>{% endif %}
+  </div>
+</section>
+
+<section class="panel">
+  <div class="section-heading"><div><h2>Подписки HAPP и Karing</h2><p class="muted">{{ guidance_topics['happ-karing'].summary }}</p></div></div>
+  {{ guidance_note('happ-karing') }}
+  <div class="file-grid">
+    {% set ns = namespace(count=0) %}
+    {% for file in data.user.files if client_file_group(file.kind) == 'subscriptions' %}{% set ns.count = ns.count + 1 %}{{ file_card(file) }}{% endfor %}
+    {% if ns.count == 0 %}<p class="empty-state" role="status">Подписки HAPP/Karing ещё не созданы.</p>{% endif %}
+  </div>
+</section>
+
+<section class="panel">
+  <div class="section-heading"><div><h2>Telegram proxy</h2><p class="muted">{{ guidance_topics['telegram-pair'].summary }}</p></div></div>
+  {{ guidance_note('telegram-pair') }}
+  <div class="file-grid">
+    {% set ns = namespace(count=0) %}
+    {% for file in data.user.files if client_file_group(file.kind) == 'telegram' %}{% set ns.count = ns.count + 1 %}{{ file_card(file) }}{% endfor %}
+    {% if ns.count == 0 %}<p class="empty-state" role="status">Файлы Telegram proxy ещё не созданы или протоколы не включены.</p>{% endif %}
+  </div>
+</section>
+
+<section class="panel">
+  <div class="section-heading"><div><h2>OpenConnect</h2><p class="muted">OpenConnect выдаётся отдельным текстовым файлом и не входит в HAPP/Karing подписку.</p></div></div>
+  <div class="file-grid">
+    {% set ns = namespace(count=0) %}
+    {% for file in data.user.files if client_file_group(file.kind) == 'openconnect' %}{% set ns.count = ns.count + 1 %}{{ file_card(file) }}{% endfor %}
+    {% if ns.count == 0 %}<p class="empty-state" role="status">Файл OpenConnect ещё не создан или протокол не включён.</p>{% endif %}
+  </div>
+</section>
+
+<section class="panel">
+  <div class="section-heading"><div><h2>Прочие файлы</h2><p class="muted">Дополнительные файлы клиента, если они появились после render.</p></div></div>
+  <div class="file-grid">
+    {% set ns = namespace(count=0) %}
+    {% for file in data.user.files if client_file_group(file.kind) == 'other' %}{% set ns.count = ns.count + 1 %}{{ file_card(file) }}{% endfor %}
+    {% if ns.count == 0 %}<p class="empty-state" role="status">Других файлов нет.</p>{% endif %}
+  </div>
+</section>
+
+<section class="panel danger-zone">
+  <h2>Опасные операции</h2>
+  <p class="muted">Каждое действие требует отдельного подтверждения и может отключить текущие подключения.</p>
+  <div class="danger-actions">
+    {% for action,label,help in [('rotate','Перегенерировать все ключи','Все старые конфиги перестанут работать.'),('rotate-subscription','Сменить токен подписки','Legacy, HAPP, Karing и Karing WireGuard ссылки станут недействительными.'),('reset-ocserv','Сменить пароль OpenConnect','Потребуется обновить пароль на устройствах.'),('delete','Удалить пользователя','Пользователь и его файлы будут удалены.')] %}
+    <form class="danger-action" method="post" action="{{ public_url('user_action', name=data.user.name) }}" data-confirm="{{ label }}" data-object="{{ data.user.name }}"><div><strong>{{ label }}</strong><small class="muted">{{ help }}</small></div><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="{{ action }}"><input type="hidden" name="confirmation_token" value="{{ confirmations[action] }}"><button class="danger" type="submit">{{ label }}</button></form>
+    {% endfor %}
+  </div>
+</section>
+{{ export_dialog(client_export) }}
+{% endblock %}

@@ -1,0 +1,12 @@
+{% macro navigation_links(items, primary=none) -%}
+  {% for item in items if primary is none or item.primary == primary %}
+  <a href="{{ public_url(item.endpoint) }}"{% if navigation_active(item, request.endpoint) %} aria-current="page"{% endif %}>{{ t(item.label) }}</a>
+  {% endfor %}
+{%- endmacro %}
+{% macro command_links(items) -%}
+  {% for item in items %}
+  <a class="command-item" href="{{ public_url(item.endpoint) }}" data-command-item data-keywords="{{ item.keywords }}">
+    <strong>{{ t(item.label) }}</strong><span>{{ t(item.description) }}</span>
+  </a>
+  {% endfor %}
+{%- endmacro %}

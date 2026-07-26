@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% from "_user_export.html" import export_trigger, export_dialog with context %}
+{% block title %}{{ t('users') }} — KVN VPN{% endblock %}
+{% block page_scripts %}<script src="{{ public_url('static', filename='users.js') }}" defer></script><script src="{{ public_url('static', filename='user-export.js') }}" defer></script>{% endblock %}
+{% block main_class %}{% if view == 'matrix' %} shell-wide{% endif %}{% endblock %}
+{% block content %}
+<header class="topbar"><div><span class="eyebrow">{{ 'Управление' if g.lang == 'ru' else 'Management' }}</span><h1>{{ t('users') }}</h1></div><a class="button" href="{{ public_url('user_create') }}">{{ 'Добавить' if g.lang == 'ru' else 'Add' }}</a></header>
+
+<nav class="view-switch" aria-label="{{ 'Режим отображения' if g.lang == 'ru' else 'View mode' }}">
+  <a class="button {{ 'secondary' if view != 'cards' else '' }}" href="{{ public_url('users_list', view='cards', q=request.args.get('q',''), system=request.args.get('system',''), enabled=request.args.get('enabled','')) }}"{% if view == 'cards' %} aria-current="page"{% endif %}>{{ 'Карточки' if g.lang == 'ru' else 'Cards' }}</a>
+  <a class="button {{ 'secondary' if view != 'matrix' else '' }}" href="{{ public_url('users_list', view='matrix', q=request.args.get('q',''), system=request.args.get('system',''), enabled=request.args.get('enabled','')) }}"{% if view == 'matrix' %} aria-current="page"{% endif %}>{{ 'Матрица' if g.lang == 'ru' else 'Matrix' }}</a>
+</nav>
+
+<form method="get" class="filters" data-user-filters>
+  <input type="hidden" name="view" value="{{ view }}">
+  <label>{{ 'Поиск' if g.lang == 'ru' else 'Search' }}<input name="q" value="{{ request.args.get('q','') }}" data-user-live-filter autocomplete="off"></label>
+  <label>{{ 'Система' if g.lang == 'ru' else 'System' }}<select name="system"><option value="">{{ 'Все' if g.lang == 'ru' else 'All' }}</option>{% for system in data.systems %}<option value="{{ system }}"{% if request.args.get('system')==system %} selected{% endif %}>{{ system_label(system) }}</option>{% endfor %}</select></label>
+  <label>{{ 'Статус' if g.lang == 'ru' else 'Status' }}<select name="enabled"><option value="">{{ 'Все' if g.lang == 'ru' else 'All' }}</option><option value="true"{% if request.args.get('enabled')=='true' %} selected{% endif %}>{{ 'Включён' if g.lang == 'ru' else 'Enabled' }}</option><option value="false"{% if request.args.get('enabled')=='false' %} selected{% endif %}>{{ 'Отключён' if g.lang == 'ru' else 'Disabled' }}</option></select></label>
+  <button type="submit">{{ 'Найти' if g.lang == 'ru' else 'Find' }}</button>
+</form>
+
+{% if not has_users %}
+<section class="panel empty-state" role="status" data-users-empty>{{ 'Пользователи ещё не созданы. Добавьте первый профиль.' if g.lang == 'ru' else 'No users yet. Add the first profile.' }}</section>
+{% elif not users %}
+<section class="panel empty-state" role="status" data-users-no-match>{{ 'По заданным GET-фильтрам совпадений нет.' if g.lang == 'ru' else 'No users match the selected filters.' }}</section>
+{% elif view == 'matrix' %}
+<section class="panel user-matrix-panel" aria-labelledby="user-matrix-title">
+  <div class="section-heading"><div><h2 id="user-matrix-title">{{ 'Пользователь × протокол' if g.lang == 'ru' else 'User × protocol' }}</h2><p class="muted">{{ 'Девять систем, состояние доступа и эффективный SNI.' if g.lang == 'ru' else 'Nine systems, access state, and effective SNI.' }}</p></div><span class="status ok">{{ users|length }} {{ 'строк' if g.lang == 'ru' else 'rows' }}</span></div>
+  <div class="table-scroll user-matrix-scroll" tabindex="0" aria-label="{{ 'Матрица доступов пользователей' if g.lang == 'ru' else 'User access matrix' }}">
+    <table class="user-matrix" data-user-matrix>
+      <thead><tr><th class="user-identity">{{ 'Пользователь' if g.lang == 'ru' else 'User' }}</th>{% for system in data.systems %}<th data-protocol-column data-system="{{ system }}"><span>{{ system_label(system) }}</span><small>{{ ({'per_user':'SNI: default / override','service':'SNI уровня сервиса','not_applicable':'SNI не применяется'} if g.lang == 'ru' else {'per_user':'SNI: default / override','service':'Service-level SNI','not_applicable':'SNI not applicable'})[data.sni_matrix[system].scope] }}</small></th>{% endfor %}</tr></thead>
+      <tbody>
+      {% for user in users %}<tr data-user-item data-search="{{ user.name }} {{ user.description }} {{ user.systems|join(' ') }} {{ 'enabled' if user.enabled else 'disabled' }}">
+        <th class="user-identity"><a href="{{ public_url('user_detail', name=user.name) }}">{{ user.name }}</a><small>{{ user.description or ('Без описания' if g.lang == 'ru' else 'No description') }}</small><span class="status {{ 'on' if user.enabled else 'off' }}">{{ ('включён' if g.lang == 'ru' else 'enabled') if user.enabled else ('отключён' if g.lang == 'ru' else 'disabled') }}</span>{{ export_trigger(user.name, client_export, true) }}</th>
+        {% for system in data.systems %}{% set assigned=system in user.systems %}{% set policy=data.sni_matrix[system] %}
+        <td data-access-state="{{ 'enabled' if assigned and user.enabled else ('disabled' if assigned else 'not-assigned') }}" data-system="{{ system }}">
+          {% if not assigned %}<span class="matrix-state not-assigned">{{ 'не назначен' if g.lang == 'ru' else 'not assigned' }}</span>
+          {% elif user.enabled %}<span class="matrix-state enabled">{{ 'доступ включён' if g.lang == 'ru' else 'access enabled' }}</span>
+          {% else %}<span class="matrix-state disabled">{{ 'доступ отключён' if g.lang == 'ru' else 'access disabled' }}</span>{% endif %}
+          {% if assigned and policy.scope == 'per_user' %}{% set override=user.sni_overrides.get(system) %}<small class="matrix-sni"><span>{{ 'override' if override else 'default' }}</span><code>{{ user.effective_sni.get(system, policy.default) }}</code></small>
+          {% elif assigned and policy.scope == 'service' %}<small class="matrix-sni"><span>{{ 'SNI уровня сервиса · service-level SNI' if g.lang == 'ru' else 'service-level SNI' }}</span><code>{{ policy.default or ('настройки сервиса' if g.lang == 'ru' else 'service settings') }}</code></small>
+          {% elif assigned %}<small class="matrix-sni"><span>{{ 'не применяется · not applicable' if g.lang == 'ru' else 'not applicable' }}</span></small>{% endif %}
+        </td>{% endfor %}
+      </tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="empty-state" role="status" data-users-client-no-match hidden>{{ 'Клиентский фильтр не нашёл строк. GET-фильтры выше продолжают работать без JavaScript.' if g.lang == 'ru' else 'The live filter found no rows. The filters above still work without JavaScript.' }}</p>
+</section>
+{% else %}
+<div class="grid" data-user-cards>
+{% for user in users %}
+  <article class="panel" data-user-item data-search="{{ user.name }} {{ user.description }} {{ user.systems|join(' ') }} {{ 'enabled' if user.enabled else 'disabled' }}"><div class="status {{ 'on' if user.enabled else 'off' }}">{{ ('Включён' if g.lang == 'ru' else 'Enabled') if user.enabled else ('Отключён' if g.lang == 'ru' else 'Disabled') }}</div><h2><a href="{{ public_url('user_detail', name=user.name) }}">{{ user.name }}</a></h2><p class="muted">{{ user.description or ('Без описания' if g.lang == 'ru' else 'No description') }}</p><p>{{ user.systems|system_labels }}</p><div class="actions">{{ export_trigger(user.name, client_export) }}</div></article>
+{% endfor %}
+</div>
+<p class="empty-state" role="status" data-users-client-no-match hidden>{{ 'Клиентский фильтр не нашёл карточек. GET-фильтры выше продолжают работать без JavaScript.' if g.lang == 'ru' else 'The live filter found no cards. The filters above still work without JavaScript.' }}</p>
+{% endif %}
+{{ export_dialog(client_export) }}
+{% endblock %}

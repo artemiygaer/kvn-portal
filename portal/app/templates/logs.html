@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Логи — KVN VPN{% endblock %}
+{% block page_scripts %}<script src="{{ public_url('static', filename='logs.js') }}" defer></script>{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div><p class="eyebrow">Диагностика</p><h1>Логи</h1><p class="muted">Ограниченная выборка без раскрытия секретов</p></div>
+</header>
+<section class="panel" data-logs-panel data-logs-endpoint="{{ public_url('logs_json', service=service, tail=tail, since=since, filter=text_filter) }}" data-log-empty="За выбранный период записей нет.">
+  <form method="get" class="filters">
+    <label>Сервис<select name="service">{% for item in services %}<option value="{{ item }}"{% if item==service %} selected{% endif %}>{{ item }}</option>{% endfor %}</select></label>
+    <label>Строк<input type="number" name="tail" min="50" max="2000" value="{{ tail }}"></label>
+    <label>Минут<input type="number" name="since" min="1" max="10080" value="{{ since }}"></label>
+    <label>Фильтр<input name="filter" maxlength="64" value="{{ text_filter }}"></label>
+    <div class="actions"><button type="submit">Обновить</button><button class="secondary" type="submit" name="download" value="1">Скачать</button></div>
+  </form>
+  <div class="log-tools">
+    <button class="secondary" type="button" data-log-wrap aria-pressed="true">Не переносить строки</button>
+    <button class="secondary" type="button" data-log-pause aria-pressed="false">Пауза</button>
+  </div>
+  <p class="muted" role="status" aria-live="polite">
+    <span data-log-status>Автообновление активно.</span>
+    <span>Последнее обновление: <time datetime="{{ generated_at }}" data-log-updated>{{ generated_at }}</time></span>
+    <span>Параметры: <code data-log-params>{{ service }} · {{ tail }} строк · {{ since }} мин{% if text_filter %} · фильтр: {{ text_filter }}{% endif %}</code></span>
+    <span class="status stale" data-log-truncated{% if not truncated %} hidden{% endif %}>вывод усечён</span>
+    <span class="status {{ 'ok' if command.ok else 'down' }}" data-log-command>{{ command.source }} · rc={{ command.returncode }}</span>
+  </p>
+  <pre class="logs wrap" tabindex="0" data-log-view>{{ content or 'За выбранный период записей нет.' }}</pre>
+</section>
+{% endblock %}

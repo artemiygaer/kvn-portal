@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Вход — KVN VPN{% endblock %}
+{% block content %}
+<section class="panel auth" aria-labelledby="login-title">
+  <span class="brand-mark auth-mark" aria-hidden="true">K</span><p class="eyebrow">Защищённый доступ</p><h1 id="login-title">Управление KVN VPN</h1>
+  <p class="muted">Введите учётные данные администратора.</p>
+  {% if notice %}<div class="notice notice-success" role="status">{{ notice }}</div>{% endif %}
+  {% if error %}<div class="alert" role="alert">{{ error }}</div>{% endif %}
+  <form method="post" autocomplete="on">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="login">Логин</label><input id="login" name="login" autocomplete="username" required autofocus>
+    <label for="password">Пароль</label><div class="password-field"><input id="password" name="password" type="password" autocomplete="current-password" required><button class="secondary" type="button" data-password-toggle aria-controls="password" aria-label="Показать пароль">Показать</button></div>
+    <button type="submit">Войти</button>
+  </form>
+</section>
+{% endblock %}

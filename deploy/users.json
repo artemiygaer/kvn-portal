@@ -1,0 +1,110 @@
+{
+  "server": "YOUR_SERVER_IP",
+  "client_export": {
+    "address_mode": "server",
+    "public_ip": "",
+    "include_alternate": false
+  },
+  "updates": {
+    "github": {
+      "enabled": false,
+      "owner": "artemiygaer",
+      "repo": "kvn-portal",
+      "channel": "stable",
+      "tag": "",
+      "asset_preference": "release"
+    }
+  },
+  "site": {
+    "title": "Сервисная страница"
+  },
+  "subscription": {
+    "enabled": true,
+    "port": 2096
+  },
+  "letsencrypt": {
+    "enabled": false
+  },
+  "portal": {
+    "enabled": false
+  },
+  "telemt": {
+    "camouflage_origin": "external",
+    "extra_users": {}
+  },
+  "mtg": {
+    "camouflage_origin": "external"
+  },
+  "ocserv": {
+    "enabled": true,
+    "sni_enabled": false,
+    "tcp_port": 443,
+    "dtls_enabled": true,
+    "udp_port": 4443,
+    "front_snis": [],
+    "network": "10.77.77.0/24",
+    "dns": [
+      "1.1.1.1",
+      "8.8.8.8"
+    ],
+    "max_clients": 64,
+    "max_same_clients": 3,
+    "mtu": 1280
+  },
+  "sni_routes": {
+    "tls": {
+      "default": "www.microsoft.com",
+      "dest": "xray:443",
+      "aliases": [
+        "www.microsoft.com",
+        "www.apple.com",
+        "www.android.com"
+      ]
+    },
+    "reality-xhttp": {
+      "default": "github.com",
+      "dest": "xray:2053",
+      "aliases": [
+        "github.com",
+        "miu.com",
+        "android.com",
+        "cloudflare.com",
+        "www.github.com",
+        "www.bing.com"
+      ]
+    },
+    "reality-tcp": {
+      "default": "apple.com",
+      "dest": "xray:2054",
+      "aliases": [
+        "apple.com"
+      ]
+    },
+    "hysteria": {
+      "default": "www.apple.com",
+      "dest": "hysteria:443",
+      "aliases": [
+        "www.apple.com",
+        "gateway.icloud.com",
+        "www.gstatic.com"
+      ]
+    },
+    "telemt": {
+      "default": "yandex.com",
+      "dest": "telemt:3129",
+      "aliases": [
+        "yandex.com",
+        "www.yandex.com"
+      ]
+    },
+    "mtg": {
+      "default": "ya.ru",
+      "dest": "mtg:3128",
+      "aliases": [
+        "ya.ru"
+      ]
+    },
+    "custom": []
+  },
+  "users": []
+}
