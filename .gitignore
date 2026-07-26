@@ -54,6 +54,7 @@ kvn-vpn-backup-*.tar
 release-manifest.json
 publication-manifest.json
 SHA256SUMS
+!portal/wheels/SHA256SUMS
 
 # Чистый шаблон deploy хранится и копируется намеренно.
 !deploy/users.json

@@ -7701,7 +7701,10 @@ def cmd_updates(args: argparse.Namespace) -> None:
     elif token_value:
         try:
             atomic_write_private(GITHUB_TOKEN_FILE, token_value + "\n")
-            if os.name == "posix":
+            if (
+                os.name == "posix"
+                and GITHUB_TOKEN_FILE == Path("/etc/kvn-portal/github.token")
+            ):
                 os.chown(GITHUB_TOKEN_FILE, 0, 0)
         except OSError as exc:
             raise SystemExit("Не удалось записать /etc/kvn-portal/github.token; запустите через sudo") from exc
