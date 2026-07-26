@@ -58,3 +58,9 @@ SHA256SUMS
 
 # Чистый шаблон deploy хранится и копируется намеренно.
 !deploy/users.json
+!deploy/portal-data/
+deploy/portal-data/*
+!deploy/portal-data/.gitkeep
+!deploy/portal-runtime/
+deploy/portal-runtime/*
+!deploy/portal-runtime/.gitkeep
