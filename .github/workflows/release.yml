@@ -19,8 +19,6 @@ on:
 
 permissions:
   contents: write
-  id-token: write
-  attestations: write
 
 concurrency:
   group: release-${{ inputs.build_id }}
@@ -71,13 +69,6 @@ jobs:
             SHA256SUMS
           if-no-files-found: error
           retention-days: 14
-      - name: Attestation
-        if: ${{ inputs.publish }}
-        uses: actions/attest-build-provenance@v2
-        with:
-          subject-path: |
-            kvn-vpn-release-linux-amd64.tar.gz
-            kvn-vpn-deploy.tar.gz
       - name: Проверка production tag
         if: ${{ inputs.publish }}
         env:

@@ -95,7 +95,6 @@ class WorkflowContractTests(unittest.TestCase):
             "type: boolean",
             "inputs.publish",
             "tools/publication_manifest.py",
-            "actions/attest-build-provenance@v2",
             'gh release create "$TAG"',
             "--draft",
             'gh release upload "$TAG"',
@@ -106,6 +105,8 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotRegex(release, r"(?m)^\s+(?:push|schedule):\s*$")
         self.assertNotIn("pull_request_target", ci + release)
         self.assertNotIn("repository_dispatch", ci + release)
+        self.assertNotIn("id-token: write", release)
+        self.assertNotIn("attestations: write", release)
 
 
 if __name__ == "__main__":
