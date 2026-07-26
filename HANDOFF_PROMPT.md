@@ -113,20 +113,20 @@ KVN VPN v3 — мультипротокольный VPN-стек для Debian 1
 
 Проверенный baseline от 26.07.2026:
 
-- 338 тестов проекта прошли в WSL/root;
+- 339 тестов проекта прошли локально, 18 Debian/Linux-only проверок пропущены;
 - 94 portal tests прошли в Docker test image;
 - deploy runtime E2E прошёл;
 - Bash syntax, Compose config, compileall, docs checker и source safety прошли;
 - browser matrix 1440/390 px, светлая/тёмная темы: без горизонтального
   переполнения, обрезанных кнопок и ошибок консоли;
 - full release: `linux/amd64`, семь runtime images, build ID
-  `20260726-release1`;
-- `main` и tag `v3.0.0` были отправлены в `artemiygaer/kvn-portal`.
+  `20260726-release3`;
+- публичный Release `v3.0.3` опубликован из commit `9ae03b1`;
+- `v3.0.2` помечен как неподходящий для full update на Docker/containerd:
+  verifier мог ложно отклонить корректный `kvn-portal:local` до изменения source.
 
-GitHub Release мог ещё не быть опубликован: сначала проверь Releases и Actions.
-Workflow `.github/workflows/release.yml` запускается только вручную и создаёт
-проверяемый draft перед публикацией. Не считай наличие tag доказательством
-наличия Release.
+Workflow `.github/workflows/release.yml` запускается только вручную, создаёт
+проверяемый draft и публикует его после проверки всех четырёх assets.
 
 Этот файл мог быть изменён после последней сборки. Поэтому не публикуй лежащие
 рядом архивы, пока не проверишь, что их embedded source совпадает с текущим
