@@ -1,4 +1,4 @@
-# KVN VPN v3
+# KVN VPN v3.1
 
 Мультипротокольный VPN-стек для Debian 12/13. Основные сервисы запускаются через Compose.
 
@@ -12,6 +12,8 @@ Runtime-образы закреплены на проверенных верси
 
 ## Изменения релиза
 
+- опциональный профиль AmneziaWG 3.1: `HeaderProtectionKey`, S3/S4, content padding, изменяемые тайминги и `RandomTrailers`; legacy остаётся default для совместимости;
+- список активных удалённых SSH-сессий на главной странице портала: системный пользователь, IP, TTY и время входа без чтения команд или содержимого терминала;
 - транзакционное управление пользователями с проверяемым AmneziaWG/WireGuard apply и `reconcile`;
 - история нагрузки за 72 часа и адаптивные графики без внешних assets;
 - QR/preview/download для AmneziaWG app, стандартного WireGuard, HAPP и Karing;
@@ -437,6 +439,37 @@ python3 tools/kvnctl.py amneziawg diagnose USER
 sudo awg show awg0
 sudo journalctl -u kvn-amneziawg.service -n 100 --no-pager
 ```
+
+Профиль AWG 3.1 включается явно в «Настройки → AmneziaWG» либо CLI:
+
+Реализация сверена 20.08.2026 с `amneziawg-tools`/kernel module
+`v3.1.20260812`, userspace server `v3.1.20260814` и клиентом AmneziaVPN
+`5.0.0.5` с поддержкой AWG 3.
+
+- спецификация параметров: <https://github.com/amnezia-vpn/amneziawg-go>;
+- tools 3.1: <https://github.com/amnezia-vpn/amneziawg-tools/releases/tag/v3.1.20260812>;
+- kernel module 3.1: <https://github.com/amnezia-vpn/amneziawg-linux-kernel-module/tree/v3.1.20260812>.
+
+```bash
+sudo ./amneziawg/install-kernel-module.sh
+# После обновления kernel module перезагрузите сервер, если скрипт этого потребует.
+sudo python3 tools/kvnctl.py amneziawg configure --profile 3.1 --apply
+```
+
+Перед сохранением портал проверяет, что `awg set --help` содержит параметры
+`header-protection-key` и `random-trailers`. Переход меняет общий протокол
+`awg0`: после применения заново экспортируйте и импортируйте конфиг каждого
+AmneziaWG-пользователя. Возврат к прежним конфигам:
+
+```bash
+sudo python3 tools/kvnctl.py amneziawg configure --profile legacy --apply
+```
+
+`HeaderProtectionKey` генерируется автоматически и не показывается web-порталу.
+Формат `.conf` рассчитан на актуальные AmneziaWG apps/tools. В полном клиенте
+AmneziaVPN импорт стороннего `.conf` может отставать от поддержки формата;
+после импорта проверьте наличие AWG 3.1-полей, а при их потере используйте
+отдельный AmneziaWG-клиент.
 
 Если клиент бесконечно ожидает рукопожатие, сначала обновите пакет AmneziaWG через `apt update` и повторный запуск `setup.sh`, затем проверьте DNS endpoint, `51820/udp`, состояние службы и наличие peer в project/host конфигурациях. Для проверки входящих пакетов можно отдельно установить `tcpdump` и выполнить:
 

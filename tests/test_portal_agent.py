@@ -104,7 +104,12 @@ class FakeRunner:
         elif argv[0] == "df":
             stdout = "100 20 80 20%\n"
         elif argv[0] in {"awg", "wg"}:
-            stdout = "awg0 private-key public-key 51820 off\n"
+            if argv[:3] == ["awg", "set", "--help"]:
+                stdout = "header-protection-key random-trailers\n"
+            else:
+                stdout = "awg0 private-key public-key 51820 off\n"
+        elif argv[:2] == ["who", "--ips"]:
+            stdout = "root pts/0 2026-08-20 12:34 (203.0.113.9)\n"
         return CommandResult(tuple(argv), 0, stdout, "", 1)
 
 
@@ -130,6 +135,17 @@ class FakeServiceControl:
             "plan": {"changed": False, "changed_paths": [], "services": {}},
             "apply": {"outcome": "applied", "warnings": [], "fallbacks": []},
             "service": service,
+        }
+
+    def amneziawg_settings(self):
+        return {"revision": "a" * 64, "protocol_version": "legacy", "v3": {}}
+
+    def apply_amneziawg(self, params):
+        return {
+            "changed": True,
+            "revision": params["revision"],
+            "apply": {"outcome": "applied", "reconcile_required": False},
+            "settings": {"protocol_version": params["protocol_version"]},
         }
 
     def network_topology(self):
@@ -537,6 +553,48 @@ class PortalAgentProtocolTests(unittest.TestCase):
         self.assertFalse(denied["ok"])
         self.assertEqual(denied["error"]["code"], "invalid_params")
         self.assertEqual(self.runner.calls, [])
+
+    def test_amneziawg_31_apply_requires_capable_tools_and_exact_schema(self):
+        control = FakeServiceControl()
+        dispatcher = AgentDispatcher(Path("/srv/kvn"), self.runner, control)
+        app = AgentApplication(SECRET, dispatcher)
+        params = {
+            "revision": "a" * 64,
+            "protocol_version": "3.1",
+            "content_padding_addition": "16-64",
+            "rekey_after_time": "120-150",
+            "rekey_timeout": "5-8",
+            "reject_after_time": "180-240",
+            "keepalive_timeout": "10-15",
+            "max_handshake_attempts": "15-20",
+            "random_trailers": True,
+            "regenerate_header_key": False,
+        }
+        allowed = json.loads(
+            app.handle_line(request_line("amneziawg.apply", params)).decode("utf-8")
+        )
+        denied = json.loads(
+            app.handle_line(request_line("amneziawg.apply", {**params, "command": "id"})).decode("utf-8")
+        )
+        self.assertTrue(allowed["ok"])
+        self.assertFalse(denied["ok"])
+        self.assertEqual(denied["error"]["code"], "invalid_params")
+        self.assertEqual(self.runner.calls[0][0], ("awg", "set", "--help"))
+
+        class OldAwgRunner(FakeRunner):
+            def run(self, argv, *, timeout=30, max_output=128 * 1024):
+                if argv[:3] == ["awg", "set", "--help"]:
+                    return CommandResult(tuple(argv), 1, "legacy usage", "", 1)
+                return super().run(argv, timeout=timeout, max_output=max_output)
+
+        old_app = AgentApplication(
+            SECRET, AgentDispatcher(Path("/srv/kvn"), OldAwgRunner(), control)
+        )
+        unsupported = json.loads(
+            old_app.handle_line(request_line("amneziawg.apply", params)).decode("utf-8")
+        )
+        self.assertFalse(unsupported["ok"])
+        self.assertEqual(unsupported["error"]["code"], "awg31_unsupported")
 
     def test_mtproto_methods_are_typed_and_do_not_accept_command_fields(self):
         dispatcher = AgentDispatcher(Path("/srv/kvn"), self.runner, FakeServiceControl())

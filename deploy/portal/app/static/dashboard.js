@@ -17,6 +17,44 @@
     let polling = false;
     let stateHint = "";
     let lastHistoryAt = 0;
+    const renderSshSessions = (data) => {
+      const body = dashboard.querySelector("[data-ssh-sessions]");
+      const status = dashboard.querySelector("[data-ssh-status]");
+      if (!body || !status) return;
+      const sessions = Array.isArray(data?.sessions) ? data.sessions : [];
+      status.className = `status ${data?.status || "stale"}`;
+      status.textContent = data?.status_label || msg.noData;
+      body.replaceChildren();
+      if (!data?.available) {
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+        cell.colSpan = 4;
+        cell.className = "muted";
+        cell.textContent = "Список SSH-сессий временно недоступен.";
+        row.append(cell);
+        body.append(row);
+        return;
+      }
+      if (!sessions.length) {
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+        cell.colSpan = 4;
+        cell.className = "muted";
+        cell.textContent = "Активных удалённых SSH-сессий нет.";
+        row.append(cell);
+        body.append(row);
+        return;
+      }
+      sessions.forEach((session) => {
+        const row = document.createElement("tr");
+        [session.user, session.remote_ip, session.tty, session.login_at].forEach((value) => {
+          const cell = document.createElement("td");
+          cell.textContent = String(value || "—");
+          row.append(cell);
+        });
+        body.append(row);
+      });
+    };
     const formatNumber = (value, unit) => {
       if (!Number.isFinite(value)) return msg.noData;
       if (unit === "%") return `${value.toFixed(1)}%`;
@@ -153,6 +191,7 @@
           card.querySelector("[data-card-value]").textContent = item.value;
           card.querySelector("[data-card-detail]").textContent = item.detail;
         });
+        renderSshSessions(payload.ssh_sessions || {});
         failures = 0;
         stateHint = payload.status === "loading" ? msg.snapshotLoading : payload.stale ? msg.snapshotStale : "";
         if (monitoringEnabled && Date.now() - lastHistoryAt >= 180000) loadHistory();

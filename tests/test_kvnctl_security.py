@@ -61,6 +61,45 @@ def base_state():
 
 
 class KvnctlSecurityTests(unittest.TestCase):
+    def test_amneziawg_31_profile_renders_server_and_client_without_legacy_breakage(self):
+        state = base_state()
+        user = state["users"][0]
+        user["systems"] = [*user["systems"], "amneziawg"]
+        kvnctl.ensure_amneziawg_state(state)
+
+        legacy_client = kvnctl.amneziawg_client_conf(state, user)
+        self.assertNotIn("HeaderProtectionKey", legacy_client)
+        self.assertNotIn("RandomTrailers", legacy_client)
+
+        cfg = kvnctl.update_amneziawg_profile(
+            state, protocol_version="3.1"
+        )
+        self.assertTrue(kvnctl.valid_wg_key(cfg["v3"]["header_protection_key"]))
+        with tempfile.TemporaryDirectory() as tmp:
+            server_path = Path(tmp) / "awg0.conf"
+            with mock.patch.object(kvnctl, "AMNEZIAWG_CONFIG", server_path):
+                kvnctl.render_amneziawg(state)
+            server = server_path.read_text(encoding="utf-8")
+        client = kvnctl.amneziawg_client_conf(state, user)
+        for marker in (
+            "S3 = 64", "S4 = 96", "ContentPaddingAddition = 16-64",
+            "RekeyAfterTime = 120-150", "RandomTrailers = on",
+        ):
+            self.assertIn(marker, server)
+            self.assertIn(marker, client)
+        header_line = next(
+            line for line in server.splitlines()
+            if line.startswith("HeaderProtectionKey = ")
+        )
+        self.assertIn(header_line, client)
+
+        with self.assertRaises(SystemExit):
+            kvnctl.update_amneziawg_profile(
+                state,
+                protocol_version="3.1",
+                values={"reject_after_time": "130"},
+            )
+
     def assert_raises_quietly(self, func, *args):
         with contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaises(SystemExit):

@@ -41,7 +41,7 @@
     "user_inline_file", "user_toggle", "users_list"
   ],
   "rpc_methods": [
-    "amneziawg.status", "backup.list", "certificate.action", "certificates.status",
+    "amneziawg.apply", "amneziawg.settings", "amneziawg.status", "backup.list", "certificate.action", "certificates.status",
     "client.export.settings", "client.export.update", "dashboard.snapshot",
     "domain.advice", "health.host", "health.summary",
     "logs.tail", "maintenance.commands", "maintenance.run", "metrics.current",

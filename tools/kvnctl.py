@@ -204,6 +204,27 @@ AWG_DEFAULT_ROUTE_EXCLUDES = [
     "240.0.0.0/4",
     "255.255.255.255/32",
 ]
+AWG_PROTOCOL_PROFILES = ("legacy", "3.1")
+# Сбалансированный профиль KVN для AWG 3.1. Это не «официальные рекомендуемые»
+# значения: формат параметров официальный, а узкие диапазоны выбраны так, чтобы
+# не ломать временные зависимости WireGuard и не раздувать UDP-пакеты сверх MTU.
+AWG31_DEFAULTS = {
+    "content_padding_addition": "16-64",
+    "rekey_after_time": "120-150",
+    "rekey_timeout": "5-8",
+    "reject_after_time": "180-240",
+    "keepalive_timeout": "10-15",
+    "max_handshake_attempts": "15-20",
+    "random_trailers": True,
+}
+AWG31_CONFIG_KEYS = {
+    "content_padding_addition": "ContentPaddingAddition",
+    "rekey_after_time": "RekeyAfterTime",
+    "rekey_timeout": "RekeyTimeout",
+    "reject_after_time": "RejectAfterTime",
+    "keepalive_timeout": "KeepaliveTimeout",
+    "max_handshake_attempts": "MaxHandshakeAttempts",
+}
 # Все доступные системы/протоколы
 DEFAULT_USER_SYSTEMS = ["tls", "reality-xhttp", "reality-tcp", "hysteria", "telemt", "mtg"]
 ALL_SYSTEMS = [*DEFAULT_USER_SYSTEMS, "amneziawg", "wireguard", "ocserv"]
@@ -1791,27 +1812,137 @@ def awg_config(state: dict) -> dict:
         cfg.pop("route_excludes", None)
         cfg.pop("compact_route_excludes", None)
 
+    protocol_version = str(cfg.get("protocol_version", "legacy"))
+    if protocol_version not in AWG_PROTOCOL_PROFILES:
+        raise SystemExit(
+            "amneziawg.protocol_version: допустимы legacy и 3.1"
+        )
+    cfg["protocol_version"] = protocol_version
+
     obfs = cfg.setdefault("obfuscation", {})
     obfs.setdefault("Jc", 5)
     obfs.setdefault("Jmin", 64)
     obfs.setdefault("Jmax", 1024)
     obfs.setdefault("S1", 32)
     obfs.setdefault("S2", 48)
-    used_headers = set()
+    if protocol_version == "3.1":
+        # Header protection использует S1-S4 как nonce; все четыре значения
+        # должны быть не меньше 12 согласно официальной спецификации AWG 3+.
+        obfs.setdefault("S3", 64)
+        obfs.setdefault("S4", 96)
+        for key in ("S1", "S2", "S3", "S4"):
+            try:
+                obfs[key] = int(obfs[key])
+            except (TypeError, ValueError):
+                raise SystemExit(f"amneziawg.obfuscation.{key} должен быть числом")
+            if not (12 <= obfs[key] <= 65535):
+                raise SystemExit(
+                    f"amneziawg.obfuscation.{key} для AWG 3.1 должен быть 12-65535"
+                )
+    used_headers: list[tuple[int, int]] = []
     for key in ("H1", "H2", "H3", "H4"):
         value = obfs.get(key)
-        if isinstance(value, int) and value not in used_headers:
-            used_headers.add(value)
+        parsed = parse_awg_header_range(value)
+        if parsed is not None and not any(
+            parsed[0] <= high and low <= parsed[1]
+            for low, high in used_headers
+        ):
+            used_headers.append(parsed)
+            if isinstance(value, str):
+                obfs[key] = str(parsed[0]) if parsed[0] == parsed[1] else f"{parsed[0]}-{parsed[1]}"
             continue
         while True:
             candidate = secrets.randbelow(3_000_000_000) + 1_000_000_000
-            if candidate not in used_headers:
+            if not any(low <= candidate <= high for low, high in used_headers):
                 obfs[key] = candidate
-                used_headers.add(candidate)
+                used_headers.append((candidate, candidate))
                 break
     # DNS-похожий CPS-пакет для AWG 1.5+: клиент и сервер должны иметь одинаковое значение.
     obfs.setdefault("I1", "<r 2><b 0x8580000100010000000004796162730679616e6465780272750000010001c00c000100010000026d000457fa27d1>")
+
+    v3 = cfg.setdefault("v3", {})
+    if not isinstance(v3, dict):
+        raise SystemExit("amneziawg.v3 должен быть объектом")
+    for key, default in AWG31_DEFAULTS.items():
+        v3.setdefault(key, default)
+    for key in AWG31_CONFIG_KEYS:
+        maximum = 1024 if key == "content_padding_addition" else 3600
+        if key == "max_handshake_attempts":
+            maximum = 1000
+        v3[key] = validate_awg_range(v3.get(key), f"amneziawg.v3.{key}", maximum)
+    if not isinstance(v3.get("random_trailers"), bool):
+        raise SystemExit("amneziawg.v3.random_trailers должен быть true или false")
+    rekey_min, rekey_max = awg_range_bounds(v3["rekey_after_time"])
+    reject_min, _reject_max = awg_range_bounds(v3["reject_after_time"])
+    if rekey_min < 30 or reject_min <= rekey_max:
+        raise SystemExit(
+            "amneziawg.v3: RejectAfterTime должен начинаться после RekeyAfterTime, "
+            "а RekeyAfterTime — не раньше 30 секунд"
+        )
+    if protocol_version == "3.1" and not valid_wg_key(v3.get("header_protection_key", "")):
+        v3["header_protection_key"] = random_wg_private_key()
     return cfg
+
+
+def awg_range_bounds(value: str) -> tuple[int, int]:
+    parts = value.split("-", 1)
+    low = int(parts[0])
+    return low, int(parts[1]) if len(parts) == 2 else low
+
+
+def parse_awg_header_range(value: object) -> tuple[int, int] | None:
+    """Разбирает H1-H4 как uint32 либо официальный диапазон uint32."""
+    if isinstance(value, bool):
+        return None
+    text = str(value).strip()
+    if not re.fullmatch(r"\d{1,10}(?:-\d{1,10})?", text):
+        return None
+    low, high = awg_range_bounds(text)
+    if low > high or high > 4_294_967_295:
+        return None
+    return low, high
+
+
+def validate_awg_range(value: object, label: str, maximum: int) -> str:
+    """Проверяет диапазон AWG 3.1 в формате `N` либо `N-M`."""
+    text = str(value).strip()
+    if not re.fullmatch(r"\d{1,5}(?:-\d{1,5})?", text):
+        raise SystemExit(f"{label}: ожидается число или диапазон N-M")
+    low, high = awg_range_bounds(text)
+    if low > high or high > maximum:
+        raise SystemExit(f"{label}: нужен возрастающий диапазон 0-{maximum}")
+    return text
+
+
+def valid_wg_key(value: object) -> bool:
+    try:
+        decoded = base64.b64decode(str(value), validate=True)
+    except (ValueError, TypeError):
+        return False
+    return len(decoded) == 32
+
+
+def update_amneziawg_profile(
+    state: dict,
+    *,
+    protocol_version: str,
+    values: dict[str, object] | None = None,
+    regenerate_header_key: bool = False,
+) -> dict:
+    """Меняет только allowlisted настройки AWG; секрет ключа наружу не возвращает."""
+    if protocol_version not in AWG_PROTOCOL_PROFILES:
+        raise SystemExit("Профиль AmneziaWG должен быть legacy или 3.1")
+    cfg = awg_config(state)
+    v3 = cfg.setdefault("v3", {})
+    for key, value in (values or {}).items():
+        if key not in AWG31_DEFAULTS:
+            raise SystemExit(f"Настройка AmneziaWG не разрешена: {key}")
+        v3[key] = value
+    cfg["protocol_version"] = protocol_version
+    if protocol_version == "3.1" and (regenerate_header_key or not valid_wg_key(v3.get("header_protection_key", ""))):
+        v3["header_protection_key"] = random_wg_private_key()
+    # Повторная нормализация проверяет зависимости диапазонов и S1-S4.
+    return awg_config(state)
 
 
 def wireguard_config(state: dict) -> dict:
@@ -4054,15 +4185,33 @@ def render_telemt(state: dict) -> None:
 
 def awg_obfuscation_lines(state: dict) -> list[str]:
     """Общие параметры маскировки AmneziaWG для сервера и клиентов."""
-    obfs = awg_config(state).get("obfuscation", {})
+    cfg = awg_config(state)
+    obfs = cfg.get("obfuscation", {})
     lines: list[str] = []
-    for key in ("Jc", "Jmin", "Jmax", "S1", "S2", "H1", "H2", "H3", "H4"):
+    padding_keys = ("S1", "S2", "S3", "S4") if cfg.get("protocol_version") == "3.1" else ("S1", "S2")
+    for key in ("Jc", "Jmin", "Jmax", *padding_keys, "H1", "H2", "H3", "H4"):
         value = obfs.get(key)
         if value is not None:
             lines.append(f"{key} = {value}")
-    i1 = obfs.get("I1", "")
-    if i1:
-        lines.append(f"I1 = {i1}")
+    for key in ("I1", "I2", "I3", "I4", "I5"):
+        value = obfs.get(key, "")
+        if value:
+            lines.append(f"{key} = {value}")
+    return lines
+
+
+def awg_v3_lines(state: dict) -> list[str]:
+    """Параметры AWG 3.1, одинаковые для сервера и нового клиентского профиля."""
+    cfg = awg_config(state)
+    if cfg.get("protocol_version") != "3.1":
+        return []
+    v3 = cfg["v3"]
+    lines = [f"HeaderProtectionKey = {v3['header_protection_key']}"]
+    lines.extend(
+        f"{config_key} = {v3[state_key]}"
+        for state_key, config_key in AWG31_CONFIG_KEYS.items()
+    )
+    lines.append(f"RandomTrailers = {'on' if v3['random_trailers'] else 'off'}")
     return lines
 
 
@@ -4080,6 +4229,7 @@ def render_amneziawg(state: dict) -> None:
         f"ListenPort = {int(cfg.get('port', 51820))}",
         f"MTU = {int(cfg.get('mtu', 1280))}",
         *awg_obfuscation_lines(state),
+        *awg_v3_lines(state),
         f"PostUp = iptables -I INPUT 1 -p udp --dport {int(cfg.get('port', 51820))} -j ACCEPT; iptables -I FORWARD 1 -i {iface} -j ACCEPT; iptables -I FORWARD 1 -o {iface} -j ACCEPT; iptables -t nat -A POSTROUTING -s {network} -o eth0 -j MASQUERADE",
         f"PostDown = iptables -D INPUT -p udp --dport {int(cfg.get('port', 51820))} -j ACCEPT; iptables -D FORWARD -i {iface} -j ACCEPT; iptables -D FORWARD -o {iface} -j ACCEPT; iptables -t nat -D POSTROUTING -s {network} -o eth0 -j MASQUERADE",
         "",
@@ -4373,6 +4523,7 @@ def amneziawg_client_conf(state: dict, user: dict) -> str:
         f"DNS = {dns_line}",
         f"MTU = {int(cfg.get('mtu', 1280))}",
         *awg_obfuscation_lines(state),
+        *awg_v3_lines(state),
         "",
         "[Peer]",
         f"PublicKey = {cfg.get('public_key', '')}",
@@ -6234,17 +6385,35 @@ def amneziawg_semantic_snapshot(state: dict | None) -> dict:
     """Снимок desired-состояния AmneziaWG без приватных ключей и PSK."""
     if not isinstance(state, dict):
         return {}
+    if "amneziawg" not in state and not any(
+        "amneziawg" in user_systems(user) for user in state.get("users", [])
+    ):
+        return {}
     cfg = awg_config(state)
+    obfs = cfg.get("obfuscation", {})
+    v3 = cfg.get("v3", {})
     return {
         "interface": cfg.get("interface", "awg0"),
         "network": cfg.get("network", "10.66.66.0/24"),
         "server_address": cfg.get("server_address", "10.66.66.1/24"),
         "port": int(cfg.get("port", 51820)),
         "mtu": int(cfg.get("mtu", 1280)),
+        "protocol_version": cfg.get("protocol_version", "legacy"),
         "obfuscation": {
-            key: cfg.get(key)
-            for key in ("Jc", "Jmin", "Jmax", "S1", "S2", "H1", "H2", "H3", "H4", "I1")
-            if cfg.get(key) not in ("", None)
+            key: obfs.get(key)
+            for key in ("Jc", "Jmin", "Jmax", "S1", "S2", "S3", "S4", "H1", "H2", "H3", "H4", "I1", "I2", "I3", "I4", "I5")
+            if obfs.get(key) not in ("", None)
+        },
+        "v3": {
+            **{
+                key: v3.get(key)
+                for key in (*AWG31_CONFIG_KEYS, "random_trailers")
+                if v3.get(key) not in ("", None)
+            },
+            # Снимок должен видеть ротацию, но не держать секрет в отчёте/apply plan.
+            "header_key_sha256": hashlib.sha256(
+                str(v3.get("header_protection_key", "")).encode("utf-8")
+            ).hexdigest() if v3.get("header_protection_key") else "",
         },
         "peers": expected_amneziawg_peers(state),
     }
@@ -6940,6 +7109,40 @@ def format_handshake(timestamp: int | None) -> str:
 
 def cmd_amneziawg(args: argparse.Namespace) -> None:
     state = load_state()
+    if args.action == "configure":
+        before_state = copy.deepcopy(state)
+        values = {
+            key: getattr(args, key)
+            for key in AWG31_CONFIG_KEYS
+            if getattr(args, key) is not None
+        }
+        if args.random_trailers is not None:
+            values["random_trailers"] = args.random_trailers
+        update_amneziawg_profile(
+            state,
+            protocol_version=args.profile,
+            values=values,
+            regenerate_header_key=args.regenerate_header_key,
+        )
+        prepare_state(state)
+        save_state(state)
+        render_result = render_all(state)
+        if args.apply:
+            report = restart_services(
+                render_result,
+                before_state=before_state,
+                after_state=state,
+                force_host_sync_services={"amneziawg"},
+            )
+            if report.get("outcome") == "failed":
+                raise SystemExit(1)
+            ok(f"Профиль AmneziaWG {args.profile} сохранён и применён")
+        else:
+            ok(f"Профиль AmneziaWG {args.profile} сохранён; generated-файлы обновлены")
+            warn("для runtime выполните: sudo ./amneziawg/sync-host-service.sh")
+        if args.profile == "3.1":
+            warn("заново экспортируйте и импортируйте конфиги всех AmneziaWG-пользователей")
+        return
     changed = ensure_amneziawg_state(state)
     if changed:
         save_state(state)
@@ -8757,6 +8960,27 @@ def build_parser() -> argparse.ArgumentParser:
 
     awg_verify = awg_sub.add_parser("verify", help="Проверить точное совпадение project/host/runtime peers")
     awg_verify.set_defaults(func=cmd_amneziawg)
+
+    awg_configure = awg_sub.add_parser("configure", help="Настроить legacy или AWG 3.1 профиль")
+    awg_configure.add_argument("--profile", choices=AWG_PROTOCOL_PROFILES, required=True)
+    for option in AWG31_CONFIG_KEYS:
+        awg_configure.add_argument(
+            "--" + option.replace("_", "-"), dest=option,
+            help="Число или диапазон N-M",
+        )
+    awg_configure.add_argument(
+        "--random-trailers", type=str_to_bool, default=None,
+        help="Случайные трейлеры: true/false",
+    )
+    awg_configure.add_argument(
+        "--regenerate-header-key", action="store_true",
+        help="Сменить HeaderProtectionKey; потребует повторного импорта клиентов",
+    )
+    awg_configure.add_argument(
+        "--apply", action="store_true",
+        help="Сразу применить конфиг host-службы",
+    )
+    awg_configure.set_defaults(func=cmd_amneziawg)
 
     # wireguard
     wg = sub.add_parser("wireguard", help="Проверить стандартную WireGuard host-службу и peers")

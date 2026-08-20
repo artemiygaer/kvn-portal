@@ -1,4 +1,4 @@
-# Установка и обновление KVN VPN v3
+# Установка и обновление KVN VPN v3.1
 
 Каталог `deploy/` является чистым пакетом для Debian 12/13. Он не содержит пользователей, portal credentials/DB, клиентских файлов, сертификатов, приватных ключей и сгенерированных серверных конфигов.
 
@@ -160,6 +160,24 @@ sudo python3 tools/kvnctl.py sni-routes diagnose example.com
 | AmneziaWG app | `amneziawg.conf`/QR | AWG, `awg0:51820/udp`; не выдавать как standard WG |
 | Telegram | `telemt.txt`, `mtg.txt`, общий файл/QR | Только Telegram; MTG имеет shared attribution |
 | OpenConnect | `openconnect.txt` | ocserv TCP/DTLS, отдельный клиент |
+
+### Переход на AmneziaWG 3.1
+
+Legacy-профиль остаётся включённым после обновления, поэтому действующие
+клиенты не отключаются автоматически. Для перехода сначала обновите host tools
+и module, затем включите профиль через портал «Настройки → AmneziaWG» или CLI:
+
+```bash
+cd /srv/kvn-vpn
+sudo ./amneziawg/install-kernel-module.sh
+# Выполните reboot, если установщик потребовал его.
+sudo python3 tools/kvnctl.py amneziawg configure --profile 3.1 --apply
+sudo python3 tools/kvnctl.py amneziawg verify
+```
+
+После переключения обязательно заново экспортируйте и импортируйте все
+`amneziawg.conf`: `HeaderProtectionKey` и параметры AWG 3.1 должны совпадать.
+Стандартный WireGuard `wg0:51821` не изменяется.
 
 Для собственной зоны используйте отдельные hostname для сайта, портала и подписки. Для новых `tls`, `hy` и `oc` ролей сначала создайте A/AAAA records и добавьте точные имена в SAN. Безопасный порядок: DNS → сертификат → route → render/apply → проверка реальным клиентом.
 

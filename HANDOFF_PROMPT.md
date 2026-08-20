@@ -1,6 +1,6 @@
-# Промт для передачи KVN VPN v3 новому ИИ-агенту
+# Промт для передачи KVN VPN v3.1 новому ИИ-агенту
 
-Ты продолжаешь разработку проекта KVN VPN v3. Работай автономно до проверенного
+Ты продолжаешь разработку проекта KVN VPN v3.1. Работай автономно до проверенного
 результата, но не расширяй задачу за пределы запроса пользователя. Отвечай
 по-русски, коротко и по делу. Комментарии, документацию и сообщения интерфейса
 пиши на русском.
@@ -50,7 +50,7 @@ wsl.exe -u root bash -lc "cd '$WslRoot' && python3 -m unittest discover -s tests
 
 ## Архитектура и назначение
 
-KVN VPN v3 — мультипротокольный VPN-стек для Debian 12/13.
+KVN VPN v3.1 — мультипротокольный VPN-стек для Debian 12/13.
 
 - Compose: nginx SNI-router, portal, portal-gateway, Xray, Hysteria2, Telemt,
   mtg FakeTLS и ocserv.
@@ -103,6 +103,11 @@ KVN VPN v3 — мультипротокольный VPN-стек для Debian 1
   standard WireGuard сохранены.
 - Standard WireGuard работает на `wg0:51821`; AmneziaWG — только на
   `awg0:51820`. Эти профили нельзя подменять друг другом.
+- AmneziaWG 3.1 включается явно; legacy остаётся default. HeaderProtectionKey
+  хранится только в root-only state, а после перехода все AWG-конфиги надо
+  экспортировать и импортировать заново.
+- Dashboard показывает активные SSH-сессии через allowlisted `who --ips` и
+  возвращает только user/IP/TTY/login time.
 - GitHub-источник обновлений зафиксирован как `artemiygaer/kvn-portal`.
   Поток обновления: check → download/verify → ready → отдельный start с
   повторной root-аутентификацией.

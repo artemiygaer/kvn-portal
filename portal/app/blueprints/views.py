@@ -154,7 +154,7 @@ def build_views(
             }
             for name in (
                 "host", "metrics", "containers", "protocols",
-                "health_summary", "certificates",
+                "health_summary", "certificates", "ssh_sessions",
             )
         }
 
@@ -356,6 +356,7 @@ def build_views(
         protocols, protocols_status, protocols_label = source("protocols")
         health_summary, health_summary_status, health_summary_label = source("health_summary")
         certificates, certificates_status, certificates_label = source("certificates")
+        ssh_sessions, ssh_status, ssh_label = source("ssh_sessions")
         sample = metrics.get("sample") if metrics.get("available") and isinstance(metrics.get("sample"), dict) else {}
         uptime = host.get("uptime", {}) if isinstance(host.get("uptime"), dict) else {}
         uptime_text = str(uptime.get("stdout", "")).strip().removeprefix("up ") or translate("no_data")
@@ -486,7 +487,29 @@ def build_views(
                 "status": certificates_status, "status_label": certificates_label,
             },
         ]
-        return {"cards": cards, "generated_at": now()}
+        ssh_rows = ssh_sessions.get("sessions", []) if isinstance(ssh_sessions.get("sessions"), list) else []
+        safe_ssh_rows = [
+            {
+                "user": str(item.get("user", "")),
+                "remote_ip": str(item.get("remote_ip", "")),
+                "tty": str(item.get("tty", "")),
+                "login_at": str(item.get("login_at", "")),
+            }
+            for item in ssh_rows
+            if isinstance(item, dict)
+        ]
+        return {
+            "cards": cards,
+            "ssh_sessions": {
+                "available": bool(ssh_sessions.get("available")),
+                "count": len(safe_ssh_rows),
+                "users": int(ssh_sessions.get("users", 0) or 0),
+                "sessions": safe_ssh_rows,
+                "status": ssh_status,
+                "status_label": ssh_label,
+            },
+            "generated_at": now(),
+        }
 
     @require_session
     def dashboard_json():
@@ -1821,6 +1844,9 @@ def build_views(
         mtproto_data = call_agent("mtproto.status", {})
         if not isinstance(mtproto_data, dict):
             return mtproto_data
+        amneziawg_settings = call_agent("amneziawg.settings", {})
+        if not isinstance(amneziawg_settings, dict):
+            return amneziawg_settings
         performance = call_agent("portal.performance", {})
         if not isinstance(performance, dict):
             return performance
@@ -1865,6 +1891,7 @@ def build_views(
             sni_data=sni_data,
             mtproto_diagnosis=mtproto_diagnosis,
             mtproto_data=mtproto_data,
+            amneziawg_settings=amneziawg_settings,
             performance=performance,
             client_export=client_export,
             client_export_error=client_export_error,
@@ -1991,6 +2018,40 @@ def build_views(
                             "Настройки сохранены, но generated-файлы применены "
                             "не полностью. Выполните согласование состояния."
                         )
+            elif action == "amneziawg_profile":
+                result = call_agent("amneziawg.apply", {
+                    "revision": request.form.get("revision", ""),
+                    "protocol_version": request.form.get("protocol_version", ""),
+                    "content_padding_addition": request.form.get("content_padding_addition", ""),
+                    "rekey_after_time": request.form.get("rekey_after_time", ""),
+                    "rekey_timeout": request.form.get("rekey_timeout", ""),
+                    "reject_after_time": request.form.get("reject_after_time", ""),
+                    "keepalive_timeout": request.form.get("keepalive_timeout", ""),
+                    "max_handshake_attempts": request.form.get("max_handshake_attempts", ""),
+                    "random_trailers": request.form.get("random_trailers") == "on",
+                    "regenerate_header_key": request.form.get("regenerate_header_key") == "on",
+                })
+                if not isinstance(result, dict):
+                    return result
+                apply = result.get("apply", {})
+                storage.audit(
+                    app.config["ADMIN_LOGIN"], g.client_ip,
+                    "amneziawg.profile",
+                    "failed" if apply.get("outcome") == "failed" else (
+                        "success" if result.get("changed") else "unchanged"
+                    ),
+                    json.dumps(
+                        {"protocol_version": request.form.get("protocol_version", "")},
+                        separators=(",", ":"),
+                    ),
+                    now(),
+                )
+                if apply.get("outcome") == "failed":
+                    error = "Профиль сохранён, но AmneziaWG не применён. Проверьте awg-tools и логи host-службы."
+                elif result.get("changed"):
+                    notice = "Профиль AmneziaWG применён. Для AWG 3.1 заново экспортируйте и импортируйте конфиги всех AWG-пользователей."
+                else:
+                    notice = "Настройки AmneziaWG уже были в нужном состоянии."
             elif action == "password":
                 current_password = request.form.get("current_password", "")
                 new_password = request.form.get("new_password", "")

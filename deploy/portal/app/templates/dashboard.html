@@ -8,6 +8,20 @@
   <div class="metric-grid">
     {% for card in summary.cards %}<article class="metric-card" data-card="{{ card.id }}"><div class="status-line"><span>{{ card.label }}</span><span class="status {{ card.status }}" data-card-status>{{ card.status_label }}</span></div><strong class="metric-value" data-card-value>{{ card.value }}</strong><span class="muted" data-card-detail>{{ card.detail }}</span></article>{% else %}<p class="empty-state" role="status">Сводка временно недоступна.</p>{% endfor %}
   </div>
+  <div class="result-actions" data-ssh-panel>
+    <div class="section-heading">
+      <div><h3>Активные SSH-сессии</h3><p class="muted">Системный пользователь, удалённый IP, терминал и время входа. Команды и содержимое сессии не читаются.</p></div>
+      <span class="status {{ summary.ssh_sessions.status }}" data-ssh-status>{{ summary.ssh_sessions.status_label }}</span>
+    </div>
+    <div class="table-wrap compact-table">
+      <table>
+        <thead><tr><th>Пользователь</th><th>IP</th><th>Терминал</th><th>Вход</th></tr></thead>
+        <tbody data-ssh-sessions>
+          <tr><td colspan="4" class="muted">Нажмите «Обновить» или дождитесь фонового опроса.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
 </section>
 {% if performance.features.monitoring %}
 <section class="panel chart-panel" data-history aria-busy="false">

@@ -18,6 +18,17 @@ if [ ! -f "$SRC_CONF" ]; then
     exit 1
 fi
 
+if grep -q '^HeaderProtectionKey[[:space:]]*=' "$SRC_CONF"; then
+    AWG_SET_HELP="$(awg set --help 2>&1 || true)"
+    if ! grep -q -- 'header-protection-key' <<<"$AWG_SET_HELP" \
+        || ! grep -q -- 'random-trailers' <<<"$AWG_SET_HELP"; then
+        echo "KVN_AWG_ERROR=awg31_unsupported" >&2
+        echo "[ОШИБКА] профиль AWG 3.1 требует актуальные awg-tools" >&2
+        echo "[ПОДСКАЗКА] sudo ./amneziawg/install-kernel-module.sh, затем reboot" >&2
+        exit 1
+    fi
+fi
+
 WAN_IFACE="$(ip -4 route show default 2>/dev/null | awk '{print $5; exit}')"
 if [ -z "$WAN_IFACE" ]; then
     echo "[ОШИБКА] не удалось определить внешний интерфейс" >&2

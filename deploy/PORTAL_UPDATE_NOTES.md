@@ -9,6 +9,8 @@
 
 ## Что изменено
 
+- В v3.1 добавлен явный профиль AmneziaWG 3.1 с проверкой возможностей host tools, защищённым `HeaderProtectionKey`, S3/S4, content padding, таймингами и `RandomTrailers`. Legacy остаётся default; переключение требует повторного экспорта AWG-клиентов.
+- Dashboard показывает активные удалённые SSH-сессии: user, IP, TTY и время входа. Host-agent выполняет только фиксированный `who --ips`; raw terminal/commands не собираются.
 - Добавлен экспорт пользователя: ZIP-вложение для ручной отправки через Telegram, `send.txt` для копирования и временный Domain/IP выбор без записи политики в `users.json`.
 - Режим public-IP заменяет endpoint всех клиентских конфигураций, но сохраняет SNI, Reality `serverName` и certificate identity; subscription URL по IP закрыт без direct route и точного IP SAN.
 - Добавлен фиксированный источник `artemiygaer/kvn-portal` GitHub Releases: check → download/verify → ready → отдельный start. Для private Release token хранится только в root-only файле и не попадает в portal/chat.
@@ -44,7 +46,8 @@
 - Archive upload/RPC и gunicorn допускают до 30 минут; обычный read-only RPC timeout остаётся 10 секунд, а state mutation/reconcile ограничены 300 секундами. Файл читается блоками по 1 МиБ, действует лимит 2 ГиБ и резерв диска 512 МиБ.
 - Dashboard переведён на stale-while-revalidate: во время штатного фонового сбора последний успешный snapshot не получает ложную метку «устарело», а UI не показывает «Собираю сводку…». Предупреждение сохраняется для реальной ошибки или отсутствия данных.
 - Единичный исторический restart контейнера во время обновления больше не считается текущей аварией; карточка контейнеров оценивает фактические `state/health`.
-- Исправлена проверка образов после `docker load` в Docker с containerd image store: принимаются проверенные config-ID и manifest digest с обязательной проверкой происхождения RepoDigest.
+- Исправлена проверка образов после `docker load` в Docker с containerd image store: verifier по одному экспортирует каждый не распознанный через inspect tag и строго сверяет исходный config digest. Это устраняет ложные ошибки для `kvn-portal:local`, `nginx:1.31.1-alpine` и остальных upstream-образов без ослабления проверки и без большого временного архива всех семи образов.
+- Full release больше не распаковывается и не проверяется в отдельном `/tmp`: updater использует root-only `.update-tmp` на filesystem проекта, а validator — filesystem самого архива. Это исправляет ложное `недостаточно свободного места` на Debian с маленьким tmpfs `/tmp`.
 - Xray и Telemt получают строгие конфиги `0600` с UID закреплённых непривилегированных образов; после render/update контейнеры больше не падают с `permission denied`.
 - Python-healthcheck портала заменён на лёгкий `wget`, поэтому на 1 vCPU исчезли ложные `unhealthy` и лишние пики CPU. Ожидание запуска host-agent увеличено до 30 секунд.
 - Deploy-архив теперь детерминированно упаковывается стандартным Python `tarfile`, включая WSL/BusyBox без GNU tar.

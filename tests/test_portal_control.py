@@ -363,6 +363,43 @@ class PortalAtomicPrepareTests(unittest.TestCase):
             render.assert_called_once()
             restart.assert_called_once()
 
+    def test_amneziawg_31_settings_hide_key_and_force_host_apply(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state = base_state()
+            users_file = root / "users.json"
+            atomic_write_json(users_file, state)
+            store = JsonStateStore(users_file, root / ".lock")
+            control = self.protocol_control(root, store)
+            params = {
+                "revision": state_revision(state),
+                "protocol_version": "3.1",
+                **{
+                    key: value
+                    for key, value in kvnctl.AWG31_DEFAULTS.items()
+                    if key != "random_trailers"
+                },
+                "random_trailers": True,
+                "regenerate_header_key": False,
+            }
+            with (
+                mock.patch.object(kvnctl, "STATE_STORE", store),
+                mock.patch.object(kvnctl, "prepare_state"),
+                mock.patch.object(kvnctl, "render_all", return_value=kvnctl.RenderResult(("amneziawg/awg0.conf",))),
+                mock.patch.object(kvnctl, "restart_services", return_value={"outcome": "applied", "reconcile_required": False}) as restart,
+            ):
+                result = control.apply_amneziawg(params)
+
+            self.assertTrue(result["changed"])
+            self.assertEqual(store.load()["amneziawg"]["protocol_version"], "3.1")
+            self.assertTrue(kvnctl.valid_wg_key(store.load()["amneziawg"]["v3"]["header_protection_key"]))
+            self.assertNotIn("header_protection_key", json.dumps(result))
+            self.assertTrue(result["settings"]["header_protection_configured"])
+            self.assertEqual(
+                restart.call_args.kwargs["force_host_sync_services"],
+                {"amneziawg"},
+            )
+
     def test_protocol_apply_rejects_invalid_schema_mode_and_stale_revision_before_write(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -73,6 +73,19 @@ else
     echo "[OK] AmneziaWG уже актуален: ${INSTALLED_VERSION_AFTER}"
 fi
 
+if ! command -v awg >/dev/null 2>&1; then
+    echo "[ОШИБКА] пакет установлен без утилиты awg" >&2
+    exit 1
+fi
+AWG_SET_HELP="$(awg set --help 2>&1 || true)"
+if ! grep -q -- 'header-protection-key' <<<"$AWG_SET_HELP" \
+    || ! grep -q -- 'random-trailers' <<<"$AWG_SET_HELP"; then
+    echo "[ОШИБКА] PPA установил устаревшие awg-tools без поддержки AWG 3.1" >&2
+    echo "[ПОДСКАЗКА] Проверьте PPA/AMNEZIAWG_PPA_SUITE и повторите apt update." >&2
+    exit 1
+fi
+echo "[OK] awg-tools поддерживает HeaderProtectionKey и RandomTrailers (AWG 3.1)"
+
 if [ "$NEW_KERNEL_INSTALLED" -eq 1 ]; then
     echo "" >&2
     echo "[ДЕЙСТВИЕ] Новый kernel, headers и AmneziaWG module установлены за один проход." >&2

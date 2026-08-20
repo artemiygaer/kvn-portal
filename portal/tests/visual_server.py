@@ -145,6 +145,21 @@ class VisualAgent:
                     "public_ready": True, "allow_self_signed_ip": True,
                 },
             }
+        if method == "amneziawg.settings":
+            return {
+                "revision": "visual-revision", "protocol_version": "3.1",
+                "supported_profiles": ["legacy", "3.1"],
+                "header_protection_configured": True,
+                "requires_client_reimport": True,
+                "v3": {
+                    "content_padding_addition": "16-64", "rekey_after_time": "120-150",
+                    "rekey_timeout": "5-8", "reject_after_time": "180-240",
+                    "keepalive_timeout": "10-15", "max_handshake_attempts": "15-20",
+                    "random_trailers": True,
+                },
+            }
+        if method == "amneziawg.apply":
+            return {"changed": True, "apply": {"outcome": "applied"}}
         if method == "portal.performance.update":
             self.performance_profile = params["profile"]
             if self.performance_profile == "standard":

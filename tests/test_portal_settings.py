@@ -101,6 +101,21 @@ class FakeSettingsAgent:
                     },
                 },
             }
+        if method == "amneziawg.settings":
+            return {
+                "revision": "a" * 64, "protocol_version": "legacy",
+                "supported_profiles": ["legacy", "3.1"],
+                "header_protection_configured": False,
+                "requires_client_reimport": False,
+                "v3": {
+                    "content_padding_addition": "16-64", "rekey_after_time": "120-150",
+                    "rekey_timeout": "5-8", "reject_after_time": "180-240",
+                    "keepalive_timeout": "10-15", "max_handshake_attempts": "15-20",
+                    "random_trailers": True,
+                },
+            }
+        if method == "amneziawg.apply":
+            return {"changed": True, "apply": {"outcome": "applied"}}
         if method == "mtproto.diagnose":
             return {
                 "system": params["system"], "origin": "external", "sni": "example.com",

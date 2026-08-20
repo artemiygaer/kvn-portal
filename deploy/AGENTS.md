@@ -1,10 +1,10 @@
-# KVN VPN v3: краткая инструкция для ИИ-ассистента
+# KVN VPN v3.1: краткая инструкция для ИИ-ассистента
 
 Говорить с пользователем по-русски, коротко и по делу. Комментарии и документацию писать на русском. Перед правками сначала смотреть код вокруг задачи; подробности есть в `README.md` и `deploy/DEPLOY.md`.
 
 ## Суть проекта
 
-KVN VPN v3 — мультипротокольный VPN-стек для Debian 12/13. Основные сервисы идут через Docker Compose. Host-службы:
+KVN VPN v3.1 — мультипротокольный VPN-стек для Debian 12/13. Основные сервисы идут через Docker Compose. Host-службы:
 
 - `kvn-amneziawg.service`: AmneziaWG, `awg0`, `51820/udp`;
 - `kvn-wireguard.service`: стандартный WireGuard, `wg0`, `51821/udp`;
@@ -33,6 +33,8 @@ KVN VPN v3 — мультипротокольный VPN-стек для Debian 1
   - `amneziawg/install-host-service.sh`, `amneziawg/sync-host-service.sh`;
   - `wireguard/install-host-service.sh`, `wireguard/sync-host-service.sh`.
 - Peer-only изменения AWG/WG применяются через `syncconf`; structural delta — controlled restart.
+- AmneziaWG `legacy` остаётся default. Профиль `3.1` включается явно, требует актуальные tools/module, одинаковый secret `HeaderProtectionKey` на сервере и клиентах и повторный экспорт всех AWG-конфигов. Ключ нельзя возвращать в portal RPC или аудит.
+- Dashboard показывает активные удалённые SSH-сессии только через фиксированный `who --ips`: разрешены поля user/IP/TTY/login time, raw output и содержимое терминала наружу не выдаются.
 - SNI-пулы управляются через портал «Настройки» или `sni-routes`; пересечения SNI между сервисами, сайтом/подпиской и ocserv должны отклоняться до применения.
 - Per-user SNI разрешён для `tls`, `reality-xhttp`, `reality-tcp` и `hysteria`; HAPP должен получать выбранные значения после render/apply. Reality SNI должен быть заранее в `sni_routes.<system>.aliases`, чтобы nginx и Xray были согласованы.
 - Telemt/mtg/ocserv имеют service-level SNI. Telemt менять через default сервиса (`sni-routes set-default telemt <domain>` или портал), иначе QR/secret и `telemt/config.toml` разойдутся.

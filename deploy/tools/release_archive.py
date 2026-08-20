@@ -270,7 +270,11 @@ def validate_release(path: Path) -> dict:
                     raise ReleaseValidationError(
                         f"upstream-образ без immutable digest: {item.get('ref', '')}"
                     )
-            with tempfile.TemporaryDirectory() as tmp:
+            # Release может быть значительно больше отдельного tmpfs /tmp.
+            # Проверяем его на том же filesystem, где уже лежит сам архив.
+            with tempfile.TemporaryDirectory(
+                dir=path.parent, prefix=".kvn-release-validate-",
+            ) as tmp:
                 source_path = Path(tmp) / SOURCE_NAME
                 images_path = Path(tmp) / IMAGES_NAME
                 for name, destination in ((SOURCE_NAME, source_path), (IMAGES_NAME, images_path)):
@@ -343,6 +347,7 @@ def verify_loaded_images(manifest_path: Path) -> dict[str, str]:
     if len(inspected) != len(items):
         raise ReleaseValidationError("docker inspect вернул неверное число образов")
     verified: dict[str, str] = {}
+    saved_config_ids: dict[str, str] = {}
     for expected, actual in zip(items, inspected, strict=True):
         platform = f"{actual.get('Os', '')}/{actual.get('Architecture', '')}"
         expected_digests = set(expected.get("repo_digests") or [])
@@ -358,10 +363,49 @@ def verify_loaded_images(manifest_path: Path) -> dict[str, str]:
             actual.get("Id") == expected.get("id")
             or bool(expected_digests & actual_digests)
         )
-        if not digest_id or not digest_provenance or platform != PLATFORM:
+        identity_matches = digest_id and digest_provenance
+        if not identity_matches:
+            ref = expected["ref"]
+            if ref not in saved_config_ids:
+                # containerd image store после docker load может вернуть descriptor ID
+                # и не восстановить RepoDigests. Экспорт одного tag даёт исходный
+                # config digest без большого временного архива всех семи образов.
+                saved_config_ids.update(
+                    _saved_image_config_ids([ref], temp_parent=manifest_path.parent)
+                )
+            identity_matches = saved_config_ids.get(ref) == expected.get("id")
+        if not identity_matches or platform != PLATFORM:
             raise ReleaseValidationError(f"загруженный образ не совпадает: {expected.get('ref', '')}")
         verified[expected["ref"]] = expected["id"]
     return verified
+
+
+def _saved_image_config_ids(
+    refs: list[str], *, temp_parent: Path | None = None,
+) -> dict[str, str]:
+    """Получает config digests загруженных local images независимо от image store Docker."""
+    with tempfile.TemporaryDirectory(
+        dir=temp_parent, prefix=".kvn-image-verify-",
+    ) as tmp:
+        archive_path = Path(tmp) / "loaded-local-images.tar"
+        try:
+            result = subprocess.run(
+                ["docker", "image", "save", "-o", str(archive_path), *refs],
+                check=False,
+                text=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                timeout=180,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise ReleaseValidationError(
+                "не удалось проверить config digests локальных Docker images"
+            ) from exc
+        if result.returncode != 0:
+            raise ReleaseValidationError(
+                "не удалось экспортировать локальные Docker images для проверки"
+            )
+        return _validate_image_archive(archive_path, refs)
 
 
 def _load_metadata(path: Path) -> list[dict]:

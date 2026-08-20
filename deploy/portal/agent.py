@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hmac
+import ipaddress
 import json
 import os
 import re
@@ -254,6 +255,7 @@ DASHBOARD_SOURCE_TTLS = {
     "protocols": 60,
     "certificates": 900,
     "health_summary": 60,
+    "ssh_sessions": 30,
 }
 
 
@@ -503,6 +505,7 @@ class AgentDispatcher:
             "shell.resize": self._shell_resize,
             "shell.close": self._shell_close,
             "amneziawg.status": self._awg_status,
+            "amneziawg.settings": self._amneziawg_settings,
             "protocol.stats": self._protocol_stats,
             "certificates.status": lambda _params: self._control().certificate_status(),
             "state.users": lambda _params: self._control().list_users(),
@@ -517,6 +520,7 @@ class AgentDispatcher:
             "sni.apply": self._sni_apply,
             "mtproto.apply": self._mtproto_apply,
             "protocol.apply": self._protocol_apply,
+            "amneziawg.apply": self._amneziawg_apply,
             "user.file": lambda params: self._control().read_user_file(
                 params.get("name", ""), params.get("filename", "")
             ),
@@ -1224,6 +1228,37 @@ class AgentDispatcher:
         except ControlError as exc:
             raise ProtocolError(exc.code, str(exc)) from exc
 
+    def _amneziawg_settings(self, params: dict) -> dict[str, Any]:
+        if params:
+            raise ProtocolError("invalid_params", "Настройки AmneziaWG не принимают параметры.")
+        return self._control().amneziawg_settings()
+
+    def _amneziawg_apply(self, params: dict) -> dict[str, Any]:
+        allowed = {
+            "revision", "protocol_version", "content_padding_addition",
+            "rekey_after_time", "rekey_timeout", "reject_after_time",
+            "keepalive_timeout", "max_handshake_attempts",
+            "random_trailers", "regenerate_header_key",
+        }
+        if set(params) != allowed:
+            raise ProtocolError("invalid_params", "Некорректная схема настроек AmneziaWG.")
+        if params.get("protocol_version") == "3.1":
+            capability = self.runner.run(
+                ["awg", "set", "--help"], timeout=5, max_output=32 * 1024
+            )
+            usage = f"{capability.stdout}\n{capability.stderr}".lower()
+            required = ("header-protection-key", "random-trailers")
+            if any(token not in usage for token in required):
+                raise ProtocolError(
+                    "awg31_unsupported",
+                    "Установленные awg-tools не поддерживают AWG 3.1. Сначала обновите пакет AmneziaWG и перезагрузите сервер.",
+                )
+        try:
+            return self._control().apply_amneziawg(params)
+        except Exception as exc:
+            code = getattr(exc, "code", "apply_failed")
+            raise ProtocolError(code, str(exc)) from exc
+
     def _ping(self, _params: dict) -> dict[str, Any]:
         return {"status": "ok", "protocol": 1, "transport": "unix"}
 
@@ -1494,7 +1529,54 @@ class AgentDispatcher:
                 containers=context.get("containers"),
                 certificates=context.get("certificates"),
             )
+        if name == "ssh_sessions":
+            return self._ssh_sessions()
         raise ProtocolError("internal_error", "Неизвестный источник dashboard.")
+
+    def _ssh_sessions(self) -> dict[str, Any]:
+        """Возвращает только безопасные поля активных удалённых login-сессий."""
+        result = self.runner.run(["who", "--ips"], timeout=5, max_output=64 * 1024)
+        if result.returncode != 0:
+            return {"available": False, "sessions": [], "count": 0, "users": 0}
+        rows: list[dict[str, str]] = []
+        seen: set[tuple[str, str, str, str]] = set()
+        pattern = re.compile(
+            r"^\s*(?P<user>\S+)\s+(?P<tty>\S+)\s+"
+            r"(?P<date>\d{4}-\d{2}-\d{2})\s+(?P<time>\d{2}:\d{2})"
+            r"(?:\s+(?P<remote>.+?))?\s*$"
+        )
+        for line in result.stdout.splitlines():
+            match = pattern.match(line)
+            if not match:
+                continue
+            user = match.group("user")
+            tty = match.group("tty")
+            remote = (match.group("remote") or "").strip().strip("()")
+            if not re.fullmatch(r"[A-Za-z0-9_.@-]{1,64}", user):
+                continue
+            if not re.fullmatch(r"[A-Za-z0-9_./:-]{1,64}", tty):
+                continue
+            try:
+                remote_ip = str(ipaddress.ip_address(remote))
+            except ValueError:
+                continue
+            key = (user, tty, match.group("date"), match.group("time"))
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append({
+                "user": user,
+                "tty": tty,
+                "login_at": f"{match.group('date')} {match.group('time')}",
+                "remote_ip": remote_ip,
+            })
+        rows.sort(key=lambda item: (item["user"].lower(), item["tty"], item["login_at"]))
+        return {
+            "available": True,
+            "sessions": rows,
+            "count": len(rows),
+            "users": len({item["user"] for item in rows}),
+        }
 
     def _dashboard_snapshot(self, params: dict) -> dict[str, Any]:
         if params:

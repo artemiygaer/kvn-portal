@@ -11,7 +11,7 @@
 {% if error %}<div class="alert" role="alert">{{ error }}</div>{% endif %}
 
 <nav class="settings-nav" aria-label="Разделы настроек">
-  <a href="#interface">Интерфейс</a><a href="#portal-performance">Нагрузка</a><a href="#client-export">Экспорт</a><a href="#security">Безопасность</a><a href="#project-update">Обновление</a><a href="#mtproto-settings">MTProto</a><a href="#sni-settings">SNI</a>
+  <a href="#interface">Интерфейс</a><a href="#portal-performance">Нагрузка</a><a href="#client-export">Экспорт</a><a href="#amneziawg-settings">AmneziaWG</a><a href="#security">Безопасность</a><a href="#project-update">Обновление</a><a href="#mtproto-settings">MTProto</a><a href="#sni-settings">SNI</a>
 </nav>
 
 <section class="panel" id="interface">
@@ -115,6 +115,50 @@
   {% else %}
   <p class="empty-state" role="status">Публичный IPv4 ещё не задан. Доменный экспорт продолжает работать без изменений.</p>
   {% endif %}
+</section>
+
+<section class="panel" id="amneziawg-settings">
+  <div class="section-heading">
+    <div>
+      <h2>AmneziaWG 3.1</h2>
+      <p class="muted">Защита заголовков, дополнительное заполнение, случайные трейлеры и изменяемые тайминги для актуальных AWG-клиентов и сервера.</p>
+    </div>
+    <span class="status {{ 'ok' if amneziawg_settings.protocol_version == '3.1' else 'stale' }}">{{ 'AWG 3.1' if amneziawg_settings.protocol_version == '3.1' else 'legacy' }}</span>
+  </div>
+  <div class="notice notice-warning" role="status">
+    Переход на 3.1 меняет общий протокол интерфейса <code>awg0</code>. Старые конфиги перестанут подключаться: после применения заново экспортируйте и импортируйте профиль каждого пользователя. Обычный WireGuard это не затрагивает.
+  </div>
+  <form method="post" data-confirm="Изменить общий профиль AmneziaWG" data-object="awg0 и все AWG-клиенты">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="action" value="amneziawg_profile">
+    <input type="hidden" name="revision" value="{{ amneziawg_settings.revision }}">
+    <label for="awg-protocol-version">Профиль протокола</label>
+    <select id="awg-protocol-version" name="protocol_version">
+      <option value="legacy"{% if amneziawg_settings.protocol_version == 'legacy' %} selected{% endif %}>Legacy — совместимость с прежними конфигами</option>
+      <option value="3.1"{% if amneziawg_settings.protocol_version == '3.1' %} selected{% endif %}>AWG 3.1 — актуальный профиль</option>
+    </select>
+    <div class="settings-grid">
+      {% for key,label,hint in [
+        ('content_padding_addition','Дополнительное заполнение','байты, например 16-64'),
+        ('rekey_after_time','Rekey после','секунды, например 120-150'),
+        ('rekey_timeout','Повтор handshake','секунды, например 5-8'),
+        ('reject_after_time','Отклонять после','секунды, например 180-240'),
+        ('keepalive_timeout','Keepalive после','секунды, например 10-15'),
+        ('max_handshake_attempts','Попытки handshake','например 15-20')
+      ] %}
+      <label>{{ label }}
+        <input name="{{ key }}" value="{{ amneziawg_settings.v3[key] }}" pattern="[0-9]{1,5}(-[0-9]{1,5})?" maxlength="11" required>
+        <span class="form-hint">{{ hint }}</span>
+      </label>
+      {% endfor %}
+    </div>
+    <div class="check-grid">
+      <label><input type="checkbox" name="random_trailers"{% if amneziawg_settings.v3.random_trailers %} checked{% endif %}> Случайные трейлеры AWG 3.1</label>
+      <label><input type="checkbox" name="regenerate_header_key"> Сгенерировать новый HeaderProtectionKey</label>
+    </div>
+    <p class="form-hint">HeaderProtectionKey хранится только в root-only <code>users.json</code> и не показывается порталу. Ротация ключа требует повторного импорта всех AWG-конфигов.</p>
+    <button type="submit">Применить профиль AmneziaWG</button>
+  </form>
 </section>
 
 <section class="panel" id="security">

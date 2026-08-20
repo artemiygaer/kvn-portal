@@ -1,6 +1,12 @@
-# Аудит проекта KVN VPN v3
+# Аудит проекта KVN VPN v3.1
 
 Дата baseline: 23.07.2026. Аудит выполнен по каноническим исходникам без чтения и публикации production-секретов. `users.json`, generated-конфиги, клиентские файлы, сертификаты и runtime-БД не использовались как источник доказательств.
+
+## Изменения v3.1 — 20.08.2026
+
+- AmneziaWG 3.1 добавлен как явная миграция, не обрывающая legacy-клиентов при обычном update. Secret защиты заголовков не проходит через portal RPC/аудит.
+- Перед применением AWG 3.1 host-agent проверяет поддержку новых параметров в `awg-tools`; structural delta применяется controlled restart.
+- Активные SSH-сессии собираются в dashboard одной allowlisted командой и сокращаются до user/IP/TTY/login time.
 
 ## Итог повторного аудита — 26.07.2026
 
@@ -9,7 +15,7 @@
 - Экспорт использует один renderer и policy для domain/public-IP; ZIP строится в памяти по allowlist, RPC и аудит не содержат client payload.
 - GitHub Release backend принимает только фиксированный репозиторий и штатные assets, а скачанный архив проходит digest/manifest validation до появления состояния ready.
 - Все 20 поставляемых shell-скриптов используют `set -euo pipefail`; `mktemp` покрыт cleanup trap, `eval` отсутствует. Backup/restore получили атомарную публикацию и проверку вложенного tar.
-- Актуальный локальный gate: 338 тестов успешно, 20 ожидаемых platform/Flask skip; Bash syntax, Compose config и deploy archive validator прошли. Реальный systemd/firewall и Docker lifecycle дополнительно проверяются на Debian.
+- Канонический gate включает корневой набор из 345 сценариев (18 ожидаемых platform/Flask skip) и portal image из 95 сценариев (1 host-agent skip); Bash syntax, Compose config и deploy archive validator также обязательны. Реальный systemd/firewall дополнительно проверяется на Debian.
 - Light profile отключает до 60 тяжёлых metric samples и около 80 browser background requests в час. Portal plane ограничен суммарно 0.50 CPU, 256 MiB memory и 96 PIDs.
 
 Промежуточные artifact SHA в документацию не записываются. Финальный SHA берётся из готового GitHub Release и `release-manifest.json`.

@@ -657,6 +657,111 @@ class KvnControl:
             "protocol": {"system": "reality-xhttp", "xhttp_mode": mode},
         }
 
+    @staticmethod
+    def _public_amneziawg_settings(kvnctl, state: dict, revision: str) -> dict:
+        """Возвращает настройки AWG без HeaderProtectionKey и других секретов."""
+        cfg = kvnctl.awg_config(copy.deepcopy(state))
+        v3 = cfg.get("v3", {})
+        return {
+            "revision": revision,
+            "protocol_version": cfg.get("protocol_version", "legacy"),
+            "supported_profiles": list(kvnctl.AWG_PROTOCOL_PROFILES),
+            "v3": {
+                key: v3.get(key, default)
+                for key, default in kvnctl.AWG31_DEFAULTS.items()
+            },
+            "header_protection_configured": kvnctl.valid_wg_key(
+                v3.get("header_protection_key", "")
+            ),
+            "requires_client_reimport": cfg.get("protocol_version") == "3.1",
+        }
+
+    def amneziawg_settings(self) -> dict:
+        state = self.kvnctl.STATE_STORE.load()
+        return self._public_amneziawg_settings(
+            self.kvnctl, state, self.state_revision(state)
+        )
+
+    def apply_amneziawg(self, params: dict) -> dict:
+        """Транзакционно применяет allowlisted профиль AWG 3.1."""
+        expected = {
+            "revision", "protocol_version", "content_padding_addition",
+            "rekey_after_time", "rekey_timeout", "reject_after_time",
+            "keepalive_timeout", "max_handshake_attempts",
+            "random_trailers", "regenerate_header_key",
+        }
+        if set(params) != expected:
+            raise ControlError("invalid_params", "Некорректная схема настроек AmneziaWG.")
+        revision = params.get("revision")
+        if not isinstance(revision, str) or len(revision) != 64:
+            raise ControlError("invalid_revision", "Некорректная ревизия состояния.")
+        protocol_version = params.get("protocol_version")
+        if protocol_version not in self.kvnctl.AWG_PROTOCOL_PROFILES:
+            raise ControlError("validation_error", "Профиль AmneziaWG не разрешён.")
+        if not isinstance(params.get("random_trailers"), bool) or not isinstance(
+            params.get("regenerate_header_key"), bool
+        ):
+            raise ControlError("validation_error", "Флаги AmneziaWG должны быть boolean.")
+        values = {
+            key: params[key]
+            for key in self.kvnctl.AWG31_CONFIG_KEYS
+        }
+        values["random_trailers"] = params["random_trailers"]
+
+        def mutate(state: dict) -> None:
+            self.kvnctl.update_amneziawg_profile(
+                state,
+                protocol_version=protocol_version,
+                values=values,
+                regenerate_header_key=params["regenerate_header_key"],
+            )
+            self.kvnctl.prepare_state(state)
+
+        try:
+            transaction = self.kvnctl.STATE_STORE.update(
+                mutate, expected_revision=revision
+            )
+        except self.StateRevisionConflict as exc:
+            raise ControlError("revision_conflict", str(exc)) from exc
+        except SystemExit as exc:
+            raise ControlError("validation_error", str(exc)) from exc
+
+        if not transaction.changed:
+            return {
+                "changed": False,
+                "revision": transaction.after_revision,
+                "plan": {"changed": False, "changed_paths": [], "services": {}},
+                "apply": {"outcome": "no-op", "reconcile_required": False, "warnings": [], "fallbacks": []},
+                "settings": self._public_amneziawg_settings(
+                    self.kvnctl, transaction.state, transaction.after_revision
+                ),
+            }
+        try:
+            render_result = self.kvnctl.render_all(transaction.state)
+            apply_report = self.kvnctl.restart_services(
+                render_result,
+                before_state=transaction.before_state,
+                after_state=transaction.state,
+                force_host_sync_services={"amneziawg"},
+            )
+            plan = render_result.to_dict()
+        except Exception:
+            plan = {"changed": True, "changed_paths": [], "services": {}}
+            apply_report = {
+                "outcome": "failed", "reconcile_required": True,
+                "warnings": ["Профиль сохранён, но runtime не применён. Проверьте версию awg-tools и выполните reconcile."],
+                "fallbacks": [], "failed": ["amneziawg"],
+            }
+        return {
+            "changed": True,
+            "revision": transaction.after_revision,
+            "plan": plan,
+            "apply": apply_report,
+            "settings": self._public_amneziawg_settings(
+                self.kvnctl, transaction.state, transaction.after_revision
+            ),
+        }
+
     def service_preferences(self) -> dict[str, bool]:
         state = self.kvnctl.STATE_STORE.load()
         return self.kvnctl.configured_service_preferences(state)

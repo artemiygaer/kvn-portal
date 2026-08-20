@@ -55,6 +55,8 @@ class ObservabilityRunner:
         elif argv and argv[0] in {"awg", "wg"}:
             now = int(datetime.datetime.now().timestamp())
             stdout = f"private\tpublic\t51820\toff\npeer\tpsk\tendpoint\t10.0.0.2/32\t{now}\t100\t200\t25\n"
+        elif argv[:2] == ["who", "--ips"]:
+            stdout = "root pts/0 2026-08-20 12:34 (203.0.113.9)\nadmin pts/1 2026-08-20 12:40 (2001:db8::7)\n"
         elif "nginx_status" in joined:
             stdout = "Active connections: 5\nserver accepts handled requests\n 10 10 20\n"
         elif argv[:2] == ["docker", "inspect"]:
@@ -88,12 +90,17 @@ class ProtocolCollectorTests(unittest.TestCase):
         self.assertEqual(ready["status"], "ok")
         self.assertFalse(ready["stale"])
         self.assertEqual(len(runner.calls), command_count)
-        self.assertEqual(command_count, 16)
+        self.assertEqual(command_count, 17)
         self.assertEqual(
             len([call for call, _timeout, _max in runner.calls if call[:2] == ("docker", "inspect")]),
             1,
         )
         self.assertLessEqual(max(timeout for _call, timeout, _max in runner.calls), 30)
+        self.assertEqual(ready["sources"]["ssh_sessions"]["data"]["count"], 2)
+        self.assertEqual(
+            ready["sources"]["ssh_sessions"]["data"]["sessions"][0]["remote_ip"],
+            "2001:db8::7",
+        )
         self.assertNotIn("internal-only", json.dumps(cached))
 
     def test_dashboard_snapshot_preserves_last_data_after_collector_failure(self):

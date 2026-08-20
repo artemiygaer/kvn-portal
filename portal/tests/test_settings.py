@@ -141,6 +141,21 @@ class FakeSettingsAgent:
                     },
                 },
             }
+        if method == "amneziawg.settings":
+            return {
+                "revision": "a" * 64, "protocol_version": "legacy",
+                "supported_profiles": ["legacy", "3.1"],
+                "header_protection_configured": False,
+                "requires_client_reimport": False,
+                "v3": {
+                    "content_padding_addition": "16-64", "rekey_after_time": "120-150",
+                    "rekey_timeout": "5-8", "reject_after_time": "180-240",
+                    "keepalive_timeout": "10-15", "max_handshake_attempts": "15-20",
+                    "random_trailers": True,
+                },
+            }
+        if method == "amneziawg.apply":
+            return {"changed": True, "apply": {"outcome": "applied"}}
         if method == "mtproto.diagnose":
             return {
                 "system": params["system"], "origin": "external", "sni": "example.com",
@@ -940,6 +955,7 @@ class PortalSettingsTests(unittest.TestCase):
         for method in (
             "sni.routes",
             "mtproto.status",
+            "amneziawg.settings",
             "portal.performance",
             "client.export.settings",
         ):
@@ -1010,6 +1026,40 @@ class PortalSettingsTests(unittest.TestCase):
         self.assertEqual(json.loads(detail), {
             "changed_features": ["monitoring", "background_refresh"]
         })
+
+    def test_amneziawg_31_form_uses_typed_agent_and_audits_no_key(self):
+        page = self.client.get("/gaer/settings", headers=self.headers)
+        self.assertIn(b'id="amneziawg-settings"', page.data)
+        response = self.client.post(
+            "/gaer/settings",
+            data={
+                "csrf_token": self.csrf(page),
+                "action": "amneziawg_profile",
+                "revision": "a" * 64,
+                "protocol_version": "3.1",
+                "content_padding_addition": "16-64",
+                "rekey_after_time": "120-150",
+                "rekey_timeout": "5-8",
+                "reject_after_time": "180-240",
+                "keepalive_timeout": "10-15",
+                "max_handshake_attempts": "15-20",
+                "random_trailers": "on",
+            },
+            headers=self.headers,
+        )
+        self.assertEqual(response.status_code, 200)
+        method, params = next(
+            (method, params) for method, params in reversed(self.agent.calls)
+            if method == "amneziawg.apply"
+        )
+        self.assertEqual(method, "amneziawg.apply")
+        self.assertTrue(params["random_trailers"])
+        self.assertFalse(params["regenerate_header_key"])
+        with closing(sqlite3.connect(self.db)) as db:
+            detail = db.execute(
+                "SELECT detail FROM audit_events WHERE action='amneziawg.profile'"
+            ).fetchone()[0]
+        self.assertEqual(json.loads(detail), {"protocol_version": "3.1"})
 
     def test_light_runtime_hides_history_and_keeps_manual_refresh(self):
         self.users.write_text(json.dumps({

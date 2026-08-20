@@ -1,6 +1,6 @@
-# Промт для передачи KVN VPN v3 новому ИИ-агенту
+# Промт для передачи KVN VPN v3.1 новому ИИ-агенту
 
-Ты продолжаешь разработку проекта KVN VPN v3. Работай автономно до проверенного
+Ты продолжаешь разработку проекта KVN VPN v3.1. Работай автономно до проверенного
 результата, но не расширяй задачу за пределы запроса пользователя. Отвечай
 по-русски, коротко и по делу. Комментарии, документацию и сообщения интерфейса
 пиши на русском.
@@ -50,7 +50,7 @@ wsl.exe -u root bash -lc "cd '$WslRoot' && python3 -m unittest discover -s tests
 
 ## Архитектура и назначение
 
-KVN VPN v3 — мультипротокольный VPN-стек для Debian 12/13.
+KVN VPN v3.1 — мультипротокольный VPN-стек для Debian 12/13.
 
 - Compose: nginx SNI-router, portal, portal-gateway, Xray, Hysteria2, Telemt,
   mtg FakeTLS и ocserv.
@@ -103,6 +103,11 @@ KVN VPN v3 — мультипротокольный VPN-стек для Debian 1
   standard WireGuard сохранены.
 - Standard WireGuard работает на `wg0:51821`; AmneziaWG — только на
   `awg0:51820`. Эти профили нельзя подменять друг другом.
+- AmneziaWG 3.1 включается явно; legacy остаётся default. HeaderProtectionKey
+  хранится только в root-only state, а после перехода все AWG-конфиги надо
+  экспортировать и импортировать заново.
+- Dashboard показывает активные SSH-сессии через allowlisted `who --ips` и
+  возвращает только user/IP/TTY/login time.
 - GitHub-источник обновлений зафиксирован как `artemiygaer/kvn-portal`.
   Поток обновления: check → download/verify → ready → отдельный start с
   повторной root-аутентификацией.
@@ -113,20 +118,20 @@ KVN VPN v3 — мультипротокольный VPN-стек для Debian 1
 
 Проверенный baseline от 26.07.2026:
 
-- 338 тестов проекта прошли в WSL/root;
+- 339 тестов проекта прошли локально, 18 Debian/Linux-only проверок пропущены;
 - 94 portal tests прошли в Docker test image;
 - deploy runtime E2E прошёл;
 - Bash syntax, Compose config, compileall, docs checker и source safety прошли;
 - browser matrix 1440/390 px, светлая/тёмная темы: без горизонтального
   переполнения, обрезанных кнопок и ошибок консоли;
 - full release: `linux/amd64`, семь runtime images, build ID
-  `20260726-release1`;
-- `main` и tag `v3.0.0` были отправлены в `artemiygaer/kvn-portal`.
+  `20260726-release3`;
+- публичный Release `v3.0.3` опубликован из commit `9ae03b1`;
+- `v3.0.2` помечен как неподходящий для full update на Docker/containerd:
+  verifier мог ложно отклонить корректный `kvn-portal:local` до изменения source.
 
-GitHub Release мог ещё не быть опубликован: сначала проверь Releases и Actions.
-Workflow `.github/workflows/release.yml` запускается только вручную и создаёт
-проверяемый draft перед публикацией. Не считай наличие tag доказательством
-наличия Release.
+Workflow `.github/workflows/release.yml` запускается только вручную, создаёт
+проверяемый draft и публикует его после проверки всех четырёх assets.
 
 Этот файл мог быть изменён после последней сборки. Поэтому не публикуй лежащие
 рядом архивы, пока не проверишь, что их embedded source совпадает с текущим
@@ -142,7 +147,15 @@ canonical deploy через `tools/publication_manifest.py`. При несовп
 - `publication-manifest.json`;
 - `SHA256SUMS`.
 
-Для private Release token создаётся только на Debian-сервере:
+Публичный репозиторий работает без token:
+
+```bash
+sudo python3 tools/kvnctl.py updates configure \
+  --enable true --channel stable --asset-preference release --clear-token
+sudo python3 tools/kvnctl.py updates status
+```
+
+Если репозиторий снова станет private, token создаётся только на Debian-сервере:
 
 ```bash
 sudo python3 tools/kvnctl.py updates configure \

@@ -93,6 +93,7 @@ class BackupScriptSourceTests(unittest.TestCase):
                 archive.addfile(info, io.BytesIO(payload))
             safe = subprocess.run(
                 [sys.executable, "-c", validator, str(safe_project), "project"],
+                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
                 text=True,
                 encoding="utf-8",
                 errors="replace",
@@ -117,6 +118,7 @@ class BackupScriptSourceTests(unittest.TestCase):
                     archive.addfile(info, io.BytesIO(payload))
             valid_outer = subprocess.run(
                 [sys.executable, "-c", validator, str(outer), "outer"],
+                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
                 text=True,
                 encoding="utf-8",
                 errors="replace",
@@ -134,6 +136,7 @@ class BackupScriptSourceTests(unittest.TestCase):
                 archive.addfile(info, io.BytesIO(payload))
             rejected = subprocess.run(
                 [sys.executable, "-c", validator, str(evil_project), "project"],
+                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
                 text=True,
                 encoding="utf-8",
                 errors="replace",
