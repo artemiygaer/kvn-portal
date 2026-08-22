@@ -152,7 +152,10 @@ class OfflineReleaseTests(unittest.TestCase):
 
     def test_source_only_fallback_is_explicit(self):
         update = (ROOT / "update.sh").read_text(encoding="utf-8")
-        settings = (ROOT / "portal/app/templates/settings.html").read_text(encoding="utf-8")
+        settings = "\n".join(
+            (ROOT / "portal/app/templates" / name).read_text(encoding="utf-8")
+            for name in ("settings.html", "_settings_update.html")
+        )
         self.assertIn("Source-only архив", update)
         self.assertIn("online build/pull", update)
         self.assertIn("Source deploy совместим", settings)

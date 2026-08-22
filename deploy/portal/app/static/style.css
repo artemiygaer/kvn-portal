@@ -180,7 +180,7 @@ code, pre { font-family:ui-monospace, "Cascadia Mono", "SFMono-Regular", Consola
 
 form { display:grid;gap:var(--space-4);}
 label { display:grid;gap:var(--space-2);font-weight:680;}
-input, select { width: 100%; min-height: 2.75rem;padding:0.65rem 0.75rem;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);}
+input, select { width:100%;min-height:2.75rem;padding:0.65rem 0.75rem;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);}
 input:hover, select:hover { border-color:var(--muted);}
 input:focus-visible, select:focus-visible { border-color:var(--focus);box-shadow:0 0 0 3px color-mix(in srgb, var(--focus) 18%, transparent);}
 button, .button { min-height: 2.75rem;display:inline-flex;align-items:center;justify-content:center;gap:var(--space-2);padding:0.62rem var(--space-4);color:var(--accent-contrast);background:var(--accent);border:0;border-radius:var(--radius-sm);font-weight:760;line-height:1.15;text-align:center;text-decoration:none;cursor:pointer;box-shadow:inset 0 -1px 0 rgb(0 0 0 / 16%);}
@@ -202,7 +202,7 @@ button:active, .button:active { transform:translateY(1px);}
 .action-group form { min-width:0;display:inline-flex;margin:0;}
 .action-group button { width:auto;max-width:20rem;white-space:normal;line-height:1.2;overflow-wrap:anywhere;}
 .service-actions { align-items:center;}
-#interface form > button, #portal-performance form > button, #security form > button, .settings-grid form:not(.inline-form) > button, .update-ready-card > form > button { width:auto;max-width:24rem;justify-self:start;}
+.panel > form:not(.inline-form) > button, .update-ready-card > form > button { width:auto;max-width:24rem;justify-self:start;white-space:normal;overflow-wrap:anywhere;}
 .inline-log-panel { min-width:0;display:grid;gap:var(--space-2);margin-top:var(--space-3);padding:var(--space-3);background:var(--surface-soft);border:1px solid var(--border);border-radius:var(--radius-sm);}
 .inline-log-panel[hidden] { display:none;}
 .inline-log-toolbar { display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--space-2);}
@@ -392,8 +392,9 @@ th { background:var(--surface-soft);}
 .check-grid label { min-height:var(--control-height);display:flex;align-items:center;gap:var(--space-2);font-weight:620;}
 .check-grid input { width:1.15rem;min-height:1.15rem;flex:none;}
 .settings-nav { position:sticky;z-index:8;top:0;display:flex;gap:var(--space-1);margin-bottom:var(--space-4);padding:var(--space-2);overflow-x:auto;background:color-mix(in srgb, var(--surface) 92%, transparent);border:1px solid var(--border);border-radius:var(--radius-sm);backdrop-filter:blur(8px);}
-.settings-nav a { min-height:var(--control-height-compact);display:inline-flex;align-items:center;flex:0 0 auto;padding:var(--space-1) var(--space-3);color:var(--text);border-radius:var(--radius-sm);font-size:0.84rem;font-weight:740;text-decoration:none;}
+.settings-nav a { min-height:var(--control-height-compact);max-width:16rem;display:inline-flex;align-items:center;flex:0 0 auto;padding:var(--space-1) var(--space-3);color:var(--text);border-radius:var(--radius-sm);font-size:0.84rem;font-weight:740;text-align:center;text-decoration:none;white-space:normal;overflow-wrap:anywhere;}
 .settings-nav a:hover, .settings-nav a:focus-visible { color:var(--accent);background:var(--surface-soft);}
+.settings-nav a.active{color:var(--accent-contrast);background:var(--accent);box-shadow:inset 0 -1px 0 rgb(0 0 0 / 16%);}
 section[id] { scroll-margin-top:4.5rem;}
 @keyframes kvn-spin { to { transform:rotate(360deg);} }
 
@@ -463,7 +464,7 @@ section[id] { scroll-margin-top:4.5rem;}
   .event-row { grid-template-columns:1fr;gap:var(--space-1);}
   .service-actions { display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));}
   .service-actions form, .service-actions button { width:100%;max-width:none;}
-  #interface form > button, #portal-performance form > button, #security form > button, .settings-grid form:not(.inline-form) > button, .update-ready-card > form > button { width:100%;max-width:none;justify-self:stretch;}
+  .panel > form:not(.inline-form) > button, .update-ready-card > form > button { width:100%;max-width:none;justify-self:stretch;}
   .inline-log-toolbar { align-items:stretch;flex-direction:column;}
   .inline-log-toolbar .actions { display:grid;grid-template-columns:1fr 1fr;}
   .service-card button { min-height:2.75rem;padding-inline:var(--space-2);font-size:0.92rem;}

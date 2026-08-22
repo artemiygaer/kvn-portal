@@ -36,6 +36,7 @@ MAX_RELEASE_BYTES = 2 * 1024 * 1024 * 1024
 MAX_IMAGES_BYTES = 1792 * 1024 * 1024
 MAX_SOURCE_BYTES = 128 * 1024 * 1024
 BUILD_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,80}$")
+VERSION_RE = re.compile(r"^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 IMAGE_ID_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 REPO_DIGEST_RE = re.compile(r"^[^@\s]+@sha256:[0-9a-f]{64}$")
 
@@ -56,10 +57,18 @@ def _artifact(path: Path) -> dict[str, str | int]:
     return {"name": path.name, "sha256": sha256_file(path), "size": path.stat().st_size}
 
 
-def build_manifest(build_id: str, source: Path, images: Path, metadata: list[dict]) -> dict:
+def build_manifest(
+    build_id: str,
+    source: Path,
+    images: Path,
+    metadata: list[dict],
+    version: str | None = None,
+) -> dict:
     """Формирует детерминированный логический manifest из готовых артефактов."""
     if not BUILD_ID_RE.fullmatch(build_id):
         raise ReleaseValidationError("недопустимый build-id")
+    if version is not None and not VERSION_RE.fullmatch(version):
+        raise ReleaseValidationError("недопустимая версия")
     by_ref = {item.get("ref"): item for item in metadata if isinstance(item, dict)}
     if set(by_ref) != set(EXPECTED_IMAGE_REFS):
         missing = sorted(set(EXPECTED_IMAGE_REFS) - set(by_ref))
@@ -85,13 +94,16 @@ def build_manifest(build_id: str, source: Path, images: Path, metadata: list[dic
             "platform": platform,
             "repo_digests": sorted(set(digests)),
         })
-    return {
+    manifest = {
         "format": 1,
         "platform": PLATFORM,
         "build_id": build_id,
         "source": _artifact(source),
         "images": {**_artifact(images), "items": records},
     }
+    if version is not None:
+        manifest["version"] = version
+    return manifest
 
 
 def _tar_info(name: str, size: int) -> tarfile.TarInfo:
@@ -104,11 +116,18 @@ def _tar_info(name: str, size: int) -> tarfile.TarInfo:
     return info
 
 
-def create_release(output: Path, build_id: str, source: Path, images: Path, metadata: list[dict]) -> dict:
+def create_release(
+    output: Path,
+    build_id: str,
+    source: Path,
+    images: Path,
+    metadata: list[dict],
+    version: str | None = None,
+) -> dict:
     """Упаковывает source, Docker image archive и логический manifest без временных меток."""
     if source.name != SOURCE_NAME or images.name != IMAGES_NAME:
         raise ReleaseValidationError("имена внутренних артефактов не соответствуют формату release")
-    manifest = build_manifest(build_id, source, images, metadata)
+    manifest = build_manifest(build_id, source, images, metadata, version)
     manifest_bytes = (json.dumps(manifest, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode()
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_suffix(output.suffix + ".tmp")
@@ -247,6 +266,9 @@ def validate_release(path: Path) -> dict:
                 raise ReleaseValidationError("неверные format или platform release")
             if not BUILD_ID_RE.fullmatch(str(manifest.get("build_id", ""))):
                 raise ReleaseValidationError("неверный build-id release")
+            version = manifest.get("version")
+            if version is not None and not VERSION_RE.fullmatch(str(version)):
+                raise ReleaseValidationError("неверная версия release")
             for key, expected_name in (("source", SOURCE_NAME), ("images", IMAGES_NAME)):
                 record = manifest.get(key)
                 if not isinstance(record, dict) or record.get("name") != expected_name:
@@ -423,6 +445,7 @@ def main() -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
     create = subparsers.add_parser("create")
     create.add_argument("--build-id", required=True)
+    create.add_argument("--version")
     create.add_argument("--source", type=Path, required=True)
     create.add_argument("--images", type=Path, required=True)
     create.add_argument("--metadata", type=Path, required=True)
@@ -440,7 +463,12 @@ def main() -> int:
     try:
         if args.command == "create":
             manifest = create_release(
-                args.output, args.build_id, args.source, args.images, _load_metadata(args.metadata),
+                args.output,
+                args.build_id,
+                args.source,
+                args.images,
+                _load_metadata(args.metadata),
+                args.version,
             )
         elif args.command == "inspect":
             manifest = validate_release(args.release)

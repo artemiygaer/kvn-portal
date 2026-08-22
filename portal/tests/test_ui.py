@@ -349,7 +349,10 @@ class PortalUiTests(unittest.TestCase):
         self.assertNotRegex(content, r"https?://|@import|url\s*\(")
 
     def test_staged_update_markup_and_client_states_are_accessible(self):
-        settings = (self.templates / "settings.html").read_text(encoding="utf-8")
+        settings = "\n".join(
+            (self.templates / name).read_text(encoding="utf-8")
+            for name in ("settings.html", "_settings_update.html")
+        )
         script = (self.static / "update.js").read_text(encoding="utf-8")
         css = (self.static / "style.css").read_text(encoding="utf-8")
         prepare_form = settings.split("data-update-prepare", 1)[1].split("</form>", 1)[0]
@@ -617,7 +620,8 @@ class PortalUiTests(unittest.TestCase):
         ]:
             self.assertIn(marker, services)
         self.assertIn("guide.default_user_enabled", user_form)
-        self.assertIn("service_help(service_guide(system), true)", settings)
+        protocols = (self.templates / "_settings_protocols.html").read_text(encoding="utf-8")
+        self.assertIn("service_help(service_guide(system), true)", protocols)
         self.assertIn("catalog_table(service_catalog.values())", project)
         combined = "\n".join((detail, services, user_form, settings))
         for duplicate in [

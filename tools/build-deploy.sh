@@ -20,6 +20,7 @@ trap cleanup EXIT
 
 MANIFEST_FILE=".kvn-canonical-files"
 BUILD_ID="${KVN_BUILD_ID:-$(date -u '+%Y%m%d-%H%M%S')}"
+VERSION="${KVN_VERSION:-$(tr -d '\r\n' < "$ROOT_DIR/VERSION")}"
 
 SCHEMA_FILE="tools/canonical-files.txt"
 if [ ! -f "$SCHEMA_FILE" ]; then
@@ -63,6 +64,10 @@ case "$BUILD_ID" in
     exit 1
     ;;
 esac
+if [[ ! "$VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+  echo "[ОШИБКА] KVN_VERSION должен иметь вид vX.Y.Z" >&2
+  exit 1
+fi
 for source in "${compatibility_only[@]}"; do
   case "$source" in
     portal/build_info.py) ;;
@@ -75,7 +80,7 @@ done
 
 # Один Python-процесс заменяет сотни mkdir/cp, что особенно важно на Windows/WSL.
 "$PYTHON3" tools/build_deploy_tree.py \
-  stage "$ROOT_DIR" "$STAGE_DEPLOY" "$BUILD_ID" "${deploy_only[@]}"
+  stage "$ROOT_DIR" "$STAGE_DEPLOY" "$BUILD_ID" "$VERSION" "${deploy_only[@]}"
 
 blocked=(
   "clients"

@@ -12,6 +12,7 @@ from pathlib import Path
 MANIFEST_NAME = ".kvn-canonical-files"
 BUILD_INFO = "portal/build_info.py"
 DOCKERFILE_BUILD_ID = re.compile(rb"KVN_BUILD_ID=[A-Za-z0-9._-]+")
+DOCKERFILE_VERSION = re.compile(rb"KVN_VERSION=v[0-9]+\.[0-9]+\.[0-9]+")
 
 
 def _relative(value: str) -> Path:
@@ -43,7 +44,13 @@ def _copy(source: Path, destination: Path) -> None:
     shutil.copy2(source, destination)
 
 
-def stage(root: Path, destination: Path, build_id: str, deploy_only: list[str]) -> None:
+def stage(
+    root: Path,
+    destination: Path,
+    build_id: str,
+    version: str,
+    deploy_only: list[str],
+) -> None:
     canonical = _canonical(root)
     for value in canonical:
         source = root / _relative(value)
@@ -54,6 +61,9 @@ def stage(root: Path, destination: Path, build_id: str, deploy_only: list[str]) 
             payload = DOCKERFILE_BUILD_ID.sub(
                 f"KVN_BUILD_ID={build_id}".encode("ascii"),
                 source.read_bytes(),
+            )
+            payload = DOCKERFILE_VERSION.sub(
+                f"KVN_VERSION={version}".encode("ascii"), payload,
             )
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(payload)
@@ -70,7 +80,10 @@ def stage(root: Path, destination: Path, build_id: str, deploy_only: list[str]) 
 
     build_info = destination / BUILD_INFO
     build_info.parent.mkdir(parents=True, exist_ok=True)
-    build_info.write_text(f'BUILD_ID = "{build_id}"\n', encoding="utf-8")
+    build_info.write_text(
+        f'BUILD_ID = "{build_id}"\nVERSION = "{version}"\n',
+        encoding="utf-8",
+    )
     (destination / MANIFEST_NAME).write_text(
         "".join(f"{value}\n" for value in canonical),
         encoding="utf-8",
@@ -103,6 +116,7 @@ def parse_args() -> argparse.Namespace:
     stage_parser.add_argument("root", type=Path)
     stage_parser.add_argument("destination", type=Path)
     stage_parser.add_argument("build_id")
+    stage_parser.add_argument("version")
     stage_parser.add_argument("deploy_only", nargs="*")
 
     sync_parser = subparsers.add_parser("sync")
@@ -115,7 +129,13 @@ def main() -> int:
     args = parse_args()
     root = args.root.resolve()
     if args.command == "stage":
-        stage(root, args.destination.resolve(), args.build_id, args.deploy_only)
+        stage(
+            root,
+            args.destination.resolve(),
+            args.build_id,
+            args.version,
+            args.deploy_only,
+        )
     else:
         sync(root, args.source.resolve())
     return 0

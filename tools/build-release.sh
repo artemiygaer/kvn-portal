@@ -9,6 +9,7 @@ case "$OUTPUT" in
   *) OUTPUT="$ROOT_DIR/$OUTPUT" ;;
 esac
 BUILD_ID="${KVN_BUILD_ID:-$(date -u '+%Y%m%d-%H%M%S')}"
+VERSION="${KVN_VERSION:-$(tr -d '\r\n' < "$ROOT_DIR/VERSION")}"
 OFFLINE="${KVN_RELEASE_OFFLINE:-0}"
 case "$BUILD_ID" in
   ""|*[!A-Za-z0-9._-]*)
@@ -16,6 +17,10 @@ case "$BUILD_ID" in
     exit 1
     ;;
 esac
+if [[ ! "$VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+  echo "[ОШИБКА] Недопустимый KVN_VERSION: $VERSION" >&2
+  exit 1
+fi
 case "$OFFLINE" in
   0|1) ;;
   *)
@@ -69,8 +74,15 @@ if [ "$OFFLINE" = "1" ]; then
     echo "[ОШИБКА] Offline release: kvn-portal:local имеет KVN_BUILD_ID=$portal_build_id, ожидался $BUILD_ID" >&2
     exit 1
   fi
+  portal_version="$(docker image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' kvn-portal:local \
+    | sed -n 's/^KVN_VERSION=//p' | tail -n 1)"
+  if [ "$portal_version" != "$VERSION" ]; then
+    echo "[ОШИБКА] Offline release: kvn-portal:local имеет KVN_VERSION=$portal_version, ожидался $VERSION" >&2
+    exit 1
+  fi
 else
-  docker build --platform linux/amd64 --provenance=false --target runtime --build-arg "KVN_BUILD_ID=$BUILD_ID" \
+  docker build --platform linux/amd64 --provenance=false --target runtime \
+    --build-arg "KVN_BUILD_ID=$BUILD_ID" --build-arg "KVN_VERSION=$VERSION" \
     -t kvn-portal:local portal
   docker build --platform linux/amd64 --provenance=false --network host -t kvn-ocserv:local ocserv
 fi
@@ -144,10 +156,10 @@ metadata_path.write_text(
     encoding="utf-8",
 )
 PY
-KVN_BUILD_ID="$BUILD_ID" bash tools/build-deploy.sh "$SOURCE"
+KVN_BUILD_ID="$BUILD_ID" KVN_VERSION="$VERSION" bash tools/build-deploy.sh "$SOURCE"
 
 python3 -m tools.release_archive create \
-  --build-id "$BUILD_ID" --source "$SOURCE" --images "$IMAGES" \
+  --build-id "$BUILD_ID" --version "$VERSION" --source "$SOURCE" --images "$IMAGES" \
   --metadata "$METADATA" --output "$OUTPUT"
 python3 -m tools.release_archive inspect "$OUTPUT" >/dev/null
 

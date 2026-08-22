@@ -1,10 +1,10 @@
-# KVN VPN v3.1: краткая инструкция для ИИ-ассистента
+# KVN VPN v3.1.1: краткая инструкция для ИИ-ассистента
 
 Говорить с пользователем по-русски, коротко и по делу. Комментарии и документацию писать на русском. Перед правками сначала смотреть код вокруг задачи; подробности есть в `README.md` и `deploy/DEPLOY.md`.
 
 ## Суть проекта
 
-KVN VPN v3.1 — мультипротокольный VPN-стек для Debian 12/13. Основные сервисы идут через Docker Compose. Host-службы:
+KVN VPN v3.1.1 — мультипротокольный VPN-стек для Debian 12/13. Основные сервисы идут через Docker Compose. Host-службы:
 
 - `kvn-amneziawg.service`: AmneziaWG, `awg0`, `51820/udp`;
 - `kvn-wireguard.service`: стандартный WireGuard, `wg0`, `51821/udp`;
@@ -34,7 +34,9 @@ KVN VPN v3.1 — мультипротокольный VPN-стек для Debian
   - `wireguard/install-host-service.sh`, `wireguard/sync-host-service.sh`.
 - Peer-only изменения AWG/WG применяются через `syncconf`; structural delta — controlled restart.
 - AmneziaWG `legacy` остаётся default. Профиль `3.1` включается явно, требует актуальные tools/module, одинаковый secret `HeaderProtectionKey` на сервере и клиентах и повторный экспорт всех AWG-конфигов. Ключ нельзя возвращать в portal RPC или аудит.
-- Dashboard показывает активные удалённые SSH-сессии только через фиксированный `who --ips`: разрешены поля user/IP/TTY/login time, raw output и содержимое терминала наружу не выдаются.
+- Dashboard показывает активные удалённые SSH-сессии через фиксированный `loginctl` с fallback `who --ips`: разрешены поля user/IP/TTY/login time, включая `root`; локальные сессии, raw output и содержимое терминала наружу не выдаются.
+- Портал создаёт только обычных Linux-пользователей SSH через узкий root-helper: домашний каталог и `/bin/bash`, пароль через stdin, без `sudo`/`adm`/`wheel`; при ошибке выполняется rollback.
+- `/settings` имеет строгие группы `portal|protocols|access|update`. Каждая группа загружает только свои RPC и JavaScript; POST должен возвращать в соответствующую группу.
 - SNI-пулы управляются через портал «Настройки» или `sni-routes`; пересечения SNI между сервисами, сайтом/подпиской и ocserv должны отклоняться до применения.
 - Per-user SNI разрешён для `tls`, `reality-xhttp`, `reality-tcp` и `hysteria`; HAPP должен получать выбранные значения после render/apply. Reality SNI должен быть заранее в `sni_routes.<system>.aliases`, чтобы nginx и Xray были согласованы.
 - Telemt/mtg/ocserv имеют service-level SNI. Telemt менять через default сервиса (`sni-routes set-default telemt <domain>` или портал), иначе QR/secret и `telemt/config.toml` разойдутся.
@@ -103,7 +105,7 @@ docker build --target test -t kvn-portal:test portal
 python3 tools/kvnctl.py render
 python3 tests/deploy_runtime_e2e.py
 bash tools/build-deploy.sh
-KVN_BUILD_ID=20260713-staged-update1 bash tools/build-release.sh
+KVN_BUILD_ID=20260821-release1 KVN_VERSION=v3.1.1 bash tools/build-release.sh
 ```
 
 Debian-only: systemd, socket права, firewall, Certbot HTTP-01, реальный Compose lifecycle. Если Docker/WSL недоступен локально, явно указать это в ответе.

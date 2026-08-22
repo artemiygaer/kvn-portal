@@ -113,12 +113,13 @@ class SafetyContractsTests(unittest.TestCase):
     def test_shell_inventory_is_strict_and_deploy_mirror_is_exact(self):
         """Все канонические shell entry points известны и синхронизированы."""
         canonical = sorted(
-            path.relative_to(ROOT).as_posix()
-            for path in ROOT.rglob("*.sh")
-            if "deploy" not in path.relative_to(ROOT).parts
-            and "tests" not in path.relative_to(ROOT).parts
-            and ".supergoal" not in path.relative_to(ROOT).parts
+            relative
+            for relative in (ROOT / "tools/canonical-files.txt").read_text(encoding="utf-8").splitlines()
+            if relative.endswith(".sh")
         )
+        # Builder deploy-архива выполняется только из source tree и сам в deploy не входит.
+        canonical.append("tools/build-deploy.sh")
+        canonical.sort()
         self.assertEqual(len(canonical), 20, canonical)
         self.assertEqual(len(list((ROOT / "deploy").rglob("*.sh"))), 19)
         self.assertEqual(len(list((ROOT / "tests").rglob("*.sh"))), 1)

@@ -38,6 +38,14 @@ class VisualAgent:
         }
 
     def call(self, method, params, *, timeout=None):
+        if method == "system.users":
+            return {
+                "users": [{
+                    "user": "operator", "uid": 1001, "home": "/home/operator",
+                    "shell": "/bin/bash", "privileged": False,
+                }],
+                "count": 1,
+            }
         if method == "project.release.settings":
             if self.github_state == "agent-restart":
                 raise AgentClientError("unknown_method: visual")

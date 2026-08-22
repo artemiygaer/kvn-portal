@@ -1,6 +1,6 @@
-# Промт для передачи KVN VPN v3.1 новому ИИ-агенту
+# Промт для передачи KVN VPN v3.1.1 новому ИИ-агенту
 
-Ты продолжаешь разработку проекта KVN VPN v3.1. Работай автономно до проверенного
+Ты продолжаешь разработку проекта KVN VPN v3.1.1. Работай автономно до проверенного
 результата, но не расширяй задачу за пределы запроса пользователя. Отвечай
 по-русски, коротко и по делу. Комментарии, документацию и сообщения интерфейса
 пиши на русском.
@@ -50,7 +50,7 @@ wsl.exe -u root bash -lc "cd '$WslRoot' && python3 -m unittest discover -s tests
 
 ## Архитектура и назначение
 
-KVN VPN v3.1 — мультипротокольный VPN-стек для Debian 12/13.
+KVN VPN v3.1.1 — мультипротокольный VPN-стек для Debian 12/13.
 
 - Compose: nginx SNI-router, portal, portal-gateway, Xray, Hysteria2, Telemt,
   mtg FakeTLS и ocserv.
@@ -106,8 +106,12 @@ KVN VPN v3.1 — мультипротокольный VPN-стек для Debian
 - AmneziaWG 3.1 включается явно; legacy остаётся default. HeaderProtectionKey
   хранится только в root-only state, а после перехода все AWG-конфиги надо
   экспортировать и импортировать заново.
-- Dashboard показывает активные SSH-сессии через allowlisted `who --ips` и
-  возвращает только user/IP/TTY/login time.
+- Dashboard показывает активные SSH-сессии через allowlisted `loginctl` с
+  fallback `who --ips` и возвращает только user/IP/TTY/login time, включая root.
+- Settings разделены на `portal|protocols|access|update`; открытая группа вызывает
+  только свои RPC и подключает только свой JavaScript.
+- В группе «Доступ» создаются обычные Linux-пользователи SSH без
+  `sudo`/`adm`/`wheel`; пароль идёт helper через stdin и нигде не хранится.
 - GitHub-источник обновлений зафиксирован как `artemiygaer/kvn-portal`.
   Поток обновления: check → download/verify → ready → отдельный start с
   повторной root-аутентификацией.
@@ -116,19 +120,18 @@ KVN VPN v3.1 — мультипротокольный VPN-стек для Debian
 
 ## Статус на момент передачи
 
-Проверенный baseline от 26.07.2026:
+Проверенный baseline v3.1.1 от 22.08.2026:
 
-- 339 тестов проекта прошли локально, 18 Debian/Linux-only проверок пропущены;
-- 94 portal tests прошли в Docker test image;
+- 353 тестов проекта прошли локально, 5 platform-only проверок пропущены;
+- 104 portal tests прошли локально и в Docker test image, 1 host-agent проверка пропущена;
 - deploy runtime E2E прошёл;
 - Bash syntax, Compose config, compileall, docs checker и source safety прошли;
-- browser matrix 1440/390 px, светлая/тёмная темы: без горизонтального
-  переполнения, обрезанных кнопок и ошибок консоли;
+- browser matrix 1440/390 px: группы Settings, keyboard skip-link/focus,
+  адаптивные кнопки и консоль без ошибок проверены;
 - full release: `linux/amd64`, семь runtime images, build ID
-  `20260726-release3`;
-- публичный Release `v3.0.3` опубликован из commit `9ae03b1`;
-- `v3.0.2` помечен как неподходящий для full update на Docker/containerd:
-  verifier мог ложно отклонить корректный `kvn-portal:local` до изменения source.
+  `20260821-release1`, version `v3.1.1`;
+- source/full archives проверены реальным host-agent inspector и безопасным
+  scheduling path без выполнения update в рабочем каталоге.
 
 Workflow `.github/workflows/release.yml` запускается только вручную, создаёт
 проверяемый draft и публикует его после проверки всех четырёх assets.

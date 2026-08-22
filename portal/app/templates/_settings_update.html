@@ -1,0 +1,155 @@
+<section class="panel" id="project-update">
+  <div class="section-heading">
+    <div>
+      <h2>Обновление проекта</h2>
+      <p class="muted">Проверка, подготовка и запуск — отдельные действия. Текущая версия: <code>{{ app_version }}</code>; сборка: <code>{{ build_id }}</code>.</p>
+    </div>
+  </div>
+  <div class="update-flow">
+  <div class="widget-grid update-source-grid">
+    <article class="update-source-card github-update-card" data-github-update data-current-version="{{ app_version }}" data-current-build="{{ build_id }}">
+      <div class="section-heading">
+        <div>
+          <h3>GitHub Releases</h3>
+          <p class="muted"><code>{{ github_settings.repository }}</code></p>
+        </div>
+        {% if github_settings.enabled is sameas true %}
+        <span class="status ok">включено</span>
+        {% elif github_settings.enabled is sameas false %}
+        <span class="status stale">отключено</span>
+        {% else %}
+        <span class="status bad">agent недоступен</span>
+        {% endif %}
+      </div>
+      <dl class="update-meta compact-meta">
+        <div><dt>Канал</dt><dd><code>{{ github_settings.channel }}</code>{% if github_settings.tag %} / <code>{{ github_settings.tag }}</code>{% endif %}</dd></div>
+        <div><dt>Предпочтение</dt><dd>{{ 'Полный offline release' if github_settings.asset_preference == 'release' else 'Source deploy' if github_settings.asset_preference == 'deploy' else 'неизвестно' }}</dd></div>
+      </dl>
+      <p class="form-hint">Для приватного репозитория credential хранится только у root-agent. Портал не показывает его наличие или значение.</p>
+      {% if github_settings_error %}
+      <div class="notice notice-warning" role="status">{{ github_settings_error }}</div>
+      {% elif github_settings.enabled is sameas false %}
+      <div class="notice notice-warning" role="status">Источник отключён. Включение: <code>sudo python3 tools/kvnctl.py updates configure --enable true</code>. Ручная загрузка доступна справа.</div>
+      {% endif %}
+      <form method="post" action="{{ public_url('project_release_check') }}" data-github-check aria-describedby="github-update-status">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="secondary" data-github-check-button{% if github_settings.enabled is not sameas true %} disabled{% endif %}>Проверить GitHub</button>
+      </form>
+      <div class="update-progress github-progress" data-github-progress role="status" aria-live="polite" hidden>
+        <strong data-github-progress-text>Проверка Release…</strong>
+        <progress aria-label="Проверка или загрузка GitHub Release"></progress>
+      </div>
+      <p class="form-status{% if github_error %} widget-error{% endif %}" id="github-update-status" data-github-status role="status" aria-live="polite">{{ github_error }}</p>
+
+      <div class="github-release"{% if not github_release %} hidden{% endif %} data-github-release>
+        <div class="status-line">
+          <div>
+            <span class="status {{ 'stale' if github_release and github_release.up_to_date else 'ok' }}" data-github-version-state>{{ 'Уже установлено' if github_release and github_release.up_to_date else 'Доступно обновление' }}</span>
+            <h4 data-github-release-name>{{ github_release.release_name if github_release else '' }}</h4>
+          </div>
+          <code data-github-release-tag>{{ github_release.tag if github_release else '' }}</code>
+        </div>
+        <p class="muted">Опубликовано: <time data-github-published>{{ github_release.published_at if github_release else '—' }}</time></p>
+        <div class="table-wrap compact-table">
+          <table>
+            <thead><tr><th>Asset</th><th>Размер</th><th>SHA-256</th></tr></thead>
+            <tbody data-github-assets>
+            {% if github_release %}
+              {% for asset in github_release.assets %}
+              <tr{% if asset.id == github_release.asset.id %} data-selected="true"{% endif %}>
+                <td>{{ asset.name }}{% if asset.id == github_release.asset.id %} <span class="status ok">выбран</span>{% endif %}</td>
+                <td>{{ '%.1f'|format(asset.size / 1048576) }} МБ</td>
+                <td><code>{{ asset.sha256 }}</code></td>
+              </tr>
+              {% endfor %}
+            {% endif %}
+            </tbody>
+          </table>
+        </div>
+        <details class="advanced-details release-notes-details"{% if github_release and github_release.notes %} open{% endif %}>
+          <summary>Примечания к Release</summary>
+          <pre class="release-notes" data-github-notes>{{ github_release.notes if github_release and github_release.notes else 'Примечания не опубликованы.' }}</pre>
+        </details>
+        <form method="post" action="{{ public_url('project_release_prepare') }}" data-github-prepare aria-describedby="github-update-status">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="release_id" data-github-release-id value="{{ github_release.release_id if github_release else '' }}">
+          <input type="hidden" name="asset_id" data-github-asset-id value="{{ github_release.asset.id if github_release else '' }}">
+          <input type="hidden" name="asset_sha256" data-github-asset-sha256 value="{{ github_release.asset.sha256 if github_release else '' }}">
+          <button type="submit" data-github-prepare-button>{{ 'Скачать повторно и проверить' if github_release and github_release.up_to_date else 'Скачать и проверить' }}</button>
+        </form>
+      </div>
+    </article>
+
+    <article class="update-source-card manual-update-card">
+      <div class="section-heading">
+        <div><h3>Ручная загрузка</h3><p class="muted">Офлайн-резерв при сбое GitHub, DNS или rate limit.</p></div>
+        <span class="status stale">fallback</span>
+      </div>
+      <form method="post" action="{{ public_url('project_update_prepare') }}" enctype="multipart/form-data" data-update-prepare aria-describedby="update-upload-hint update-upload-status">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="archive">Архив обновления</label>
+        <input id="archive" name="archive" type="file" accept=".tar.gz,application/gzip,application/x-gzip" required>
+        <p class="form-hint" id="update-upload-hint">Допустимы только штатные <code>kvn-vpn-release-linux-amd64.tar.gz</code> и <code>kvn-vpn-deploy.tar.gz</code>. Загрузка не запускает обновление. Source deploy совместим, но использует online build/pull и не рекомендуется для сервера 1 ГБ; предпочтителен полный release.</p>
+        <div class="update-actions">
+          <button type="submit" data-update-submit>{{ 'Заменить архив' if prepared_update else 'Загрузить и проверить' }}</button>
+          <button type="button" class="secondary" data-update-cancel hidden>Отменить</button>
+          <button type="button" class="secondary" data-update-retry hidden>Повторить</button>
+        </div>
+        <div class="update-progress" data-update-progress data-state="idle" role="status" aria-live="polite" hidden>
+          <div class="status-line"><strong data-update-status id="update-upload-status">Ожидание файла</strong><span data-update-percent>0%</span></div>
+          <progress data-update-progress-bar value="0" max="100" aria-label="Прогресс загрузки архива" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">0%</progress>
+        </div>
+      </form>
+      <details class="advanced-details manual-update-instructions">
+        <summary>Обновление вручную с сервера</summary>
+        <ol>
+          <li>Создайте бэкап: <code>sudo ./tools/project-backup.sh</code></li>
+          <li>Проверьте архив: <code>sha256sum &lt;archive&gt;</code></li>
+          <li>Запустите: <code>sudo ./update.sh &lt;archive&gt;</code></li>
+          <li>Если старый updater не принимает новый архив: <code>sudo ./update.sh --bootstrap-only &lt;archive&gt;</code>, затем повторите полный запуск.</li>
+        </ol>
+      </details>
+    </article>
+  </div>
+
+  {% if prepared_update %}
+  <div class="update-ready-card" role="region" aria-labelledby="update-ready-title" data-update-ready data-prepared-update-id="{{ prepared_update.id }}">
+    <div class="status-line" role="status" aria-live="polite">
+      <div><span class="status ok">Готово</span><h3 id="update-ready-title">Готов к обновлению</h3></div>
+      <span class="muted">Проверено на сервере · {{ 'GitHub' if prepared_update.metadata.source == 'github' else 'ручная загрузка' }}</span>
+    </div>
+    <dl class="update-meta">
+      <div><dt>Архив</dt><dd>{{ prepared_update.archive_name }}</dd></div>
+      <div><dt>Тип</dt><dd>{{ 'Полный release' if prepared_update.archive_kind == 'release' else 'Source deploy' }}</dd></div>
+      <div><dt>Размер</dt><dd>{{ '%.1f'|format(prepared_update.archive_size / 1048576) }} МБ</dd></div>
+      <div><dt>SHA-256</dt><dd><code>{{ prepared_update.archive_sha256 }}</code></dd></div>
+      {% if prepared_update.metadata.tag %}<div><dt>Release</dt><dd><code>{{ prepared_update.metadata.tag }}</code></dd></div>{% endif %}
+    </dl>
+    <form method="post" action="{{ public_url('project_update_start') }}" data-confirm="Запустить обновление проекта" data-object="{{ prepared_update.archive_name }}" data-sensitive-submit aria-describedby="project-update-hint project-update-status">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="prepared_id" value="{{ prepared_update.id }}">
+      <label for="update_mode">Режим обновления</label>
+      <select id="update_mode" name="update_mode">
+        <option value="full">Полное применение</option>
+        <option value="bootstrap-only">Только updater и host-agent</option>
+      </select>
+      <p class="form-hint">Bootstrap-only не перезапускает VPN и контейнеры. Для сервера 1 ГБ рекомендуется полный release.</p>
+      <label for="update_root_password">Root-пароль для подтверждения запуска</label>
+      <input id="update_root_password" name="root_password" type="password" autocomplete="current-password" required>
+      <p class="form-hint" id="project-update-hint">Пароль используется только для этой команды, очищается после формирования запроса и не сохраняется порталом.</p>
+      <div class="update-actions">
+        <button type="submit" class="warning" data-sensitive-submit-button>Запустить обновление</button>
+      </div>
+      <p class="form-status" id="project-update-status" data-sensitive-submit-status role="status" aria-live="polite"></p>
+    </form>
+    <form method="post" action="{{ public_url('project_update_discard') }}" data-confirm="Удалить подготовленный архив" data-object="{{ prepared_update.archive_name }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="prepared_id" value="{{ prepared_update.id }}">
+      <button type="submit" class="quiet">Удалить подготовленный архив</button>
+    </form>
+  </div>
+  {% else %}
+  <p class="empty-state" data-update-ready-empty role="status">Проверенного архива пока нет. После загрузки здесь появится отдельная команда запуска.</p>
+  {% endif %}
+  </div>
+</section>

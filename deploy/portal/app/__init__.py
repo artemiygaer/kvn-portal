@@ -30,6 +30,7 @@ from .service_catalog import (
     system_label,
 )
 from .storage import PortalStorage
+from .versioning import APP_VERSION
 
 
 BUILD_ID = "dev"
@@ -92,6 +93,7 @@ TRANSLATIONS = {
         "theme": "Тема",
         "login_ip": "IP входа",
         "build": "Сборка",
+        "version": "Версия",
         "menu": "Меню",
         "advanced": "Дополнительно",
         "command_palette": "Команды",
@@ -219,6 +221,7 @@ TRANSLATIONS = {
         "theme": "Theme",
         "login_ip": "Login IP",
         "build": "Build",
+        "version": "Version",
         "menu": "Menu",
         "advanced": "Advanced",
         "command_palette": "Commands",
@@ -361,6 +364,7 @@ def create_app(test_config: dict | None = None) -> Flask:
         PROXY_SECRET=runtime.get("proxy_secret", ""),
         HYSTERIA_SECRET=runtime.get("hysteria_secret", ""),
         BUILD_ID=os.environ.get("KVN_BUILD_ID", BUILD_ID),
+        APP_VERSION=os.environ.get("KVN_VERSION", APP_VERSION),
         SESSION_COOKIE_NAME="kvn_portal_session",
         SESSION_COOKIE_SECURE=True,
         MAX_CONTENT_LENGTH=2 * 1024 * 1024 * 1024 + 1024 * 1024,
@@ -424,6 +428,7 @@ def create_app(test_config: dict | None = None) -> Flask:
     app.jinja_env.globals["navigation_group_active"] = navigation_group_active
 
     app.jinja_env.globals["build_id"] = app.config["BUILD_ID"]
+    app.jinja_env.globals["app_version"] = app.config["APP_VERSION"]
 
     agent_facade = AgentFacade(app)
     boundary = PortalBoundary(

@@ -33,7 +33,7 @@
     {% endif %}
     <div class="page-column">
       <div class="utility-bar">
-        {% if g.session %}<div class="session-meta"><span>{{ t('login_ip') }}: <code>{{ g.session.ip }}</code></span><span>{{ t('build') }}: <code>{{ build_id }}</code></span></div>{% endif %}
+        {% if g.session %}<div class="session-meta"><span>{{ t('login_ip') }}: <code>{{ g.session.ip }}</code></span><span>{{ t('version') }}: <code>{{ app_version }}</code></span><span title="Технический идентификатор сборки">{{ t('build') }}: <code>{{ build_id }}</code></span></div>{% endif %}
         <div class="utility-actions">
           {% if g.session %}<button class="command-button secondary" type="button" data-command-open aria-haspopup="dialog" aria-controls="command-palette" title="{{ t('command_hint') }}">{{ t('command_palette') }} <kbd>Ctrl K</kbd></button>{% endif %}
           <button class="icon-button secondary" type="button" data-theme-toggle aria-label="Переключить цветовую тему" title="Переключить цветовую тему">{{ t('theme') }}</button>

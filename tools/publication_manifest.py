@@ -37,7 +37,7 @@ def build_publication_manifest(release: Path, deploy: Path) -> dict:
     source = release_manifest["source"]
     if source["sha256"] != deploy_sha256 or source["size"] != deploy.stat().st_size:
         raise ValueError("внешний deploy не совпадает с source deploy внутри full release")
-    return {
+    manifest = {
         "format": 1,
         "repository": REPOSITORY,
         "build_id": release_manifest["build_id"],
@@ -57,6 +57,9 @@ def build_publication_manifest(release: Path, deploy: Path) -> dict:
         ],
         "publication_files": list(PUBLICATION_NAMES),
     }
+    if "version" in release_manifest:
+        manifest["version"] = release_manifest["version"]
+    return manifest
 
 
 def atomic_write(path: Path, payload: str) -> None:
@@ -82,7 +85,8 @@ def main() -> int:
         print(f"[ОШИБКА] Publication manifest: {exc}")
         return 1
     print(
-        f"[OK] Publication manifest: build={manifest['build_id']}, "
+        f"[OK] Publication manifest: version={manifest.get('version', 'legacy')}, "
+        f"build={manifest['build_id']}, "
         f"assets={len(manifest['assets'])}, files={len(manifest['publication_files'])}"
     )
     return 0

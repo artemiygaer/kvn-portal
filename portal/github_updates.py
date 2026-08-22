@@ -462,12 +462,15 @@ class GitHubReleaseSource:
         try:
             if kind == "release":
                 manifest = validate_release(path)
-                return {
+                validation = {
                     "internal": "release-manifest.json",
                     "build_id": manifest["build_id"],
                     "source_sha256": manifest["source"]["sha256"],
                     "images_sha256": manifest["images"]["sha256"],
                 }
+                if "version" in manifest:
+                    validation["version"] = manifest["version"]
+                return validation
             metadata = inspect_archive(path)
             return {
                 "internal": "deploy-inspector",

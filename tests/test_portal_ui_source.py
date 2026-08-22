@@ -101,7 +101,10 @@ class PortalUiSourceTests(unittest.TestCase):
 
     def test_mobile_navigation_and_sensitive_update_have_no_overlay_or_password_retention(self):
         base = (ROOT / "portal/app/templates/base.html").read_text(encoding="utf-8")
-        settings = (ROOT / "portal/app/templates/settings.html").read_text(encoding="utf-8")
+        settings = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in sorted((ROOT / "portal/app/templates").glob("*settings*.html"))
+        )
         css = (ROOT / "portal/app/static/style.css").read_text(encoding="utf-8")
         script = "\n".join(
             (ROOT / f"portal/app/static/{name}").read_text(encoding="utf-8")
@@ -118,7 +121,7 @@ class PortalUiSourceTests(unittest.TestCase):
             self.assertIn(marker, script)
 
     def test_staged_update_ui_has_progress_ready_start_and_no_js_fallback(self):
-        settings = (ROOT / "portal/app/templates/settings.html").read_text(encoding="utf-8")
+        settings = (ROOT / "portal/app/templates/_settings_update.html").read_text(encoding="utf-8")
         script = (ROOT / "portal/app/static/update.js").read_text(encoding="utf-8")
         css = (ROOT / "portal/app/static/style.css").read_text(encoding="utf-8")
         prepare_form = settings.split('data-update-prepare', 1)[1].split("</form>", 1)[0]
@@ -156,7 +159,7 @@ class PortalUiSourceTests(unittest.TestCase):
             self.assertIsNotNone(match, token)
             self.assertLessEqual(float(match.group(1)), 0.5, token)
         self.assertIn("button, .button { min-height: 2.75rem", css)
-        self.assertIn("input, select { width: 100%; min-height: 2.75rem", css)
+        self.assertIn("input, select { width:100%;min-height:2.75rem", css)
         self.assertIn(".inline-form input, .inline-form select, .inline-form button { min-height: 2.75rem", css)
         self.assertNotRegex(css, r"font-size:\s*clamp\([^;]*vw")
         self.assertNotRegex(css, r"letter-spacing:\s*-")
@@ -184,7 +187,7 @@ class PortalUiSourceTests(unittest.TestCase):
     def test_new_network_and_matrix_copy_supports_both_languages(self):
         network = (ROOT / "portal/app/templates/network.html").read_text(encoding="utf-8")
         users = (ROOT / "portal/app/templates/users.html").read_text(encoding="utf-8")
-        settings = (ROOT / "portal/app/templates/settings.html").read_text(encoding="utf-8")
+        settings = (ROOT / "portal/app/templates/_settings_access.html").read_text(encoding="utf-8")
         for russian, english in [
             ("Советник доменов", "Domain advisor"),
             ("Рекомендация", "Recommendation"),
@@ -198,11 +201,18 @@ class PortalUiSourceTests(unittest.TestCase):
         self.assertIn('autocomplete="username"', settings)
 
     def test_settings_has_clear_sections_ip_state_and_mobile_sni_cards(self):
-        settings = (ROOT / "portal/app/templates/settings.html").read_text(encoding="utf-8")
+        templates = ROOT / "portal/app/templates"
+        settings = "\n".join(
+            (templates / name).read_text(encoding="utf-8")
+            for name in (
+                "settings.html", "_settings_portal.html", "_settings_protocols.html",
+                "_settings_access.html", "_settings_update.html",
+            )
+        )
         css = (ROOT / "portal/app/static/style.css").read_text(encoding="utf-8")
         for marker in [
-            'class="settings-nav"', 'href="#interface"', 'href="#portal-performance"',
-            'href="#security"', 'href="#project-update"', 'href="#sni-settings"',
+            'class="settings-nav settings-group-nav"', "group=key", "active_group == 'portal'",
+            'id="interface"', 'id="security"', 'id="project-update"', 'id="sni-settings"',
             "IP HTTPS готов", "IP HTTPS ожидает сертификат", "совпадающем IP SAN",
             'class="sni-table"', 'data-label="Действия"',
         ]:
@@ -259,7 +269,7 @@ class PortalUiSourceTests(unittest.TestCase):
         dialog = (ROOT / "portal/app/templates/_user_export.html").read_text(
             encoding="utf-8",
         )
-        settings = (ROOT / "portal/app/templates/settings.html").read_text(
+        settings = (ROOT / "portal/app/templates/_settings_portal.html").read_text(
             encoding="utf-8",
         )
         script = (ROOT / "portal/app/static/user-export.js").read_text(
@@ -390,7 +400,7 @@ class PortalUiSourceTests(unittest.TestCase):
             self.assertIn(marker, (ROOT / "portal/app/static/service-logs.js").read_text(encoding="utf-8"))
         self.assertIn(".action-group { display:flex", css)
         self.assertIn(".service-actions { display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));}", css)
-        self.assertIn("#interface form > button", css)
+        self.assertIn(".panel > form:not(.inline-form) > button", css)
         self.assertIn("justify-self:start", css)
 
     def test_dashboard_charts_show_absolute_values(self):

@@ -34,12 +34,13 @@ from portal.github_updates import GitHubReleaseSource, GitHubUpdateError
 try:
     import errno
     import fcntl
+    import grp
     import pwd
     import select
     import struct
     import termios
 except ImportError:  # pragma: no cover - root shell доступен только на Linux
-    errno = fcntl = pwd = select = struct = termios = None  # type: ignore[assignment]
+    errno = fcntl = grp = pwd = select = struct = termios = None  # type: ignore[assignment]
 
 if __package__:
     from .agent_protocol import (
@@ -223,7 +224,14 @@ class RootShellSession:
 
 
 class CommandRunner:
-    def run(self, argv: list[str], *, timeout: int = 30, max_output: int = 128 * 1024) -> CommandResult:
+    def run(
+        self,
+        argv: list[str],
+        *,
+        timeout: int = 30,
+        max_output: int = 128 * 1024,
+        input_text: str | None = None,
+    ) -> CommandResult:
         started = time.monotonic()
         try:
             result = subprocess.run(
@@ -234,6 +242,7 @@ class CommandRunner:
                 encoding="utf-8",
                 errors="replace",
                 timeout=timeout,
+                input=input_text,
                 env={**os.environ, "LC_ALL": "C.UTF-8", "LANG": "C.UTF-8"},
             )
         except subprocess.TimeoutExpired as exc:
@@ -509,6 +518,8 @@ class AgentDispatcher:
             "protocol.stats": self._protocol_stats,
             "certificates.status": lambda _params: self._control().certificate_status(),
             "state.users": lambda _params: self._control().list_users(),
+            "system.users": self._system_users,
+            "system.user.create": self._system_user_create,
             "state.user": lambda params: self._control().get_user(params.get("name", "")),
             "user.activity": self._user_activity,
             "network.topology": self._network_topology,
@@ -539,6 +550,100 @@ class AgentDispatcher:
             "certificate.action": self._certificate_action,
         }
         return handlers[request.method](request.params)
+
+    @staticmethod
+    def _system_uid_min() -> int:
+        try:
+            for line in Path("/etc/login.defs").read_text(encoding="utf-8").splitlines():
+                fields = line.split("#", 1)[0].split()
+                if len(fields) == 2 and fields[0] == "UID_MIN":
+                    value = int(fields[1])
+                    if 1 <= value < 65534:
+                        return value
+        except (OSError, ValueError):
+            pass
+        return 1000
+
+    def _system_users(self, params: dict) -> dict[str, Any]:
+        if params:
+            raise ProtocolError("invalid_params", "Список системных пользователей не принимает параметры.")
+        if pwd is None or grp is None:
+            raise ProtocolError("capability_unavailable", "Системные пользователи доступны только на Linux.")
+        uid_min = self._system_uid_min()
+        privileged = {"sudo", "adm", "wheel"}
+        rows = []
+        for account in pwd.getpwall():
+            if not (uid_min <= account.pw_uid < 65534):
+                continue
+            if account.pw_shell.endswith(("/nologin", "/false")):
+                continue
+            groups = {
+                item.gr_name for item in grp.getgrall()
+                if account.pw_name in item.gr_mem or item.gr_gid == account.pw_gid
+            }
+            rows.append({
+                "user": account.pw_name,
+                "uid": account.pw_uid,
+                "home": account.pw_dir,
+                "shell": account.pw_shell,
+                "privileged": bool(groups & privileged),
+            })
+        rows.sort(key=lambda item: (item["uid"], item["user"]))
+        return {"users": rows, "count": len(rows)}
+
+    def _system_user_create(self, params: dict) -> dict[str, Any]:
+        if set(params) != {"username", "password"}:
+            raise ProtocolError("invalid_params", "Создание пользователя принимает только username и password.")
+        username = params.get("username")
+        password = params.get("password")
+        if not isinstance(username, str) or re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", username) is None:
+            raise ProtocolError("invalid_params", "Имя: 1–32 строчные латинские буквы, цифры, _ или -.")
+        if username in {"root", "daemon", "bin", "sys", "sync", "games", "man", "lp", "mail", "news", "uucp", "proxy", "www-data", "backup", "list", "irc", "gnats", "nobody", "systemd-network", "systemd-timesync", "messagebus", "sshd"}:
+            raise ProtocolError("invalid_params", "Это системное имя запрещено.")
+        if (
+            not isinstance(password, str)
+            or not 12 <= len(password) <= 128
+            or any(char in password for char in ("\n", "\r", "\x00", ":"))
+        ):
+            raise ProtocolError("invalid_params", "Пароль должен содержать 12–128 символов без двоеточия и переводов строки.")
+        if pwd is None:
+            raise ProtocolError("capability_unavailable", "Создание системных пользователей доступно только на Linux.")
+        try:
+            pwd.getpwnam(username)
+        except KeyError:
+            pass
+        else:
+            raise ProtocolError("account_exists", "Пользователь с таким именем уже существует.")
+
+        helper = (self.project_root / "portal" / "system_user_helper.py").resolve()
+        if helper.parent != (self.project_root / "portal").resolve() or not helper.is_file():
+            raise ProtocolError("capability_unavailable", "Системный helper не установлен.")
+        unit = f"kvn-system-user-{uuid.uuid4().hex[:12]}"
+        argv = [
+            "systemd-run", "--quiet", "--wait", "--pipe", "--collect",
+            "--service-type=exec", f"--unit={unit}",
+            "--property=NoNewPrivileges=true", "--property=PrivateTmp=true",
+            "--property=ProtectKernelTunables=true", "--property=ProtectKernelModules=true",
+            "--property=ProtectControlGroups=true", "--property=RestrictAddressFamilies=AF_UNIX",
+            "--property=UMask=0077",
+            "/usr/bin/python3", str(helper), "create", username,
+        ]
+        result = self.runner.run(argv, timeout=30, max_output=4096, input_text=password + "\n")
+        if result.returncode != 0:
+            raise ProtocolError("account_create_failed", "Не удалось создать пользователя. Проверьте журнал host-agent.")
+        try:
+            payload = json.loads(result.stdout)
+        except (json.JSONDecodeError, TypeError):
+            raise ProtocolError("account_create_failed", "Системный helper вернул некорректный ответ.")
+        if not isinstance(payload, dict) or payload.get("user") != username or payload.get("ok") is not True:
+            raise ProtocolError("account_create_failed", "Создание пользователя не подтверждено.")
+        return {
+            "ok": True,
+            "user": username,
+            "home": f"/home/{username}",
+            "shell": "/bin/bash",
+            "privileged": False,
+        }
 
     def _user_export(self, params: dict) -> dict[str, Any]:
         if set(params) != {"name", "address_mode"}:
@@ -1535,11 +1640,120 @@ class AgentDispatcher:
 
     def _ssh_sessions(self) -> dict[str, Any]:
         """Возвращает только безопасные поля активных удалённых login-сессий."""
+        rows = self._ssh_sessions_loginctl()
+        if rows is None:
+            rows = self._ssh_sessions_who()
+        if rows is None:
+            return {
+                "available": False,
+                "sessions": [],
+                "count": 0,
+                "users": 0,
+                "reason": "session_sources_unavailable",
+            }
+        rows = self._deduplicate_ssh_sessions(rows)
+        return {
+            "available": True,
+            "sessions": rows,
+            "count": len(rows),
+            "users": len({item["user"] for item in rows}),
+        }
+
+    @staticmethod
+    def _deduplicate_ssh_sessions(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+        unique: dict[tuple[str, str, str, str], dict[str, str]] = {}
+        for item in rows:
+            key = (item["user"], item["tty"], item["login_at"], item["remote_ip"])
+            unique[key] = item
+        return sorted(
+            unique.values(),
+            key=lambda item: (item["user"].lower(), item["tty"], item["login_at"]),
+        )
+
+    @staticmethod
+    def _safe_ssh_row(
+        user: str,
+        tty: str,
+        login_at: str,
+        remote: str,
+    ) -> dict[str, str] | None:
+        if not re.fullmatch(r"[A-Za-z0-9_.@-]{1,64}", user):
+            return None
+        if not re.fullmatch(r"[A-Za-z0-9_./:-]{1,64}", tty):
+            return None
+        try:
+            remote_ip = str(ipaddress.ip_address(remote.strip().strip("()")))
+        except ValueError:
+            return None
+        timestamp = re.search(
+            r"(?P<date>\d{4}-\d{2}-\d{2})[ T]+(?P<time>\d{2}:\d{2})",
+            login_at,
+        )
+        if timestamp is None:
+            return None
+        return {
+            "user": user,
+            "tty": tty,
+            "login_at": f"{timestamp.group('date')} {timestamp.group('time')}",
+            "remote_ip": remote_ip,
+        }
+
+    def _ssh_sessions_loginctl(self) -> list[dict[str, str]] | None:
+        result = self.runner.run(
+            ["loginctl", "list-sessions", "--no-legend", "--no-pager"],
+            timeout=5,
+            max_output=64 * 1024,
+        )
+        if result.returncode != 0:
+            return None
+        rows: list[dict[str, str]] = []
+        session_ids: list[str] = []
+        for line in result.stdout.splitlines()[:128]:
+            parts = line.split()
+            if parts and re.fullmatch(r"[A-Za-z0-9_.-]{1,32}", parts[0]):
+                session_ids.append(parts[0])
+        for session_id in session_ids:
+            details = self.runner.run(
+                [
+                    "loginctl",
+                    "show-session",
+                    session_id,
+                    "--no-pager",
+                    "--property=Name",
+                    "--property=Remote",
+                    "--property=RemoteHost",
+                    "--property=TTY",
+                    "--property=Timestamp",
+                ],
+                timeout=5,
+                max_output=16 * 1024,
+            )
+            if details.returncode != 0:
+                continue
+            fields: dict[str, str] = {}
+            for line in details.stdout.splitlines():
+                key, separator, value = line.partition("=")
+                if separator and key in {"Name", "Remote", "RemoteHost", "TTY", "Timestamp"}:
+                    fields[key] = value.strip()
+            if fields.get("Remote") != "yes":
+                continue
+            row = self._safe_ssh_row(
+                fields.get("Name", ""),
+                fields.get("TTY", ""),
+                fields.get("Timestamp", ""),
+                fields.get("RemoteHost", ""),
+            )
+            if row is not None:
+                rows.append(row)
+        return rows or None
+
+    def _ssh_sessions_who(self) -> list[dict[str, str]] | None:
         result = self.runner.run(["who", "--ips"], timeout=5, max_output=64 * 1024)
         if result.returncode != 0:
-            return {"available": False, "sessions": [], "count": 0, "users": 0}
+            result = self.runner.run(["who"], timeout=5, max_output=64 * 1024)
+        if result.returncode != 0:
+            return None
         rows: list[dict[str, str]] = []
-        seen: set[tuple[str, str, str, str]] = set()
         pattern = re.compile(
             r"^\s*(?P<user>\S+)\s+(?P<tty>\S+)\s+"
             r"(?P<date>\d{4}-\d{2}-\d{2})\s+(?P<time>\d{2}:\d{2})"
@@ -1549,34 +1763,15 @@ class AgentDispatcher:
             match = pattern.match(line)
             if not match:
                 continue
-            user = match.group("user")
-            tty = match.group("tty")
-            remote = (match.group("remote") or "").strip().strip("()")
-            if not re.fullmatch(r"[A-Za-z0-9_.@-]{1,64}", user):
-                continue
-            if not re.fullmatch(r"[A-Za-z0-9_./:-]{1,64}", tty):
-                continue
-            try:
-                remote_ip = str(ipaddress.ip_address(remote))
-            except ValueError:
-                continue
-            key = (user, tty, match.group("date"), match.group("time"))
-            if key in seen:
-                continue
-            seen.add(key)
-            rows.append({
-                "user": user,
-                "tty": tty,
-                "login_at": f"{match.group('date')} {match.group('time')}",
-                "remote_ip": remote_ip,
-            })
-        rows.sort(key=lambda item: (item["user"].lower(), item["tty"], item["login_at"]))
-        return {
-            "available": True,
-            "sessions": rows,
-            "count": len(rows),
-            "users": len({item["user"] for item in rows}),
-        }
+            row = self._safe_ssh_row(
+                match.group("user"),
+                match.group("tty"),
+                f"{match.group('date')} {match.group('time')}",
+                match.group("remote") or "",
+            )
+            if row is not None:
+                rows.append(row)
+        return rows
 
     def _dashboard_snapshot(self, params: dict) -> dict[str, Any]:
         if params:

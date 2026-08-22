@@ -90,8 +90,11 @@ class RuntimeImageContractsTests(unittest.TestCase):
         dockerfile = (ROOT / "portal/Dockerfile").read_text(encoding="utf-8")
         self.assertIn("ARG KVN_BUILD_ID=dev", dockerfile)
         self.assertIn("KVN_BUILD_ID=${KVN_BUILD_ID}", dockerfile)
+        self.assertIn("ARG KVN_VERSION=v3.1.1", dockerfile)
+        self.assertIn("KVN_VERSION=${KVN_VERSION}", dockerfile)
         builder = (ROOT / "tools/build-release.sh").read_text(encoding="utf-8")
         self.assertIn('--build-arg "KVN_BUILD_ID=$BUILD_ID"', builder)
+        self.assertIn('--build-arg "KVN_VERSION=$VERSION"', builder)
 
     def test_portal_healthcheck_is_lightweight_for_single_cpu_host(self):
         compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
@@ -182,6 +185,34 @@ class ReleaseArchiveTests(unittest.TestCase):
         validated = validate_release(self.release)
         self.assertEqual(validated["platform"], "linux/amd64")
         self.assertEqual([item["ref"] for item in validated["images"]["items"]], list(EXPECTED_IMAGE_REFS))
+
+    def test_version_metadata_is_additive_and_legacy_release_stays_valid(self):
+        legacy = create_release(
+            self.release, "build-legacy", self.source, self.images, self.metadata,
+        )
+        self.assertNotIn("version", legacy)
+        self.assertNotIn("version", validate_release(self.release))
+
+        current_path = self.root / "current.tar.gz"
+        current = create_release(
+            current_path,
+            "build-current",
+            self.source,
+            self.images,
+            self.metadata,
+            "v3.1.1",
+        )
+        self.assertEqual(current["version"], "v3.1.1")
+        self.assertEqual(validate_release(current_path)["version"], "v3.1.1")
+        with self.assertRaisesRegex(ReleaseValidationError, "версия"):
+            create_release(
+                self.root / "bad.tar.gz",
+                "build-bad",
+                self.source,
+                self.images,
+                self.metadata,
+                "3.1.1-dev",
+            )
 
     def test_release_validation_uses_archive_filesystem_not_system_tmp(self):
         create_release(self.release, "build-20260713", self.source, self.images, self.metadata)

@@ -2,6 +2,7 @@ import json
 import io
 import os
 import socket
+import subprocess
 import tarfile
 import tempfile
 import threading
@@ -11,6 +12,9 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
+
+import portal.agent as agent_module
+import portal.system_user_helper as system_user_helper
 
 from portal.agent import (
     AgentApplication,
@@ -108,8 +112,13 @@ class FakeRunner:
                 stdout = "header-protection-key random-trailers\n"
             else:
                 stdout = "awg0 private-key public-key 51820 off\n"
-        elif argv[:2] == ["who", "--ips"]:
-            stdout = "root pts/0 2026-08-20 12:34 (203.0.113.9)\n"
+        elif argv[:2] == ["loginctl", "list-sessions"]:
+            stdout = "2 0 root - pts/0 active no -\n"
+        elif argv[:2] == ["loginctl", "show-session"]:
+            stdout = (
+                "Name=root\nRemote=yes\nRemoteHost=203.0.113.9\nTTY=pts/0\n"
+                "Timestamp=Wed 2026-08-20 12:34:00 UTC\n"
+            )
         return CommandResult(tuple(argv), 0, stdout, "", 1)
 
 
@@ -1158,6 +1167,107 @@ class PortalAgentConcurrencyTests(unittest.TestCase):
         self.assertEqual(dispatcher.max_mutations, 2)
 
 
+class SystemUserTests(unittest.TestCase):
+    def test_list_rpc_returns_only_safe_interactive_user_fields(self):
+        accounts = [
+            types.SimpleNamespace(pw_name="root", pw_uid=0, pw_gid=0, pw_dir="/root", pw_shell="/bin/bash"),
+            types.SimpleNamespace(pw_name="operator", pw_uid=1001, pw_gid=1001, pw_dir="/home/operator", pw_shell="/bin/bash"),
+            types.SimpleNamespace(pw_name="daemonuser", pw_uid=1002, pw_gid=1002, pw_dir="/nonexistent", pw_shell="/usr/sbin/nologin"),
+        ]
+        fake_pwd = types.SimpleNamespace(getpwall=lambda: accounts)
+        fake_grp = types.SimpleNamespace(getgrall=lambda: [types.SimpleNamespace(gr_name="operator", gr_gid=1001, gr_mem=[])])
+        dispatcher = AgentDispatcher(Path.cwd(), runner=FakeRunner())
+        with (
+            mock.patch.object(agent_module, "pwd", fake_pwd),
+            mock.patch.object(agent_module, "grp", fake_grp),
+            mock.patch.object(dispatcher, "_system_uid_min", return_value=1000),
+        ):
+            result = dispatcher.dispatch(RpcRequest("u0", "system.users", {}))
+        self.assertEqual(result, {"users": [{
+            "user": "operator", "uid": 1001, "home": "/home/operator",
+            "shell": "/bin/bash", "privileged": False,
+        }], "count": 1})
+        self.assertNotIn("password", json.dumps(result).lower())
+
+    def test_agent_passes_password_only_via_stdin_and_returns_safe_shape(self):
+        password = "Safe-System-Password-2026"
+
+        class Runner:
+            def __init__(self):
+                self.argv = ()
+                self.input_text = ""
+
+            def run(self, argv, *, timeout=30, max_output=128 * 1024, input_text=None):
+                self.argv = tuple(argv)
+                self.input_text = input_text
+                payload = {"ok": True, "user": "operator", "home": "/home/operator", "shell": "/bin/bash"}
+                return CommandResult(tuple(argv), 0, json.dumps(payload), "", 1)
+
+        runner = Runner()
+        dispatcher = AgentDispatcher(Path.cwd(), runner=runner)
+        fake_pwd = types.SimpleNamespace(getpwnam=mock.Mock(side_effect=KeyError))
+        with mock.patch.object(agent_module, "pwd", fake_pwd):
+            result = dispatcher.dispatch(RpcRequest("u1", "system.user.create", {
+                "username": "operator", "password": password,
+            }))
+        self.assertEqual(runner.input_text, password + "\n")
+        self.assertNotIn(password, " ".join(runner.argv))
+        self.assertNotIn(password, json.dumps(result))
+        self.assertEqual(result["home"], "/home/operator")
+        self.assertEqual(result["shell"], "/bin/bash")
+        self.assertFalse(result["privileged"])
+
+    def test_helper_creates_no_privileged_groups(self):
+        password = "Safe-System-Password-2026"
+        account = types.SimpleNamespace(pw_name="operator", pw_uid=1001, pw_gid=1001, pw_dir="/home/operator", pw_shell="/bin/bash")
+        calls = []
+
+        def fake_run(argv, *, input_text=None):
+            calls.append((tuple(argv), input_text))
+            stdout = "operator\n" if argv[:2] == ["/usr/bin/id", "-nG"] else ""
+            return subprocess.CompletedProcess(argv, 0, stdout, "")
+
+        with (
+            mock.patch.object(system_user_helper.os, "geteuid", return_value=0),
+            mock.patch.object(system_user_helper.pwd, "getpwnam", side_effect=[KeyError(), account]),
+            mock.patch.object(system_user_helper, "_run", side_effect=fake_run),
+        ):
+            result = system_user_helper.create_user("operator", password)
+        self.assertFalse(result["privileged"])
+        self.assertEqual(calls[1][0], ("/usr/sbin/chpasswd",))
+        self.assertEqual(calls[1][1], f"operator:{password}\n")
+        self.assertEqual(calls[2][0], ("/usr/bin/id", "-nG", "operator"))
+        self.assertTrue(all(password not in " ".join(argv) for argv, _stdin in calls))
+        self.assertFalse({"sudo", "adm", "wheel"} & set(calls[2][1] or "operator".split()))
+
+    def test_helper_rolls_back_when_chpasswd_fails(self):
+        calls = []
+
+        def fake_run(argv, *, input_text=None):
+            calls.append(tuple(argv))
+            return subprocess.CompletedProcess(argv, 1 if argv[0].endswith("chpasswd") else 0, "", "")
+
+        with (
+            mock.patch.object(system_user_helper.os, "geteuid", return_value=0),
+            mock.patch.object(system_user_helper.pwd, "getpwnam", side_effect=KeyError()),
+            mock.patch.object(system_user_helper, "_run", side_effect=fake_run),
+        ):
+            with self.assertRaisesRegex(system_user_helper.CreateError, "account creation failed"):
+                system_user_helper.create_user("operator", "Safe-System-Password-2026")
+        self.assertEqual(calls[-1], ("/usr/sbin/userdel", "--remove", "operator"))
+
+    def test_create_rpc_rejects_extra_fields_and_unsafe_names(self):
+        dispatcher = AgentDispatcher(Path.cwd(), runner=FakeRunner())
+        with self.assertRaisesRegex(ProtocolError, "только username и password"):
+            dispatcher.dispatch(RpcRequest("u1", "system.user.create", {
+                "username": "operator", "password": "Safe-System-Password-2026", "groups": ["sudo"],
+            }))
+        with self.assertRaisesRegex(ProtocolError, "Имя"):
+            dispatcher.dispatch(RpcRequest("u2", "system.user.create", {
+                "username": "bad;id", "password": "Safe-System-Password-2026",
+            }))
+
+
 class PortalAgentInstallTests(unittest.TestCase):
     def test_install_script_hardens_unit_and_restarts_active_service(self):
         script = Path("portal/install-host-agent.sh").read_text(encoding="utf-8")
@@ -1166,6 +1276,7 @@ class PortalAgentInstallTests(unittest.TestCase):
             "ProtectSystem=strict",
             "Group=kvn-portal",
             "ProtectHome=tmpfs",
+            "portal/system_user_helper.py",
             "BindPaths=$ROOT_DIR",
             "/etc/amnezia/amneziawg",
             "/etc/wireguard",

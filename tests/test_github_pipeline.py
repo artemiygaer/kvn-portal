@@ -60,6 +60,7 @@ class PublicationManifestTests(unittest.TestCase):
             deploy_hash = __import__("hashlib").sha256(b"deploy").hexdigest()
             release_metadata = {
                 "build_id": "20260726-test1",
+                "version": "v3.1.1",
                 "source": {"sha256": deploy_hash, "size": len(b"deploy")},
             }
             with (
@@ -71,6 +72,7 @@ class PublicationManifestTests(unittest.TestCase):
             ):
                 manifest = build_publication_manifest(release, deploy)
             self.assertEqual(manifest["repository"], "artemiygaer/kvn-portal")
+            self.assertEqual(manifest["version"], "v3.1.1")
             self.assertEqual(manifest["publication_files"], list(PUBLICATION_NAMES))
             self.assertEqual([item["name"] for item in manifest["assets"]], [RELEASE_NAME, DEPLOY_NAME])
 

@@ -22,6 +22,8 @@ try:
 except ModuleNotFoundError:
     from agent_client import AgentClientError
 
+from ..versioning import release_is_installed, version_key
+
 from ..security import hash_password, login_csrf, token_hash, verify_password
 from .catalog import ROUTE_ENDPOINTS
 
@@ -57,7 +59,21 @@ def build_views(
     TRANSLATIONS = constants["TRANSLATIONS"]
     USER_SNI_OVERRIDE_SYSTEMS = constants["USER_SNI_OVERRIDE_SYSTEMS"]
     EXPORT_USER_RE = re.compile(r"^[A-Za-z0-9_.-]{2,32}$")
+    SYSTEM_USER_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
     EXPORT_LIMITS = {"zip": 192 * 1024, "text": 64 * 1024}
+    SETTINGS_GROUPS = (
+        ("portal", "Портал и экспорт"),
+        ("protocols", "VPN-протоколы"),
+        ("access", "Доступ"),
+        ("update", "Обновление"),
+    )
+    SETTINGS_GROUP_KEYS = {key for key, _label in SETTINGS_GROUPS}
+    SETTINGS_GROUP_DESCRIPTIONS = {
+        "portal": "Интерфейс, нагрузка и адреса клиентского экспорта.",
+        "protocols": "AmneziaWG, MTProto и маршруты SNI.",
+        "access": "Администратор портала и обычные Linux-пользователи SSH.",
+        "update": "GitHub Releases, ручная загрузка и запуск обновления.",
+    }
 
     def validated_export_ipv4(value: str, *, required: bool) -> str:
         candidate = value.strip()
@@ -882,6 +898,14 @@ def build_views(
         release_name = str(result.get("release_name") or tag)[:160]
         published_at = str(result.get("published_at") or "")[:40]
         current_build = str(app.config["BUILD_ID"])
+        current_version = str(app.config["APP_VERSION"])
+        if version_key(tag) is None:
+            raise ValueError("GitHub Release имеет некорректный номер версии.")
+        try:
+            up_to_date = release_is_installed(current_version, tag)
+        except ValueError:
+            # Legacy source deploy не имел отдельного KVN_VERSION.
+            up_to_date = current_build in {tag, tag.removeprefix("v")}
         return {
             "repository": repository,
             "channel": channel,
@@ -892,7 +916,7 @@ def build_views(
             "notes": notes,
             "assets": safe_assets,
             "asset": safe_selected,
-            "up_to_date": current_build in {tag, tag.removeprefix("v")},
+            "up_to_date": up_to_date,
         }
 
     def upload_update_archive():
@@ -980,7 +1004,7 @@ def build_views(
         )
         if update_wants_json():
             return jsonify({"ok": True, "prepared": public_prepared_update(prepared)}), 201
-        return redirect(public_url("settings_view", prepared="1"))
+        return redirect(public_url("settings_view", group="update", prepared="1"))
 
     @require_session
     def project_release_check():
@@ -1000,7 +1024,7 @@ def build_views(
                     "error": message,
                     "manual_fallback": True,
                 }), status
-            return render_settings_page(github_error=message, github_error_code=code), status
+            return render_settings_page(active_group="update", github_error=message, github_error_code=code), status
         except (KeyError, TypeError, ValueError):
             storage.audit(
                 app.config["ADMIN_LOGIN"], g.client_ip, "project.release.check", "failed",
@@ -1022,7 +1046,7 @@ def build_views(
         )
         if update_wants_json():
             return jsonify({"ok": True, "release": release})
-        return render_settings_page(github_release=release)
+        return render_settings_page(active_group="update", github_release=release)
 
     @require_session
     def project_release_prepare():
@@ -1057,6 +1081,7 @@ def build_views(
             if update_wants_json():
                 return update_error(message, status, safe_code)
             return render_settings_page(
+                active_group="update",
                 github_error=message,
                 github_error_code=safe_code,
             ), status
@@ -1089,6 +1114,7 @@ def build_views(
             if update_wants_json():
                 return update_error(message, 502, "invalid_inspection")
             return render_settings_page(
+                active_group="update",
                 github_error=message,
                 github_error_code="invalid_inspection",
             ), 502
@@ -1097,6 +1123,7 @@ def build_views(
             if update_wants_json():
                 return update_error(message, 409, "update_starting")
             return render_settings_page(
+                active_group="update",
                 github_error=message,
                 github_error_code="update_starting",
             ), 409
@@ -1115,7 +1142,7 @@ def build_views(
         )
         if update_wants_json():
             return jsonify({"ok": True, "prepared": public_prepared_update(prepared)}), 201
-        return redirect(public_url("settings_view", prepared="github"))
+        return redirect(public_url("settings_view", group="update", prepared="github"))
 
     @require_session
     def project_update_start():
@@ -1178,7 +1205,7 @@ def build_views(
         )
         if update_wants_json():
             return jsonify({"ok": True})
-        return redirect(public_url("settings_view", discarded="1"))
+        return redirect(public_url("settings_view", group="update", discarded="1"))
 
     def json_payload() -> dict:
         payload = request.get_json(silent=True)
@@ -1827,6 +1854,7 @@ def build_views(
 
     def render_settings_page(
         *,
+        active_group: str = "update",
         notice: str = "",
         error: str = "",
         client_export_error: str = "",
@@ -1836,77 +1864,89 @@ def build_views(
         github_release: dict | None = None,
         github_error: str = "",
         github_error_code: str = "",
+        system_user_error: str = "",
     ):
-        """Собирает Settings одинаково для обычного GET и GitHub check."""
-        sni_data = call_agent("sni.routes", {})
-        if not isinstance(sni_data, dict):
-            return sni_data
-        mtproto_data = call_agent("mtproto.status", {})
-        if not isinstance(mtproto_data, dict):
-            return mtproto_data
-        amneziawg_settings = call_agent("amneziawg.settings", {})
-        if not isinstance(amneziawg_settings, dict):
-            return amneziawg_settings
-        performance = call_agent("portal.performance", {})
-        if not isinstance(performance, dict):
-            return performance
-        client_export = call_agent("client.export.settings", {})
-        if not isinstance(client_export, dict):
-            return client_export
-        if client_export_form is not None and client_export_error:
-            client_export = {
-                **client_export,
-                **client_export_form,
-            }
-        github_settings_error = ""
-        try:
-            github_settings = agent_client().call("project.release.settings", {}, timeout=5.0)
-            if (
-                not isinstance(github_settings, dict)
-                or github_settings.get("repository") != "artemiygaer/kvn-portal"
-                or github_settings.get("channel") not in {"stable", "tag"}
-                or github_settings.get("asset_preference") not in {"release", "deploy"}
-                or not isinstance(github_settings.get("enabled"), bool)
-            ):
-                raise ValueError("invalid settings")
-        except (AgentClientError, TypeError, ValueError):
-            github_settings = {
-                "enabled": None,
-                "repository": "artemiygaer/kvn-portal",
-                "channel": "unknown",
-                "tag": "",
-                "asset_preference": "unknown",
-            }
-            github_settings_error = (
-                "Настройки GitHub временно недоступны. Перезапустите "
-                "kvn-portal-agent.service или используйте ручную загрузку."
+        """Загружает только RPC активной группы Settings."""
+        if active_group not in SETTINGS_GROUP_KEYS:
+            return render_template("error.html", code=400, message="Группа настроек не разрешена."), 400
+        context = {
+            "csrf_token": g.session["csrf_token"],
+            "admin_login": current_admin_login(),
+            "active_group": active_group,
+            "settings_groups": SETTINGS_GROUPS,
+            "group_description": SETTINGS_GROUP_DESCRIPTIONS[active_group],
+            "notice": notice,
+            "error": error,
+            "sni_diagnosis": sni_diagnosis,
+            "mtproto_diagnosis": mtproto_diagnosis,
+            "client_export_error": client_export_error,
+            "system_user_error": system_user_error,
+            "github_release": github_release,
+            "github_error": github_error,
+            "github_error_code": github_error_code,
+            "languages": TRANSLATIONS,
+        }
+        if active_group == "portal":
+            performance = call_agent("portal.performance", {})
+            if not isinstance(performance, dict):
+                return performance
+            client_export = call_agent("client.export.settings", {})
+            if not isinstance(client_export, dict):
+                return client_export
+            if client_export_form is not None and client_export_error:
+                client_export = {**client_export, **client_export_form}
+            context.update(performance=performance, client_export=client_export)
+        elif active_group == "protocols":
+            sni_data = call_agent("sni.routes", {})
+            if not isinstance(sni_data, dict):
+                return sni_data
+            mtproto_data = call_agent("mtproto.status", {})
+            if not isinstance(mtproto_data, dict):
+                return mtproto_data
+            amneziawg_settings = call_agent("amneziawg.settings", {})
+            if not isinstance(amneziawg_settings, dict):
+                return amneziawg_settings
+            context.update(
+                sni_data=sni_data,
+                mtproto_data=mtproto_data,
+                amneziawg_settings=amneziawg_settings,
             )
-        return render_template(
-            "settings.html",
-            csrf_token=g.session["csrf_token"],
-            admin_login=current_admin_login(),
-            notice=notice,
-            error=error,
-            sni_diagnosis=sni_diagnosis,
-            sni_data=sni_data,
-            mtproto_diagnosis=mtproto_diagnosis,
-            mtproto_data=mtproto_data,
-            amneziawg_settings=amneziawg_settings,
-            performance=performance,
-            client_export=client_export,
-            client_export_error=client_export_error,
-            prepared_update=(
-                public_prepared_update(prepared)
-                if (prepared := storage.latest_prepared_update()) is not None
-                else None
-            ),
-            github_settings=github_settings,
-            github_settings_error=github_settings_error,
-            github_release=github_release,
-            github_error=github_error,
-            github_error_code=github_error_code,
-            languages=TRANSLATIONS,
-        )
+        elif active_group == "access":
+            system_users = call_agent("system.users", {})
+            if not isinstance(system_users, dict):
+                return system_users
+            context.update(system_users=system_users)
+        else:
+            github_settings_error = ""
+            try:
+                github_settings = agent_client().call("project.release.settings", {}, timeout=5.0)
+                if (
+                    not isinstance(github_settings, dict)
+                    or github_settings.get("repository") != "artemiygaer/kvn-portal"
+                    or github_settings.get("channel") not in {"stable", "tag"}
+                    or github_settings.get("asset_preference") not in {"release", "deploy"}
+                    or not isinstance(github_settings.get("enabled"), bool)
+                ):
+                    raise ValueError("invalid settings")
+            except (AgentClientError, TypeError, ValueError):
+                github_settings = {
+                    "enabled": None, "repository": "artemiygaer/kvn-portal",
+                    "channel": "unknown", "tag": "", "asset_preference": "unknown",
+                }
+                github_settings_error = (
+                    "Настройки GitHub временно недоступны. Перезапустите "
+                    "kvn-portal-agent.service или используйте ручную загрузку."
+                )
+            context.update(
+                prepared_update=(
+                    public_prepared_update(prepared)
+                    if (prepared := storage.latest_prepared_update()) is not None
+                    else None
+                ),
+                github_settings=github_settings,
+                github_settings_error=github_settings_error,
+            )
+        return render_template("settings.html", **context)
 
     @require_session
     def settings_view():
@@ -1916,13 +1956,27 @@ def build_views(
         client_export_form = None
         sni_diagnosis = None
         mtproto_diagnosis = None
+        system_user_error = ""
+        requested_group = request.args.get("group", "")
+        if request.method == "GET":
+            active_group = requested_group or (
+                "update" if any(request.args.get(key) for key in ("prepared", "discarded")) else "portal"
+            )
+            if active_group not in SETTINGS_GROUP_KEYS:
+                return render_template("error.html", code=400, message="Группа настроек не разрешена."), 400
+        else:
+            active_group = "portal"
         if request.method == "POST":
             action = request.form.get("action", "")
+            if action in {"amneziawg_profile", "sni_diagnose", "mtproto_diagnose", "mtproto_origin", "sni_add", "sni_set_default", "sni_remove_alias"}:
+                active_group = "protocols"
+            elif action in {"password", "system_user_create"}:
+                active_group = "access"
             if action == "language":
                 lang = request.form.get("language", "ru")
                 if lang not in TRANSLATIONS:
                     return render_template("error.html", code=400, message="Язык не разрешён."), 400
-                response = redirect(public_url("settings_view", saved="1"))
+                response = redirect(public_url("settings_view", group="portal", saved="1"))
                 response.set_cookie(
                     "kvn_lang",
                     lang,
@@ -2018,6 +2072,33 @@ def build_views(
                             "Настройки сохранены, но generated-файлы применены "
                             "не полностью. Выполните согласование состояния."
                         )
+            elif action == "system_user_create":
+                username = request.form.get("system_username", "").strip()
+                password = request.form.get("system_password", "")
+                repeat = request.form.get("system_password_repeat", "")
+                if SYSTEM_USER_RE.fullmatch(username) is None:
+                    system_user_error = "Имя: 1–32 строчные латинские буквы, цифры, _ или -."
+                elif password != repeat:
+                    system_user_error = "Пароли не совпадают."
+                elif not 12 <= len(password) <= 128:
+                    system_user_error = "Пароль должен содержать 12–128 символов."
+                elif any(char in password for char in ("\n", "\r", "\x00", ":")):
+                    system_user_error = "Пароль не должен содержать двоеточие или перевод строки."
+                else:
+                    result = call_agent(
+                        "system.user.create",
+                        {"username": username, "password": password},
+                        timeout=40.0,
+                    )
+                    if not isinstance(result, dict):
+                        return result
+                    storage.audit(
+                        app.config["ADMIN_LOGIN"], g.client_ip,
+                        "system.user.create", "success",
+                        json.dumps({"username": username}, separators=(",", ":")),
+                        now(), target_type="system-user", target_name=username,
+                    )
+                    notice = f"Linux-пользователь {username} создан без sudo."
             elif action == "amneziawg_profile":
                 result = call_agent("amneziawg.apply", {
                     "revision": request.form.get("revision", ""),
@@ -2153,12 +2234,14 @@ def build_views(
         elif request.args.get("discarded") == "1":
             notice = "Подготовленный архив удалён."
         return render_settings_page(
+            active_group=active_group,
             notice=notice,
             error=error,
             client_export_error=client_export_error,
             client_export_form=client_export_form,
             sni_diagnosis=sni_diagnosis,
             mtproto_diagnosis=mtproto_diagnosis,
+            system_user_error=system_user_error,
         )
 
     @require_session

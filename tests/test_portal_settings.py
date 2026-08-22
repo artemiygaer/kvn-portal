@@ -28,6 +28,13 @@ class FakeSettingsAgent:
     def call(self, method, params, *, timeout=None):
         self.calls.append((method, dict(params)))
         self.timeouts.append(timeout)
+        if method == "system.users":
+            return {"users": [], "count": 0}
+        if method == "project.release.settings":
+            return {
+                "enabled": True, "repository": "artemiygaer/kvn-portal",
+                "channel": "stable", "tag": "", "asset_preference": "deploy",
+            }
         if method == "portal.credentials":
             return {"changed": True, "revision": "a" * 64}
         if method == "project.update.inspect":
@@ -188,11 +195,11 @@ class PortalSettingsTests(unittest.TestCase):
         )
 
     def test_admin_password_change_uses_agent_hash_and_invalidates_sessions(self):
-        page = self.client.get("/gaer/settings", headers=self.headers)
+        page = self.client.get("/gaer/settings?group=access", headers=self.headers)
         self.assertEqual(page.status_code, 200)
 
         wrong = self.client.post(
-            "/gaer/settings",
+            "/gaer/settings?group=access",
             data={
                 "csrf_token": self.csrf(page),
                 "action": "password",
@@ -206,7 +213,7 @@ class PortalSettingsTests(unittest.TestCase):
         self.assertFalse(any(method == "portal.credentials" for method, _params in self.agent.calls))
 
         changed = self.client.post(
-            "/gaer/settings",
+            "/gaer/settings?group=access",
             data={
                 "csrf_token": self.csrf(page),
                 "action": "password",
@@ -228,7 +235,7 @@ class PortalSettingsTests(unittest.TestCase):
         self.assertEqual(self.login(NEW_PASSWORD).status_code, 302)
 
     def test_project_update_prepare_only_inspects_archive(self):
-        page = self.client.get("/gaer/settings", headers=self.headers)
+        page = self.client.get("/gaer/settings?group=update", headers=self.headers)
         response = self.client.post(
             "/gaer/settings/update/prepare",
             data={
@@ -254,7 +261,7 @@ class PortalSettingsTests(unittest.TestCase):
             "invalid_archive: Архив обновления отклонён: "
             "в архиве отсутствуют файлы из manifest: tools/canonical-files.txt"
         )
-        page = self.client.get("/gaer/settings", headers=self.headers)
+        page = self.client.get("/gaer/settings?group=update", headers=self.headers)
         response = self.client.post(
             "/gaer/settings/update/prepare",
             data={
@@ -270,7 +277,7 @@ class PortalSettingsTests(unittest.TestCase):
         self.assertNotIn(PASSWORD.encode(), response.data)
 
     def test_full_release_upload_is_atomically_published(self):
-        page = self.client.get("/gaer/settings", headers=self.headers)
+        page = self.client.get("/gaer/settings?group=update", headers=self.headers)
         payload = b"\x1f\x8b" + b"r" * (2 * 1024 * 1024)
         response = self.client.post(
             "/gaer/settings/update/prepare",
@@ -294,7 +301,7 @@ class PortalSettingsTests(unittest.TestCase):
         self.assertEqual(list(upload_dir.glob("*.part-*")), [])
 
     def test_full_release_raw_upload_bypasses_multipart_tmpfs(self):
-        page = self.client.get("/gaer/settings", headers=self.headers)
+        page = self.client.get("/gaer/settings?group=update", headers=self.headers)
         payload = b"\x1f\x8b" + b"r" * (2 * 1024 * 1024)
         response = self.client.post(
             "/gaer/settings/update/prepare",
@@ -315,7 +322,7 @@ class PortalSettingsTests(unittest.TestCase):
         self.assertEqual(list(self.upload_dir.glob("*.part-*")), [])
 
     def test_staged_update_prepares_then_starts_with_saved_sha256(self):
-        page = self.client.get("/gaer/settings", headers=self.headers)
+        page = self.client.get("/gaer/settings?group=update", headers=self.headers)
         prepared_response = self.client.post(
             "/gaer/settings/update/prepare",
             data={
@@ -357,11 +364,11 @@ class PortalSettingsTests(unittest.TestCase):
         self.assertNotIn(PASSWORD, json.dumps(self.app.extensions["kvn_storage"].list_audit()))
 
     def test_sni_settings_use_agent(self):
-        page = self.client.get("/gaer/settings", headers=self.headers)
+        page = self.client.get("/gaer/settings?group=protocols", headers=self.headers)
         self.assertEqual(page.status_code, 200)
         self.assertIn(b"SNI", page.data)
         response = self.client.post(
-            "/gaer/settings",
+            "/gaer/settings?group=protocols",
             data={
                 "csrf_token": self.csrf(page),
                 "action": "sni_add",
@@ -382,13 +389,13 @@ class PortalSettingsTests(unittest.TestCase):
         self.assertEqual(params["sni"], "cdn.example.com")
 
     def test_mtproto_settings_show_scope_and_use_typed_agent_methods(self):
-        page = self.client.get("/gaer/settings", headers=self.headers)
+        page = self.client.get("/gaer/settings?group=protocols", headers=self.headers)
         self.assertEqual(page.status_code, 200)
-        self.assertIn("shared secret".encode(), page.data)
+        self.assertIn("Shared secret".encode(), page.data)
         self.assertIn("Полную блокировку IP/TCP/TLS".encode(), page.data)
 
         diagnosis = self.client.post(
-            "/gaer/settings",
+            "/gaer/settings?group=protocols",
             data={
                 "csrf_token": self.csrf(page), "action": "mtproto_diagnose",
                 "system": "mtg",
@@ -400,7 +407,7 @@ class PortalSettingsTests(unittest.TestCase):
         self.assertIn(("mtproto.diagnose", {"system": "mtg"}), self.agent.calls)
 
         applied = self.client.post(
-            "/gaer/settings",
+            "/gaer/settings?group=protocols",
             data={
                 "csrf_token": self.csrf(page), "action": "mtproto_origin",
                 "revision": "a" * 64, "system": "telemt", "origin": "local-site",
@@ -416,7 +423,7 @@ class PortalSettingsTests(unittest.TestCase):
         )
 
     def test_xhttp_mode_route_is_revisioned_and_audit_is_secret_free(self):
-        page = self.client.get("/gaer/settings", headers=self.headers)
+        page = self.client.get("/gaer/settings?group=access", headers=self.headers)
         response = self.client.post(
             "/gaer/network/protocol/apply",
             data={"csrf_token": self.csrf(page), "revision": "a" * 64, "mode": "stream-up"},

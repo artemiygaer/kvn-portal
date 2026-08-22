@@ -46,6 +46,7 @@ READ_ONLY_METHODS = {
     "project.release.check",
     "maintenance.commands",
     "shell.read",
+    "system.users",
 }
 MUTATION_METHODS = {
     "service.action",
@@ -67,6 +68,7 @@ MUTATION_METHODS = {
     "shell.write",
     "shell.resize",
     "shell.close",
+    "system.user.create",
 }
 ALLOWED_METHODS = READ_ONLY_METHODS | MUTATION_METHODS
 

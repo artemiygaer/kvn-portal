@@ -1,4 +1,5 @@
 docker-compose.yml
+VERSION
 AGENTS.md
 CONTAINER_SECURITY.md
 HANDOFF_PROMPT.md
@@ -49,6 +50,7 @@ portal/github_updates.py
 portal/Dockerfile
 portal/install-host-agent.sh
 portal/metrics.py
+portal/system_user_helper.py
 portal/requirements.txt
 portal/wheelhouse.lock
 portal/wsgi.py
@@ -81,6 +83,7 @@ portal/app/navigation.py
 portal/app/security.py
 portal/app/service_catalog.py
 portal/app/storage.py
+portal/app/versioning.py
 portal/app/static/app.js
 portal/app/static/base.js
 portal/app/static/dashboard.js
@@ -124,6 +127,10 @@ portal/app/templates/root_shell_panel.html
 portal/app/templates/service_result.html
 portal/app/templates/services.html
 portal/app/templates/settings.html
+portal/app/templates/_settings_portal.html
+portal/app/templates/_settings_protocols.html
+portal/app/templates/_settings_access.html
+portal/app/templates/_settings_update.html
 portal/app/templates/terminal.html
 portal/app/templates/update_result.html
 portal/app/templates/user_detail.html

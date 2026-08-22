@@ -55,8 +55,24 @@ class ObservabilityRunner:
         elif argv and argv[0] in {"awg", "wg"}:
             now = int(datetime.datetime.now().timestamp())
             stdout = f"private\tpublic\t51820\toff\npeer\tpsk\tendpoint\t10.0.0.2/32\t{now}\t100\t200\t25\n"
-        elif argv[:2] == ["who", "--ips"]:
-            stdout = "root pts/0 2026-08-20 12:34 (203.0.113.9)\nadmin pts/1 2026-08-20 12:40 (2001:db8::7)\n"
+        elif argv[:2] == ["loginctl", "list-sessions"]:
+            stdout = (
+                "2 0 root - pts/0 active no -\n"
+                "3 1000 admin - pts/1 active no -\n"
+                "4 1000 admin seat0 tty1 active no -\n"
+            )
+        elif argv[:2] == ["loginctl", "show-session"]:
+            values = {
+                "2": ("root", "pts/0", "203.0.113.9", "2026-08-20 12:34:00 UTC"),
+                "3": ("admin", "pts/1", "2001:db8::7", "2026-08-20 12:40:00 UTC"),
+                "4": ("admin", "tty1", "", "2026-08-20 12:41:00 UTC"),
+            }
+            user, tty, remote, timestamp = values[argv[2]]
+            stdout = (
+                f"Name={user}\nRemote={'no' if argv[2] == '4' else 'yes'}\n"
+                f"RemoteHost={remote}\nTTY={tty}\n"
+                f"Timestamp=Wed {timestamp}\n"
+            )
         elif "nginx_status" in joined:
             stdout = "Active connections: 5\nserver accepts handled requests\n 10 10 20\n"
         elif argv[:2] == ["docker", "inspect"]:
@@ -90,7 +106,7 @@ class ProtocolCollectorTests(unittest.TestCase):
         self.assertEqual(ready["status"], "ok")
         self.assertFalse(ready["stale"])
         self.assertEqual(len(runner.calls), command_count)
-        self.assertEqual(command_count, 17)
+        self.assertEqual(command_count, 20)
         self.assertEqual(
             len([call for call, _timeout, _max in runner.calls if call[:2] == ("docker", "inspect")]),
             1,
@@ -102,6 +118,50 @@ class ProtocolCollectorTests(unittest.TestCase):
             "2001:db8::7",
         )
         self.assertNotIn("internal-only", json.dumps(cached))
+
+    def test_ssh_sessions_include_root_filter_local_and_keep_safe_shape(self):
+        runner = ObservabilityRunner()
+        dispatcher = AgentDispatcher(Path("/srv/kvn"), runner, ObservabilityControl())
+
+        result = dispatcher._ssh_sessions()
+
+        self.assertTrue(result["available"])
+        self.assertEqual(result["sessions"][1], {
+            "user": "root",
+            "remote_ip": "203.0.113.9",
+            "tty": "pts/0",
+            "login_at": "2026-08-20 12:34",
+        })
+        self.assertEqual(set(result["sessions"][0]), {"user", "remote_ip", "tty", "login_at"})
+        payload = json.dumps(result)
+        self.assertNotIn("Timestamp", payload)
+        self.assertNotIn("show-session", payload)
+
+    def test_ssh_sessions_fall_back_to_plain_who_after_source_failures(self):
+        class FallbackRunner:
+            def __init__(self):
+                self.calls = []
+
+            def run(self, argv, *, timeout=30, max_output=128 * 1024):
+                self.calls.append(tuple(argv))
+                if argv[0] == "loginctl" or argv == ["who", "--ips"]:
+                    return CommandResult(tuple(argv), 1, "", "unsupported", 1)
+                return CommandResult(
+                    tuple(argv), 0,
+                    "root pts/0 2026-08-21 18:10 (198.51.100.44)\n", "", 1,
+                )
+
+        runner = FallbackRunner()
+        result = AgentDispatcher(Path("/srv/kvn"), runner, ObservabilityControl())._ssh_sessions()
+
+        self.assertTrue(result["available"])
+        self.assertEqual(result["sessions"][0]["user"], "root")
+        self.assertEqual(result["sessions"][0]["remote_ip"], "198.51.100.44")
+        self.assertEqual(runner.calls, [
+            ("loginctl", "list-sessions", "--no-legend", "--no-pager"),
+            ("who", "--ips"),
+            ("who",),
+        ])
 
     def test_dashboard_snapshot_preserves_last_data_after_collector_failure(self):
         clock = [100]

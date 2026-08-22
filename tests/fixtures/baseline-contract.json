@@ -53,6 +53,6 @@
     "service.status", "shell.close", "shell.open", "shell.read", "shell.resize",
     "shell.write", "sni.apply", "sni.diagnose", "sni.routes", "state.apply",
     "state.reconcile", "state.user", "state.users", "stats.containers",
-    "user.activity", "user.export", "user.file"
+    "system.user.create", "system.users", "user.activity", "user.export", "user.file"
   ]
 }

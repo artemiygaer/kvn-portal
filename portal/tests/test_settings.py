@@ -27,6 +27,7 @@ class FakeSettingsAgent:
         self.github_settings_error = ""
         self.github_check_error = ""
         self.github_prepare_error = ""
+        self.system_users_error = ""
         self.github_settings = {
             "enabled": True,
             "repository": "artemiygaer/kvn-portal",
@@ -38,9 +39,9 @@ class FakeSettingsAgent:
             "ok": True,
             "repository": "artemiygaer/kvn-portal",
             "channel": "stable",
-            "tag": "v2026.07.24",
+            "tag": "v3.1.2",
             "release_id": 71,
-            "release_name": "KVN VPN 2026.07.24",
+            "release_name": "KVN VPN v3.1.2",
             "published_at": "2026-07-24T10:00:00Z",
             "notes": "<script>alert('fixture')</script>\nБезопасное описание.",
             "assets": [{
@@ -79,12 +80,27 @@ class FakeSettingsAgent:
                 "certificate_target": "site",
             },
         }
+        self.system_users = {"users": [], "count": 0}
 
     def call(self, method, params, *, timeout=None):
         self.calls.append((method, dict(params)))
         self.timeouts.append(timeout)
         if method == "sni.routes":
             return {"revision": "a" * 64, "systems": [], "routes": {}}
+        if method == "system.users":
+            if self.system_users_error:
+                raise AgentClientError(self.system_users_error)
+            return json.loads(json.dumps(self.system_users))
+        if method == "system.user.create":
+            username = params["username"]
+            self.system_users = {
+                "users": [{
+                    "user": username, "uid": 1001, "home": f"/home/{username}",
+                    "shell": "/bin/bash", "privileged": False,
+                }],
+                "count": 1,
+            }
+            return {"ok": True, **self.system_users["users"][0]}
         if method == "project.release.settings":
             if self.github_settings_error:
                 raise AgentClientError(self.github_settings_error)
@@ -293,7 +309,7 @@ class PortalSettingsTests(unittest.TestCase):
         return re.search(rb'name="csrf_token" value="([^"]+)"', response.data).group(1).decode()
 
     def test_update_requires_reauth_and_never_audits_password(self):
-        page = self.client.get("/gaer/settings", headers=self.headers)
+        page = self.client.get("/gaer/settings?group=update", headers=self.headers)
         self.assertNotIn(b"update_root_password", page.data)
         for marker in [b"data-update-prepare", b"data-update-progress", b"data-update-cancel", b"data-update-retry"]:
             self.assertIn(marker, page.data)
@@ -306,7 +322,7 @@ class PortalSettingsTests(unittest.TestCase):
             },
             content_type="multipart/form-data", headers={**self.headers, "Accept": "application/json"},
         ).get_json()["prepared"]
-        ready_page = self.client.get("/gaer/settings", headers=self.headers)
+        ready_page = self.client.get("/gaer/settings?group=update", headers=self.headers)
         for marker in [b"update_root_password", b"data-sensitive-submit", b"project-update-hint", b"data-sensitive-submit-status"]:
             self.assertIn(marker, ready_page.data)
         response = self.client.post(
@@ -330,9 +346,9 @@ class PortalSettingsTests(unittest.TestCase):
         self.assertIn("sha256", detail)
 
     def test_github_check_is_read_only_and_release_notes_are_escaped(self):
-        page = self.client.get("/gaer/settings", headers=self.headers)
+        page = self.client.get("/gaer/settings?group=update", headers=self.headers)
         for marker in [
-            "Текущая сборка".encode(),
+            "Текущая версия".encode(),
             b"artemiygaer/kvn-portal",
             "Обновление вручную с сервера".encode(),
             b"sudo ./tools/project-backup.sh",
@@ -363,7 +379,7 @@ class PortalSettingsTests(unittest.TestCase):
         self.assertNotIn("fixture", detail)
 
     def test_github_check_prepare_and_start_are_three_separate_actions(self):
-        page = self.client.get("/gaer/settings", headers=self.headers)
+        page = self.client.get("/gaer/settings?group=update", headers=self.headers)
         checked_response = self.client.post(
             "/gaer/settings/update/github/check",
             data={"csrf_token": self.csrf(page)},
@@ -389,10 +405,10 @@ class PortalSettingsTests(unittest.TestCase):
         prepared = prepared_response.get_json()["prepared"]
         stored = self.app.extensions["kvn_storage"].get_prepared_update(prepared["id"])
         self.assertEqual(stored["metadata"]["source"], "github")
-        self.assertEqual(stored["metadata"]["tag"], "v2026.07.24")
+        self.assertEqual(stored["metadata"]["tag"], "v3.1.2")
         self.assertFalse(any(method == "project.update" for method, _ in self.agent.calls))
 
-        ready_page = self.client.get("/gaer/settings", headers=self.headers)
+        ready_page = self.client.get("/gaer/settings?group=update", headers=self.headers)
         self.assertIn("Готов к обновлению".encode(), ready_page.data)
         self.assertIn("Проверено на сервере · GitHub".encode(), ready_page.data)
         self.assertIn(b'name="root_password"', ready_page.data)
@@ -435,7 +451,7 @@ class PortalSettingsTests(unittest.TestCase):
         ])
 
     def test_github_error_states_are_safe_and_point_to_manual_fallback(self):
-        page = self.client.get("/gaer/settings", headers=self.headers)
+        page = self.client.get("/gaer/settings?group=update", headers=self.headers)
         cases = [
             ("release_not_found: private fixture", 404),
             ("github_rate_limited: token=fixture-secret", 429),
@@ -489,13 +505,13 @@ class PortalSettingsTests(unittest.TestCase):
 
     def test_github_disabled_up_to_date_and_agent_restart_states(self):
         self.agent.github_settings["enabled"] = False
-        disabled = self.client.get("/gaer/settings", headers=self.headers)
+        disabled = self.client.get("/gaer/settings?group=update", headers=self.headers)
         self.assertIn("Источник отключён".encode(), disabled.data)
         self.assertIn("Ручная загрузка".encode(), disabled.data)
         self.assertNotIn(b"github_pat_", disabled.data)
 
         self.agent.github_settings["enabled"] = True
-        self.app.config["BUILD_ID"] = "2026.07.24"
+        self.app.config["APP_VERSION"] = "v3.1.2"
         checked = self.client.post(
             "/gaer/settings/update/github/check",
             data={"csrf_token": self.csrf(disabled)},
@@ -505,13 +521,40 @@ class PortalSettingsTests(unittest.TestCase):
         self.assertIn("Уже установлено".encode(), checked.data)
 
         self.agent.github_settings_error = "unknown_method: restart agent"
-        unavailable = self.client.get("/gaer/settings", headers=self.headers)
+        unavailable = self.client.get("/gaer/settings?group=update", headers=self.headers)
         self.assertIn("Перезапустите kvn-portal-agent.service".encode(), unavailable.data)
         self.assertIn("ручную загрузку".encode(), unavailable.data)
         self.assertNotIn(b"restart agent", unavailable.data)
 
+    def test_release_version_comparison_ignores_build_id_and_rejects_bad_tag(self):
+        page = self.client.get("/gaer/settings?group=update", headers=self.headers)
+        csrf = self.csrf(page)
+        self.app.config["APP_VERSION"] = "v3.1.1"
+        self.app.config["BUILD_ID"] = "20260821-release1"
+
+        for tag, installed in (("v3.1.1", True), ("v3.1.0", True), ("v3.1.2", False)):
+            with self.subTest(tag=tag):
+                self.agent.github_release["tag"] = tag
+                checked = self.client.post(
+                    "/gaer/settings/update/github/check",
+                    data={"csrf_token": csrf},
+                    headers=self.headers,
+                )
+                self.assertEqual(checked.status_code, 200)
+                marker = "Уже установлено" if installed else "Доступно обновление"
+                self.assertIn(marker.encode(), checked.data)
+
+        self.agent.github_release["tag"] = "release-next"
+        rejected = self.client.post(
+            "/gaer/settings/update/github/check",
+            data={"csrf_token": csrf},
+            headers=self.headers,
+        )
+        self.assertEqual(rejected.status_code, 502)
+        self.assertIn("несогласованные metadata".encode(), rejected.data)
+
     def test_github_prepared_archive_uses_common_discard_path(self):
-        page = self.client.get("/gaer/settings", headers=self.headers)
+        page = self.client.get("/gaer/settings?group=update", headers=self.headers)
         first = self.client.post(
             "/gaer/settings/update/github/prepare",
             data={
@@ -538,7 +581,7 @@ class PortalSettingsTests(unittest.TestCase):
         self.assertIsNone(
             self.app.extensions["kvn_storage"].get_prepared_update(first["id"])
         )
-        ready_page = self.client.get("/gaer/settings", headers=self.headers)
+        ready_page = self.client.get("/gaer/settings?group=update", headers=self.headers)
         discarded = self.client.post(
             "/gaer/settings/update/discard",
             data={
@@ -552,7 +595,7 @@ class PortalSettingsTests(unittest.TestCase):
         self.assertIsNone(self.app.extensions["kvn_storage"].latest_prepared_update())
 
     def test_started_github_archive_can_be_prepared_again_without_unique_error(self):
-        page = self.client.get("/gaer/settings", headers=self.headers)
+        page = self.client.get("/gaer/settings?group=update", headers=self.headers)
         payload = {
             "csrf_token": self.csrf(page),
             "release_id": 71,
@@ -707,7 +750,7 @@ class PortalSettingsTests(unittest.TestCase):
             self.assertIn(marker, script)
 
     def test_staged_update_is_persisted_and_started_by_opaque_id(self):
-        page = self.client.get("/gaer/settings", headers=self.headers)
+        page = self.client.get("/gaer/settings?group=update", headers=self.headers)
         response = self.client.post(
             "/gaer/settings/update/prepare",
             data={
@@ -755,7 +798,7 @@ class PortalSettingsTests(unittest.TestCase):
         self.assertNotIn(PASSWORD, audit)
 
     def test_failed_start_returns_archive_to_ready(self):
-        page = self.client.get("/gaer/settings", headers=self.headers)
+        page = self.client.get("/gaer/settings?group=update", headers=self.headers)
         prepared = self.client.post(
             "/gaer/settings/update/prepare",
             data={
@@ -775,7 +818,7 @@ class PortalSettingsTests(unittest.TestCase):
         self.assertEqual(self.app.extensions["kvn_storage"].latest_prepared_update()["id"], prepared["id"])
 
     def test_no_js_prepare_redirects_to_ready_card_and_discard(self):
-        page = self.client.get("/gaer/settings", headers=self.headers)
+        page = self.client.get("/gaer/settings?group=update", headers=self.headers)
         prepared_response = self.client.post(
             "/gaer/settings/update/prepare",
             data={
@@ -786,7 +829,9 @@ class PortalSettingsTests(unittest.TestCase):
             headers=self.headers,
         )
         self.assertEqual(prepared_response.status_code, 302)
-        self.assertTrue(prepared_response.headers["Location"].endswith("/gaer/settings?prepared=1"))
+        self.assertIn("/gaer/settings?", prepared_response.headers["Location"])
+        self.assertIn("group=update", prepared_response.headers["Location"])
+        self.assertIn("prepared=1", prepared_response.headers["Location"])
         ready_page = self.client.get(prepared_response.headers["Location"], headers=self.headers)
         self.assertIn("Готов к обновлению".encode(), ready_page.data)
         prepared = self.app.extensions["kvn_storage"].latest_prepared_update()
@@ -813,7 +858,7 @@ class PortalSettingsTests(unittest.TestCase):
         self.assertEqual(sum(claim is not None for claim in claims), 1)
 
     def test_failed_prepare_keeps_previous_ready_after_new_login(self):
-        page = self.client.get("/gaer/settings", headers=self.headers)
+        page = self.client.get("/gaer/settings?group=update", headers=self.headers)
         first = self.client.post(
             "/gaer/settings/update/prepare",
             data={
@@ -847,7 +892,7 @@ class PortalSettingsTests(unittest.TestCase):
             data={"login": "admin", "password": PASSWORD, "csrf_token": self.csrf(login)},
             headers=self.headers,
         )
-        restored = self.client.get("/gaer/settings", headers=self.headers)
+        restored = self.client.get("/gaer/settings?group=update", headers=self.headers)
         self.assertIn(first["id"].encode(), restored.data)
 
     def test_retention_removes_old_record_but_respects_running_marker(self):
@@ -874,7 +919,7 @@ class PortalSettingsTests(unittest.TestCase):
         removed, removed_path = old_started("aaaaaaaaaaaa")
         running, running_path = old_started("bbbbbbbbbbbb")
         running_path.with_name(running_path.name + ".running").touch()
-        page = self.client.get("/gaer/settings", headers=self.headers)
+        page = self.client.get("/gaer/settings?group=update", headers=self.headers)
         response = self.client.post(
             "/gaer/settings/update/prepare",
             data={
@@ -896,7 +941,7 @@ class PortalSettingsTests(unittest.TestCase):
             anonymous.post("/gaer/settings/update/start", data={"prepared_id": "A" * 32}, headers=self.headers).status_code,
             403,
         )
-        page = self.client.get("/gaer/settings", headers=self.headers)
+        page = self.client.get("/gaer/settings?group=update", headers=self.headers)
         update_calls_before = sum(method == "project.update" for method, _params in self.agent.calls)
         stale = self.client.post(
             "/gaer/settings/update/start",
@@ -942,7 +987,7 @@ class PortalSettingsTests(unittest.TestCase):
         self.assertIn('request.mimetype == "application/octet-stream"', source)
         self.assertIn("SpooledTemporaryFile", source)
         self.assertIn("shutil.disk_usage(destination.parent).free", source)
-        self.client.get("/gaer/settings", headers=self.headers)
+        self.client.get("/gaer/settings?group=update", headers=self.headers)
         settings_timeouts = {
             method: timeout
             for (method, _params), timeout in zip(
@@ -953,16 +998,13 @@ class PortalSettingsTests(unittest.TestCase):
         }
         self.assertEqual(settings_timeouts["project.release.settings"], 5.0)
         for method in (
-            "sni.routes",
-            "mtproto.status",
-            "amneziawg.settings",
-            "portal.performance",
-            "client.export.settings",
+            "sni.routes", "mtproto.status", "amneziawg.settings",
+            "portal.performance", "client.export.settings", "system.users",
         ):
-            self.assertIsNone(settings_timeouts[method])
+            self.assertNotIn(method, settings_timeouts)
 
     def test_raw_release_upload_does_not_use_multipart_tmp(self):
-        page = self.client.get("/gaer/settings", headers=self.headers)
+        page = self.client.get("/gaer/settings?group=update", headers=self.headers)
         payload = b"\x1f\x8b" + b"r" * (2 * 1024 * 1024)
         response = self.client.post(
             "/gaer/settings/update/prepare",
@@ -983,9 +1025,9 @@ class PortalSettingsTests(unittest.TestCase):
         self.assertEqual(list(self.upload_dir.glob("*.part-*")), [])
 
     def test_sni_diagnosis_uses_agent_and_keeps_result_safe(self):
-        page = self.client.get("/gaer/settings", headers=self.headers)
+        page = self.client.get("/gaer/settings?group=protocols", headers=self.headers)
         response = self.client.post(
-            "/gaer/settings",
+            "/gaer/settings?group=protocols",
             data={"csrf_token": self.csrf(page), "action": "sni_diagnose", "sni": "example.com"},
             headers=self.headers,
         )
@@ -1028,10 +1070,10 @@ class PortalSettingsTests(unittest.TestCase):
         })
 
     def test_amneziawg_31_form_uses_typed_agent_and_audits_no_key(self):
-        page = self.client.get("/gaer/settings", headers=self.headers)
+        page = self.client.get("/gaer/settings?group=protocols", headers=self.headers)
         self.assertIn(b'id="amneziawg-settings"', page.data)
         response = self.client.post(
-            "/gaer/settings",
+            "/gaer/settings?group=protocols",
             data={
                 "csrf_token": self.csrf(page),
                 "action": "amneziawg_profile",
@@ -1061,6 +1103,73 @@ class PortalSettingsTests(unittest.TestCase):
             ).fetchone()[0]
         self.assertEqual(json.loads(detail), {"protocol_version": "3.1"})
 
+    def test_system_user_form_uses_typed_rpc_and_audits_no_password(self):
+        password = "System-User-Password-2026"
+        page = self.client.get("/gaer/settings?group=access", headers=self.headers)
+        self.assertIn(b'id="system-users"', page.data)
+        response = self.client.post(
+            "/gaer/settings?group=access",
+            data={
+                "csrf_token": self.csrf(page), "action": "system_user_create",
+                "system_username": "operator", "system_password": password,
+                "system_password_repeat": password,
+            },
+            headers=self.headers,
+        )
+        self.assertEqual(response.status_code, 200)
+        method, params = next(
+            (method, params) for method, params in reversed(self.agent.calls)
+            if method == "system.user.create"
+        )
+        self.assertEqual(method, "system.user.create")
+        self.assertEqual(params, {"username": "operator", "password": password})
+        self.assertNotIn(password.encode(), response.data)
+        with closing(sqlite3.connect(self.db)) as db:
+            rows = db.execute(
+                "SELECT action, detail FROM audit_events WHERE action='system.user.create'"
+            ).fetchall()
+        audit = json.dumps(rows)
+        self.assertNotIn(password, audit)
+        self.assertEqual(json.loads(rows[0][1]), {"username": "operator"})
+
+    def test_system_user_form_rejects_password_mismatch_without_rpc(self):
+        page = self.client.get("/gaer/settings?group=access", headers=self.headers)
+        before = len([call for call in self.agent.calls if call[0] == "system.user.create"])
+        response = self.client.post(
+            "/gaer/settings?group=access",
+            data={
+                "csrf_token": self.csrf(page), "action": "system_user_create",
+                "system_username": "operator", "system_password": "System-User-Password-2026",
+                "system_password_repeat": "Different-System-Password",
+            },
+            headers=self.headers,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Пароли не совпадают".encode(), response.data)
+        after = len([call for call in self.agent.calls if call[0] == "system.user.create"])
+        self.assertEqual(before, after)
+
+    def test_settings_cover_empty_error_loading_and_unauthorized_states(self):
+        empty = self.client.get("/gaer/settings?group=access", headers=self.headers)
+        self.assertEqual(empty.status_code, 200)
+        self.assertIn("Обычных интерактивных Linux-пользователей пока нет".encode(), empty.data)
+
+        self.agent.system_users_error = "fixture unavailable"
+        error = self.client.get("/gaer/settings?group=access", headers=self.headers)
+        self.assertEqual(error.status_code, 502)
+        self.assertIn("Host-agent недоступен".encode(), error.data)
+
+        update = self.client.get("/gaer/settings?group=update", headers=self.headers)
+        self.assertEqual(update.status_code, 200)
+        self.assertIn(b'data-update-progress data-state="idle"', update.data)
+        update_script = (Path(__file__).resolve().parents[1] / "app/static/update.js").read_text(encoding="utf-8")
+        self.assertIn('setUpdateState("uploading"', update_script)
+        self.assertIn('setUpdateState("verifying"', update_script)
+
+        anonymous = self.app.test_client().get("/gaer/settings?group=access", headers=self.headers)
+        self.assertEqual(anonymous.status_code, 302)
+        self.assertTrue(anonymous.headers["Location"].endswith("/gaer/login"))
+
     def test_light_runtime_hides_history_and_keeps_manual_refresh(self):
         self.users.write_text(json.dumps({
             "portal": {
@@ -1083,6 +1192,45 @@ class PortalSettingsTests(unittest.TestCase):
         )
         self.assertIn('if (backgroundRefresh)', script)
         self.assertIn('networkPanel.dataset.backgroundRefresh !== "false"', script)
+
+    def test_settings_groups_call_only_their_rpc_and_load_only_their_js(self):
+        expected = {
+            "portal": ({"portal.performance", "client.export.settings"}, {b"user-export.js"}, {b'id="interface"', b'id="client-export"'}),
+            "protocols": ({"sni.routes", "mtproto.status", "amneziawg.settings"}, set(), {b'id="amneziawg-settings"', b'id="sni-settings"'}),
+            "access": ({"system.users"}, set(), {b'id="system-users"', b'id="security"'}),
+            "update": ({"project.release.settings"}, {b"update.js"}, {b'id="project-update"'}),
+        }
+        for group, (rpc_methods, scripts, markers) in expected.items():
+            with self.subTest(group=group):
+                self.agent.calls.clear()
+                response = self.client.get(f"/gaer/settings?group={group}", headers=self.headers)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual({method for method, _params in self.agent.calls}, rpc_methods)
+                for marker in markers:
+                    self.assertIn(marker, response.data)
+                self.assertEqual(
+                    {name for name in (b"update.js", b"user-export.js") if name in response.data},
+                    scripts,
+                )
+
+    def test_settings_unknown_group_is_rejected_without_rpc(self):
+        self.agent.calls.clear()
+        response = self.client.get("/gaer/settings?group=../../update", headers=self.headers)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.agent.calls, [])
+        self.assertIn("Группа настроек не разрешена".encode(), response.data)
+
+    def test_settings_deep_links_keep_existing_section_ids(self):
+        matrix = {
+            "portal": ("interface", "portal-performance", "client-export"),
+            "protocols": ("amneziawg-settings", "mtproto-settings", "sni-settings"),
+            "access": ("system-users", "security"),
+            "update": ("project-update",),
+        }
+        for group, section_ids in matrix.items():
+            response = self.client.get(f"/gaer/settings?group={group}", headers=self.headers)
+            for section_id in section_ids:
+                self.assertIn(f'id="{section_id}"'.encode(), response.data)
 
 
 if __name__ == "__main__":

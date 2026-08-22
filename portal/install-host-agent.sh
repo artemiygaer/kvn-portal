@@ -96,7 +96,7 @@ fi
 
 source_fingerprint="$({
     for source in \
-        portal/agent.py portal/agent_protocol.py portal/control.py portal/github_updates.py portal/metrics.py \
+        portal/agent.py portal/agent_protocol.py portal/control.py portal/github_updates.py portal/metrics.py portal/system_user_helper.py \
         tools/kvnctl.py tools/kvnlib/apply.py tools/kvnlib/state.py; do
         sha256sum "$ROOT_DIR/$source"
     done
