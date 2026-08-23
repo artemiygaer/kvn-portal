@@ -122,7 +122,7 @@ KVN VPN v3.1.2 — мультипротокольный VPN-стек для Debi
 
 Проверенный baseline v3.1.2 от 23.08.2026:
 
-- 354 теста проекта прошли локально, 5 platform-only проверок пропущены;
+- 354 тестов проекта прошли локально, 5 platform-only проверок пропущены;
 - 104 portal tests прошли локально и в Docker test image, 1 host-agent проверка пропущена;
 - deploy runtime E2E прошёл;
 - Bash syntax, Compose config, compileall, docs checker и source safety прошли;
