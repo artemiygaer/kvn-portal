@@ -50,6 +50,79 @@ Runtime-образы закреплены на проверенных верси
 KVN_BUILD_ID=YYYYMMDD-release1 ./tools/build-release.sh
 ```
 
+### Чистая установка с GitHub по SSH
+
+Репозиторий публичный. Сначала откройте root-shell (`sudo -i`), затем выполните блок на Debian 12/13. Перед запуском замените `ENDPOINT` на белый IP или домен сервера:
+
+```bash
+bash <<'EOF'
+set -euo pipefail
+
+ENDPOINT="203.0.113.10"
+DOWNLOAD_DIR="/root/kvn-install-v311"
+PROJECT="/srv/kvn-vpn"
+RELEASE="$DOWNLOAD_DIR/kvn-vpn-release-linux-amd64.tar.gz"
+
+if [ -e "$PROJECT" ]; then
+  echo "[ОШИБКА] Каталог уже существует: $PROJECT" >&2
+  exit 1
+fi
+install -d -m 0700 "$DOWNLOAD_DIR"
+install -d -m 0750 "$PROJECT"
+curl -fL --retry 3 \
+  -o "$RELEASE" \
+  https://github.com/artemiygaer/kvn-portal/releases/download/v3.1.1/kvn-vpn-release-linux-amd64.tar.gz
+
+echo "9b92de1dd56b1c1366b176edd9b5a024a45bf4988d3d42026c665aac0ea31e19  $RELEASE" | sha256sum -c -
+tar -xzf "$RELEASE" -C "$DOWNLOAD_DIR" kvn-vpn-deploy.tar.gz
+tar -xzf "$DOWNLOAD_DIR/kvn-vpn-deploy.tar.gz" -C "$PROJECT" --strip-components=1
+
+cd "$PROJECT"
+./setup.sh --release "$RELEASE" "$ENDPOINT"
+EOF
+```
+
+### Полное ручное обновление с GitHub по SSH
+
+Этот вариант подходит и для старого updater, который отклоняет новые файлы в manifest. Укажите фактический каталог установленного проекта: обычно `/srv/kvn-vpn`, а у ранних установок он может быть `/root/deploy`.
+
+```bash
+bash <<'EOF'
+set -euo pipefail
+
+PROJECT="/srv/kvn-vpn"
+WORK="$(mktemp -d /root/kvn-update-v311.XXXXXX)"
+trap 'rm -rf "$WORK"' EXIT
+
+curl -fL --retry 3 \
+  -o "$WORK/kvn-vpn-deploy.tar.gz" \
+  https://github.com/artemiygaer/kvn-portal/releases/download/v3.1.1/kvn-vpn-deploy.tar.gz
+curl -fL --retry 3 \
+  -o "$WORK/kvn-vpn-release-linux-amd64.tar.gz" \
+  https://github.com/artemiygaer/kvn-portal/releases/download/v3.1.1/kvn-vpn-release-linux-amd64.tar.gz
+
+echo "51c16c362be03d136d65c1d8c0c6de3c5cc156df97b17d2bb1e039eccfd2059e  $WORK/kvn-vpn-deploy.tar.gz" | sha256sum -c -
+echo "9b92de1dd56b1c1366b176edd9b5a024a45bf4988d3d42026c665aac0ea31e19  $WORK/kvn-vpn-release-linux-amd64.tar.gz" | sha256sum -c -
+
+install -d -m 0700 "$WORK/bootstrap"
+tar -xzf "$WORK/kvn-vpn-deploy.tar.gz" -C "$WORK/bootstrap" --strip-components=1
+
+env KVN_UPDATE_ROOT="$PROJECT" \
+  /bin/bash "$WORK/bootstrap/update.sh" \
+  --bootstrap-only "$WORK/kvn-vpn-deploy.tar.gz"
+
+cd "$PROJECT"
+chmod +x update.sh tools/*.sh
+./update.sh "$WORK/kvn-vpn-release-linux-amd64.tar.gz"
+
+python3 tools/kvnctl.py portal status
+docker compose -f docker-compose.yml ps
+systemctl is-active kvn-portal-agent.service || true
+EOF
+```
+
+Bootstrap обновляет updater, исходники и host-agent без запуска Compose, после чего полный release штатно применяет готовые Docker images. `users.json`, сертификаты, `clients/`, portal/metrics DB и другие runtime-данные сохраняются.
+
 Перенесите один файл `kvn-vpn-release-linux-amd64.tar.gz`. В нём находятся чистый source deploy, семь готовых Docker images и подписанный хэшами manifest. Новая установка:
 
 ```bash
