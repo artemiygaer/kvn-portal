@@ -374,12 +374,7 @@ class PortalAtomicPrepareTests(unittest.TestCase):
             params = {
                 "revision": state_revision(state),
                 "protocol_version": "3.1",
-                **{
-                    key: value
-                    for key, value in kvnctl.AWG31_DEFAULTS.items()
-                    if key != "random_trailers"
-                },
-                "random_trailers": True,
+                **kvnctl.AWG31_DEFAULTS,
                 "regenerate_header_key": False,
             }
             with (

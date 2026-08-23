@@ -684,13 +684,14 @@ class KvnControl:
 
     def apply_amneziawg(self, params: dict) -> dict:
         """Транзакционно применяет allowlisted профиль AWG 3.1."""
-        expected = {
+        required = {
             "revision", "protocol_version", "content_padding_addition",
             "rekey_after_time", "rekey_timeout", "reject_after_time",
             "keepalive_timeout", "max_handshake_attempts",
-            "random_trailers", "regenerate_header_key",
+            "regenerate_header_key",
         }
-        if set(params) != expected:
+        keys = set(params)
+        if not required.issubset(keys) or keys - required - {"random_trailers"}:
             raise ControlError("invalid_params", "Некорректная схема настроек AmneziaWG.")
         revision = params.get("revision")
         if not isinstance(revision, str) or len(revision) != 64:
@@ -698,16 +699,14 @@ class KvnControl:
         protocol_version = params.get("protocol_version")
         if protocol_version not in self.kvnctl.AWG_PROTOCOL_PROFILES:
             raise ControlError("validation_error", "Профиль AmneziaWG не разрешён.")
-        if not isinstance(params.get("random_trailers"), bool) or not isinstance(
-            params.get("regenerate_header_key"), bool
-        ):
+        if not isinstance(params.get("regenerate_header_key"), bool):
             raise ControlError("validation_error", "Флаги AmneziaWG должны быть boolean.")
+        if "random_trailers" in params and not isinstance(params["random_trailers"], bool):
+            raise ControlError("validation_error", "Устаревший флаг AmneziaWG должен быть boolean.")
         values = {
             key: params[key]
             for key in self.kvnctl.AWG31_CONFIG_KEYS
         }
-        values["random_trailers"] = params["random_trailers"]
-
         def mutate(state: dict) -> None:
             self.kvnctl.update_amneziawg_profile(
                 state,

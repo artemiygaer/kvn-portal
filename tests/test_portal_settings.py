@@ -118,7 +118,6 @@ class FakeSettingsAgent:
                     "content_padding_addition": "16-64", "rekey_after_time": "120-150",
                     "rekey_timeout": "5-8", "reject_after_time": "180-240",
                     "keepalive_timeout": "10-15", "max_handshake_attempts": "15-20",
-                    "random_trailers": True,
                 },
             }
         if method == "amneziawg.apply":

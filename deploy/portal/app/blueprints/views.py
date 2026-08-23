@@ -2109,7 +2109,6 @@ def build_views(
                     "reject_after_time": request.form.get("reject_after_time", ""),
                     "keepalive_timeout": request.form.get("keepalive_timeout", ""),
                     "max_handshake_attempts": request.form.get("max_handshake_attempts", ""),
-                    "random_trailers": request.form.get("random_trailers") == "on",
                     "regenerate_header_key": request.form.get("regenerate_header_key") == "on",
                 })
                 if not isinstance(result, dict):

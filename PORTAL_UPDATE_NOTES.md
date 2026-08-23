@@ -1,5 +1,10 @@
 # Заметки об обновлении KVN Portal
 
+## v3.1.2 — 23.08.2026
+
+- Исправлена чистая установка на Debian 12/13 с актуальным PPA-пакетом `amneziawg-tools v3.0.20260805`: setup больше не требует отсутствующий в официальных tools параметр `RandomTrailers`.
+- Профиль AmneziaWG 3.1 теперь проверяет реальные возможности `HeaderProtectionKey`, `ContentPaddingAddition` и изменяемых таймингов; server/client-конфиги совместимы с текущими AWG 3.x tools.
+
 ## v3.1.1 — 22.08.2026
 
 - Заголовок портала показывает каноническую версию `v3.1.1` отдельно от диагностического build ID. Stable Release `v3.1.1` считается установленным и не предлагается повторно.
@@ -16,7 +21,7 @@
 
 ## Что изменено
 
-- В v3.1 добавлен явный профиль AmneziaWG 3.1 с проверкой возможностей host tools, защищённым `HeaderProtectionKey`, S3/S4, content padding, таймингами и `RandomTrailers`. Legacy остаётся default; переключение требует повторного экспорта AWG-клиентов.
+- В v3.1 добавлен явный профиль AmneziaWG 3.1 с проверкой возможностей host tools, защищённым `HeaderProtectionKey`, S3/S4, content padding и таймингами. Legacy остаётся default; переключение требует повторного экспорта AWG-клиентов.
 - Dashboard показывает активные удалённые SSH-сессии: user, IP, TTY и время входа. Host-agent использует фиксированные `loginctl` и fallback `who --ips`; raw terminal/commands не собираются.
 - Добавлен экспорт пользователя: ZIP-вложение для ручной отправки через Telegram, `send.txt` для копирования и временный Domain/IP выбор без записи политики в `users.json`.
 - Режим public-IP заменяет endpoint всех клиентских конфигураций, но сохраняет SNI, Reality `serverName` и certificate identity; subscription URL по IP закрыт без direct route и точного IP SAN.

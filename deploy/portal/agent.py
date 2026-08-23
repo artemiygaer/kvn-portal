@@ -1339,20 +1339,27 @@ class AgentDispatcher:
         return self._control().amneziawg_settings()
 
     def _amneziawg_apply(self, params: dict) -> dict[str, Any]:
-        allowed = {
+        required = {
             "revision", "protocol_version", "content_padding_addition",
             "rekey_after_time", "rekey_timeout", "reject_after_time",
             "keepalive_timeout", "max_handshake_attempts",
-            "random_trailers", "regenerate_header_key",
+            "regenerate_header_key",
         }
-        if set(params) != allowed:
+        keys = set(params)
+        if not required.issubset(keys) or keys - required - {"random_trailers"}:
             raise ProtocolError("invalid_params", "Некорректная схема настроек AmneziaWG.")
+        if "random_trailers" in params and not isinstance(params["random_trailers"], bool):
+            raise ProtocolError("invalid_params", "Устаревший флаг AmneziaWG должен быть boolean.")
         if params.get("protocol_version") == "3.1":
             capability = self.runner.run(
                 ["awg", "set", "--help"], timeout=5, max_output=32 * 1024
             )
             usage = f"{capability.stdout}\n{capability.stderr}".lower()
-            required = ("header-protection-key", "random-trailers")
+            required = (
+                "header-protection-key",
+                "content-padding-addition",
+                "rekey-after-time",
+            )
             if any(token not in usage for token in required):
                 raise ProtocolError(
                     "awg31_unsupported",

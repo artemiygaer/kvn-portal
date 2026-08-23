@@ -109,7 +109,7 @@ class FakeRunner:
             stdout = "100 20 80 20%\n"
         elif argv[0] in {"awg", "wg"}:
             if argv[:3] == ["awg", "set", "--help"]:
-                stdout = "header-protection-key random-trailers\n"
+                stdout = "header-protection-key content-padding-addition rekey-after-time\n"
             else:
                 stdout = "awg0 private-key public-key 51820 off\n"
         elif argv[:2] == ["loginctl", "list-sessions"]:
@@ -563,7 +563,7 @@ class PortalAgentProtocolTests(unittest.TestCase):
         self.assertEqual(denied["error"]["code"], "invalid_params")
         self.assertEqual(self.runner.calls, [])
 
-    def test_amneziawg_31_apply_requires_capable_tools_and_exact_schema(self):
+    def test_amneziawg_31_apply_requires_capable_tools_and_accepts_legacy_flag(self):
         control = FakeServiceControl()
         dispatcher = AgentDispatcher(Path("/srv/kvn"), self.runner, control)
         app = AgentApplication(SECRET, dispatcher)
@@ -576,16 +576,21 @@ class PortalAgentProtocolTests(unittest.TestCase):
             "reject_after_time": "180-240",
             "keepalive_timeout": "10-15",
             "max_handshake_attempts": "15-20",
-            "random_trailers": True,
             "regenerate_header_key": False,
         }
         allowed = json.loads(
             app.handle_line(request_line("amneziawg.apply", params)).decode("utf-8")
         )
+        legacy_allowed = json.loads(
+            app.handle_line(request_line(
+                "amneziawg.apply", {**params, "random_trailers": True}
+            )).decode("utf-8")
+        )
         denied = json.loads(
             app.handle_line(request_line("amneziawg.apply", {**params, "command": "id"})).decode("utf-8")
         )
         self.assertTrue(allowed["ok"])
+        self.assertTrue(legacy_allowed["ok"])
         self.assertFalse(denied["ok"])
         self.assertEqual(denied["error"]["code"], "invalid_params")
         self.assertEqual(self.runner.calls[0][0], ("awg", "set", "--help"))

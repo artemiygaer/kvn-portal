@@ -1,4 +1,4 @@
-# KVN VPN v3.1.1
+# KVN VPN v3.1.2
 
 Мультипротокольный VPN-стек для Debian 12/13. Основные сервисы запускаются через Compose.
 
@@ -12,10 +12,10 @@ Runtime-образы закреплены на проверенных верси
 
 ## Изменения релиза
 
-- номер продукта хранится отдельно от build ID: портал показывает `v3.1.1`, а GitHub Release с той же версией больше не считается обновлением;
+- номер продукта хранится отдельно от build ID: портал показывает `v3.1.2`, а GitHub Release с той же версией больше не считается обновлением;
 - «Настройки» разделены на группы «Портал и экспорт», «VPN-протоколы», «Доступ» и «Обновление»; открытая группа загружает только свои данные и JavaScript;
 - в группе «Доступ» можно создать обычного системного SSH-пользователя с домашним каталогом и `/bin/bash`; группы `sudo`, `adm` и `wheel` не назначаются;
-- опциональный профиль AmneziaWG 3.1: `HeaderProtectionKey`, S3/S4, content padding, изменяемые тайминги и `RandomTrailers`; legacy остаётся default для совместимости;
+- опциональный профиль AmneziaWG 3.1: `HeaderProtectionKey`, S3/S4, content padding и изменяемые тайминги официальных AWG 3.x tools; legacy остаётся default для совместимости;
 - список активных удалённых SSH-сессий, включая `root`, на главной странице портала: системный пользователь, IP, TTY и время входа без чтения команд или содержимого терминала;
 - транзакционное управление пользователями с проверяемым AmneziaWG/WireGuard apply и `reconcile`;
 - история нагрузки за 72 часа и адаптивные графики без внешних assets;
@@ -59,9 +59,10 @@ bash <<'EOF'
 set -euo pipefail
 
 ENDPOINT="203.0.113.10"
-DOWNLOAD_DIR="/root/kvn-install-v311"
+DOWNLOAD_DIR="/root/kvn-install-v312"
 PROJECT="/srv/kvn-vpn"
 RELEASE="$DOWNLOAD_DIR/kvn-vpn-release-linux-amd64.tar.gz"
+TAG="v3.1.2"
 
 if [ -e "$PROJECT" ]; then
   echo "[ОШИБКА] Каталог уже существует: $PROJECT" >&2
@@ -71,9 +72,12 @@ install -d -m 0700 "$DOWNLOAD_DIR"
 install -d -m 0750 "$PROJECT"
 curl -fL --retry 3 \
   -o "$RELEASE" \
-  https://github.com/artemiygaer/kvn-portal/releases/download/v3.1.1/kvn-vpn-release-linux-amd64.tar.gz
+  "https://github.com/artemiygaer/kvn-portal/releases/download/$TAG/kvn-vpn-release-linux-amd64.tar.gz"
+curl -fL --retry 3 \
+  -o "$DOWNLOAD_DIR/SHA256SUMS" \
+  "https://github.com/artemiygaer/kvn-portal/releases/download/$TAG/SHA256SUMS"
 
-echo "9b92de1dd56b1c1366b176edd9b5a024a45bf4988d3d42026c665aac0ea31e19  $RELEASE" | sha256sum -c -
+(cd "$DOWNLOAD_DIR"; grep -F '  kvn-vpn-release-linux-amd64.tar.gz' SHA256SUMS | sha256sum -c -)
 tar -xzf "$RELEASE" -C "$DOWNLOAD_DIR" kvn-vpn-deploy.tar.gz
 tar -xzf "$DOWNLOAD_DIR/kvn-vpn-deploy.tar.gz" -C "$PROJECT" --strip-components=1
 
@@ -91,18 +95,21 @@ bash <<'EOF'
 set -euo pipefail
 
 PROJECT="/srv/kvn-vpn"
-WORK="$(mktemp -d /root/kvn-update-v311.XXXXXX)"
+WORK="$(mktemp -d /root/kvn-update-v312.XXXXXX)"
+TAG="v3.1.2"
 trap 'rm -rf "$WORK"' EXIT
 
 curl -fL --retry 3 \
   -o "$WORK/kvn-vpn-deploy.tar.gz" \
-  https://github.com/artemiygaer/kvn-portal/releases/download/v3.1.1/kvn-vpn-deploy.tar.gz
+  "https://github.com/artemiygaer/kvn-portal/releases/download/$TAG/kvn-vpn-deploy.tar.gz"
 curl -fL --retry 3 \
   -o "$WORK/kvn-vpn-release-linux-amd64.tar.gz" \
-  https://github.com/artemiygaer/kvn-portal/releases/download/v3.1.1/kvn-vpn-release-linux-amd64.tar.gz
+  "https://github.com/artemiygaer/kvn-portal/releases/download/$TAG/kvn-vpn-release-linux-amd64.tar.gz"
+curl -fL --retry 3 \
+  -o "$WORK/SHA256SUMS" \
+  "https://github.com/artemiygaer/kvn-portal/releases/download/$TAG/SHA256SUMS"
 
-echo "51c16c362be03d136d65c1d8c0c6de3c5cc156df97b17d2bb1e039eccfd2059e  $WORK/kvn-vpn-deploy.tar.gz" | sha256sum -c -
-echo "9b92de1dd56b1c1366b176edd9b5a024a45bf4988d3d42026c665aac0ea31e19  $WORK/kvn-vpn-release-linux-amd64.tar.gz" | sha256sum -c -
+(cd "$WORK"; grep -E '  (kvn-vpn-deploy|kvn-vpn-release-linux-amd64)\.tar\.gz$' SHA256SUMS | sha256sum -c -)
 
 install -d -m 0700 "$WORK/bootstrap"
 tar -xzf "$WORK/kvn-vpn-deploy.tar.gz" -C "$WORK/bootstrap" --strip-components=1
@@ -522,13 +529,13 @@ sudo journalctl -u kvn-amneziawg.service -n 100 --no-pager
 
 Профиль AWG 3.1 включается явно в «Настройки → AmneziaWG» либо CLI:
 
-Реализация сверена 20.08.2026 с `amneziawg-tools`/kernel module
-`v3.1.20260812`, userspace server `v3.1.20260814` и клиентом AmneziaVPN
-`5.0.0.5` с поддержкой AWG 3.
+Реализация повторно проверена 23.08.2026 с пакетом PPA
+`amneziawg-tools v3.0.20260805`. Внутреннее имя профиля KVN остаётся `3.1`
+для совместимости состояния, а конфиг использует фактически доступные поля AWG 3.x.
 
 - спецификация параметров: <https://github.com/amnezia-vpn/amneziawg-go>;
-- tools 3.1: <https://github.com/amnezia-vpn/amneziawg-tools/releases/tag/v3.1.20260812>;
-- kernel module 3.1: <https://github.com/amnezia-vpn/amneziawg-linux-kernel-module/tree/v3.1.20260812>.
+- tools: <https://github.com/amnezia-vpn/amneziawg-tools>;
+- kernel module: <https://github.com/amnezia-vpn/amneziawg-linux-kernel-module>.
 
 ```bash
 sudo ./amneziawg/install-kernel-module.sh
@@ -537,7 +544,9 @@ sudo python3 tools/kvnctl.py amneziawg configure --profile 3.1 --apply
 ```
 
 Перед сохранением портал проверяет, что `awg set --help` содержит параметры
-`header-protection-key` и `random-trailers`. Переход меняет общий протокол
+`header-protection-key`, `content-padding-addition` и `rekey-after-time`.
+Несуществующий в актуальных официальных tools параметр `RandomTrailers` не
+выдаётся серверу или клиентам. Переход меняет общий протокол
 `awg0`: после применения заново экспортируйте и импортируйте конфиг каждого
 AmneziaWG-пользователя. Возврат к прежним конфигам:
 

@@ -2,7 +2,7 @@
   <div class="section-heading">
     <div>
       <h2>AmneziaWG 3.1</h2>
-      <p class="muted">Защита заголовков, дополнительное заполнение, случайные трейлеры и изменяемые тайминги для актуальных AWG-клиентов и сервера.</p>
+      <p class="muted">Защита заголовков, дополнительное заполнение и изменяемые тайминги для актуальных AWG-клиентов и сервера.</p>
     </div>
     <span class="status {{ 'ok' if amneziawg_settings.protocol_version == '3.1' else 'stale' }}">{{ 'AWG 3.1' if amneziawg_settings.protocol_version == '3.1' else 'legacy' }}</span>
   </div>
@@ -34,7 +34,6 @@
       {% endfor %}
     </div>
     <div class="check-grid">
-      <label><input type="checkbox" name="random_trailers"{% if amneziawg_settings.v3.random_trailers %} checked{% endif %}> Случайные трейлеры AWG 3.1</label>
       <label><input type="checkbox" name="regenerate_header_key"> Сгенерировать новый HeaderProtectionKey</label>
     </div>
     <p class="form-hint">HeaderProtectionKey хранится только в root-only <code>users.json</code> и не показывается порталу. Ротация ключа требует повторного импорта всех AWG-конфигов.</p>

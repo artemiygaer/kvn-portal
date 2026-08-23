@@ -215,7 +215,6 @@ AWG31_DEFAULTS = {
     "reject_after_time": "180-240",
     "keepalive_timeout": "10-15",
     "max_handshake_attempts": "15-20",
-    "random_trailers": True,
 }
 AWG31_CONFIG_KEYS = {
     "content_padding_addition": "ContentPaddingAddition",
@@ -1870,8 +1869,6 @@ def awg_config(state: dict) -> dict:
         if key == "max_handshake_attempts":
             maximum = 1000
         v3[key] = validate_awg_range(v3.get(key), f"amneziawg.v3.{key}", maximum)
-    if not isinstance(v3.get("random_trailers"), bool):
-        raise SystemExit("amneziawg.v3.random_trailers должен быть true или false")
     rekey_min, rekey_max = awg_range_bounds(v3["rekey_after_time"])
     reject_min, _reject_max = awg_range_bounds(v3["reject_after_time"])
     if rekey_min < 30 or reject_min <= rekey_max:
@@ -4211,7 +4208,6 @@ def awg_v3_lines(state: dict) -> list[str]:
         f"{config_key} = {v3[state_key]}"
         for state_key, config_key in AWG31_CONFIG_KEYS.items()
     )
-    lines.append(f"RandomTrailers = {'on' if v3['random_trailers'] else 'off'}")
     return lines
 
 
@@ -6407,7 +6403,7 @@ def amneziawg_semantic_snapshot(state: dict | None) -> dict:
         "v3": {
             **{
                 key: v3.get(key)
-                for key in (*AWG31_CONFIG_KEYS, "random_trailers")
+                for key in AWG31_CONFIG_KEYS
                 if v3.get(key) not in ("", None)
             },
             # Снимок должен видеть ротацию, но не держать секрет в отчёте/apply plan.
@@ -7117,7 +7113,7 @@ def cmd_amneziawg(args: argparse.Namespace) -> None:
             if getattr(args, key) is not None
         }
         if args.random_trailers is not None:
-            values["random_trailers"] = args.random_trailers
+            warn("--random-trailers устарел и игнорируется: официальные awg-tools 3.x не поддерживают этот параметр")
         update_amneziawg_profile(
             state,
             protocol_version=args.profile,
@@ -8970,7 +8966,7 @@ def build_parser() -> argparse.ArgumentParser:
         )
     awg_configure.add_argument(
         "--random-trailers", type=str_to_bool, default=None,
-        help="Случайные трейлеры: true/false",
+        help=argparse.SUPPRESS,
     )
     awg_configure.add_argument(
         "--regenerate-header-key", action="store_true",

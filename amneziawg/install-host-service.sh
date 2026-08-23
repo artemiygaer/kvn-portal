@@ -26,7 +26,8 @@ fi
 if grep -q '^HeaderProtectionKey[[:space:]]*=' "$SRC_CONF"; then
     AWG_SET_HELP="$(awg set --help 2>&1 || true)"
     if ! grep -q -- 'header-protection-key' <<<"$AWG_SET_HELP" \
-        || ! grep -q -- 'random-trailers' <<<"$AWG_SET_HELP"; then
+        || ! grep -q -- 'content-padding-addition' <<<"$AWG_SET_HELP" \
+        || ! grep -q -- 'rekey-after-time' <<<"$AWG_SET_HELP"; then
         echo "[ОШИБКА] профиль AWG 3.1 требует актуальные awg-tools" >&2
         echo "[ПОДСКАЗКА] sudo ./amneziawg/install-kernel-module.sh, затем reboot" >&2
         exit 1

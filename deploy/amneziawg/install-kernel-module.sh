@@ -79,12 +79,13 @@ if ! command -v awg >/dev/null 2>&1; then
 fi
 AWG_SET_HELP="$(awg set --help 2>&1 || true)"
 if ! grep -q -- 'header-protection-key' <<<"$AWG_SET_HELP" \
-    || ! grep -q -- 'random-trailers' <<<"$AWG_SET_HELP"; then
+    || ! grep -q -- 'content-padding-addition' <<<"$AWG_SET_HELP" \
+    || ! grep -q -- 'rekey-after-time' <<<"$AWG_SET_HELP"; then
     echo "[ОШИБКА] PPA установил устаревшие awg-tools без поддержки AWG 3.1" >&2
     echo "[ПОДСКАЗКА] Проверьте PPA/AMNEZIAWG_PPA_SUITE и повторите apt update." >&2
     exit 1
 fi
-echo "[OK] awg-tools поддерживает HeaderProtectionKey и RandomTrailers (AWG 3.1)"
+echo "[OK] awg-tools поддерживает HeaderProtectionKey, ContentPaddingAddition и тайминги AWG 3.x"
 
 if [ "$NEW_KERNEL_INSTALLED" -eq 1 ]; then
     echo "" >&2

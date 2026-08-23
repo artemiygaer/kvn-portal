@@ -167,7 +167,6 @@ class FakeSettingsAgent:
                     "content_padding_addition": "16-64", "rekey_after_time": "120-150",
                     "rekey_timeout": "5-8", "reject_after_time": "180-240",
                     "keepalive_timeout": "10-15", "max_handshake_attempts": "15-20",
-                    "random_trailers": True,
                 },
             }
         if method == "amneziawg.apply":
@@ -529,10 +528,10 @@ class PortalSettingsTests(unittest.TestCase):
     def test_release_version_comparison_ignores_build_id_and_rejects_bad_tag(self):
         page = self.client.get("/gaer/settings?group=update", headers=self.headers)
         csrf = self.csrf(page)
-        self.app.config["APP_VERSION"] = "v3.1.1"
-        self.app.config["BUILD_ID"] = "20260821-release1"
+        self.app.config["APP_VERSION"] = "v3.1.2"
+        self.app.config["BUILD_ID"] = "20260823-release1"
 
-        for tag, installed in (("v3.1.1", True), ("v3.1.0", True), ("v3.1.2", False)):
+        for tag, installed in (("v3.1.2", True), ("v3.1.1", True), ("v3.1.3", False)):
             with self.subTest(tag=tag):
                 self.agent.github_release["tag"] = tag
                 checked = self.client.post(
@@ -1085,7 +1084,6 @@ class PortalSettingsTests(unittest.TestCase):
                 "reject_after_time": "180-240",
                 "keepalive_timeout": "10-15",
                 "max_handshake_attempts": "15-20",
-                "random_trailers": "on",
             },
             headers=self.headers,
         )
@@ -1095,7 +1093,7 @@ class PortalSettingsTests(unittest.TestCase):
             if method == "amneziawg.apply"
         )
         self.assertEqual(method, "amneziawg.apply")
-        self.assertTrue(params["random_trailers"])
+        self.assertNotIn("random_trailers", params)
         self.assertFalse(params["regenerate_header_key"])
         with closing(sqlite3.connect(self.db)) as db:
             detail = db.execute(

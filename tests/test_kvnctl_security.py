@@ -83,10 +83,12 @@ class KvnctlSecurityTests(unittest.TestCase):
         client = kvnctl.amneziawg_client_conf(state, user)
         for marker in (
             "S3 = 64", "S4 = 96", "ContentPaddingAddition = 16-64",
-            "RekeyAfterTime = 120-150", "RandomTrailers = on",
+            "RekeyAfterTime = 120-150",
         ):
             self.assertIn(marker, server)
             self.assertIn(marker, client)
+        self.assertNotIn("RandomTrailers", server)
+        self.assertNotIn("RandomTrailers", client)
         header_line = next(
             line for line in server.splitlines()
             if line.startswith("HeaderProtectionKey = ")
@@ -339,6 +341,17 @@ class KvnctlSecurityTests(unittest.TestCase):
         self.assertIn('if [ "$PACKAGE_CHANGED" -eq 1 ]; then', installer)
         self.assertIn("exit 3", installer)
         self.assertTrue(installer.rstrip().endswith("exit 0"))
+
+    def test_amneziawg_installer_checks_current_official_awg3_capabilities(self):
+        installer = (kvnctl.ROOT / "amneziawg" / "install-kernel-module.sh").read_text(encoding="utf-8")
+
+        for capability in (
+            "header-protection-key",
+            "content-padding-addition",
+            "rekey-after-time",
+        ):
+            self.assertIn(capability, installer)
+        self.assertNotIn("random-trailers", installer)
 
     def test_amneziawg_enabled_user_is_rendered_as_service_peer(self):
         state = base_state()

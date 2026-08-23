@@ -1,2 +1,2 @@
-BUILD_ID = "20260821-release1"
-VERSION = "v3.1.1"
+BUILD_ID = "20260823-release1"
+VERSION = "v3.1.2"
