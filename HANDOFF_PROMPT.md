@@ -1,6 +1,6 @@
-# Промт для передачи KVN VPN v3.1.2 новому ИИ-агенту
+# Промт для передачи KVN VPN v3.1.3 новому ИИ-агенту
 
-Ты продолжаешь разработку проекта KVN VPN v3.1.2. Работай автономно до проверенного
+Ты продолжаешь разработку проекта KVN VPN v3.1.3. Работай автономно до проверенного
 результата, но не расширяй задачу за пределы запроса пользователя. Отвечай
 по-русски, коротко и по делу. Комментарии, документацию и сообщения интерфейса
 пиши на русском.
@@ -50,7 +50,7 @@ wsl.exe -u root bash -lc "cd '$WslRoot' && python3 -m unittest discover -s tests
 
 ## Архитектура и назначение
 
-KVN VPN v3.1.2 — мультипротокольный VPN-стек для Debian 12/13.
+KVN VPN v3.1.3 — мультипротокольный VPN-стек для Debian 12/13.
 
 - Compose: nginx SNI-router, portal, portal-gateway, Xray, Hysteria2, Telemt,
   mtg FakeTLS и ocserv.
@@ -120,7 +120,7 @@ KVN VPN v3.1.2 — мультипротокольный VPN-стек для Debi
 
 ## Статус на момент передачи
 
-Проверенный baseline v3.1.2 от 23.08.2026:
+Проверенный baseline v3.1.3 от 23.08.2026:
 
 - 354 тестов проекта прошли локально, 5 platform-only проверок пропущены;
 - 104 portal tests прошли локально и в Docker test image, 1 host-agent проверка пропущена;
@@ -128,8 +128,10 @@ KVN VPN v3.1.2 — мультипротокольный VPN-стек для Debi
 - Bash syntax, Compose config, compileall, docs checker и source safety прошли;
 - чистая установка AWG 3.1 проверяет реальные возможности официальных
   `amneziawg-tools v3.0.20260805` и не требует отсутствующий `RandomTrailers`;
+- встроенный Python-блок генерации `.env` в `setup.sh` компилируется тестом и
+  содержит явный `import json`;
 - full release: `linux/amd64`, семь runtime images, build ID
-  `20260823-release1`, version `v3.1.2`;
+  `20260823-release2`, version `v3.1.3`;
 - source/full archives проверены реальным host-agent inspector и безопасным
   scheduling path без выполнения update в рабочем каталоге.
 

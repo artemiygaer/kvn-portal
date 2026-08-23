@@ -1,4 +1,4 @@
-# KVN VPN v3.1.2
+# KVN VPN v3.1.3
 
 Мультипротокольный VPN-стек для Debian 12/13. Основные сервисы запускаются через Compose.
 
@@ -12,7 +12,8 @@ Runtime-образы закреплены на проверенных верси
 
 ## Изменения релиза
 
-- номер продукта хранится отдельно от build ID: портал показывает `v3.1.2`, а GitHub Release с той же версией больше не считается обновлением;
+- исправлено завершение чистой установки после запуска host-agent: генератор `.env` теперь явно импортирует `json`, а исполняемость встроенного Python-блока проверяется тестом;
+- номер продукта хранится отдельно от build ID: портал показывает `v3.1.3`, а GitHub Release с той же версией больше не считается обновлением;
 - «Настройки» разделены на группы «Портал и экспорт», «VPN-протоколы», «Доступ» и «Обновление»; открытая группа загружает только свои данные и JavaScript;
 - в группе «Доступ» можно создать обычного системного SSH-пользователя с домашним каталогом и `/bin/bash`; группы `sudo`, `adm` и `wheel` не назначаются;
 - опциональный профиль AmneziaWG 3.1: `HeaderProtectionKey`, S3/S4, content padding и изменяемые тайминги официальных AWG 3.x tools; legacy остаётся default для совместимости;
@@ -59,10 +60,10 @@ bash <<'EOF'
 set -euo pipefail
 
 ENDPOINT="203.0.113.10"
-DOWNLOAD_DIR="/root/kvn-install-v312"
+DOWNLOAD_DIR="/root/kvn-install-v313"
 PROJECT="/srv/kvn-vpn"
 RELEASE="$DOWNLOAD_DIR/kvn-vpn-release-linux-amd64.tar.gz"
-TAG="v3.1.2"
+TAG="v3.1.3"
 
 if [ -e "$PROJECT" ]; then
   echo "[ОШИБКА] Каталог уже существует: $PROJECT" >&2
@@ -95,8 +96,8 @@ bash <<'EOF'
 set -euo pipefail
 
 PROJECT="/srv/kvn-vpn"
-WORK="$(mktemp -d /root/kvn-update-v312.XXXXXX)"
-TAG="v3.1.2"
+WORK="$(mktemp -d /root/kvn-update-v313.XXXXXX)"
+TAG="v3.1.3"
 trap 'rm -rf "$WORK"' EXIT
 
 curl -fL --retry 3 \

@@ -486,6 +486,12 @@ class SetupSourceTests(unittest.TestCase):
         self.assertNotIn("systemctl restart kvn-portal-agent.service", source)
         self.assertNotIn("rm -rf certs/ site-certs/", source)
 
+        marker = "python3 - \"$PORTAL_GID\" \"$PORTAL_PORT\" \"$COMPOSE_PROFILE_LIST\" <<'PY'\n"
+        self.assertIn(marker, source)
+        env_block = source.split(marker, 1)[1].split("\nPY\n", 1)[0]
+        compile(env_block, "setup-env-block", "exec")
+        self.assertIn("import json", env_block)
+
     def test_setup_has_ip_branch_without_dns_or_unstable_install(self):
         source = Path("setup.sh").read_text(encoding="utf-8")
         ip_branch = source.split('if [ "$PORTAL_HOST_KIND" = "ipv4" ]', 1)[1].split("else", 1)[0]

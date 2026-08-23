@@ -977,6 +977,7 @@ fi
 
 COMPOSE_PROFILE_LIST="$(IFS=','; echo "${EFFECTIVE_COMPOSE_PROFILES[*]}")"
 python3 - "$PORTAL_GID" "$PORTAL_PORT" "$COMPOSE_PROFILE_LIST" <<'PY'
+import json
 import sys
 from pathlib import Path
 from tools.kvnlib import atomic_write_text
