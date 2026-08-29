@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Синхронизирует чистый deploy-шаблон и собирает tar.gz без runtime-данных.
+# Собирает чистый deploy во временном staging без tracked source-зеркала.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -80,7 +80,7 @@ done
 
 # Один Python-процесс заменяет сотни mkdir/cp, что особенно важно на Windows/WSL.
 "$PYTHON3" tools/build_deploy_tree.py \
-  stage "$ROOT_DIR" "$STAGE_DEPLOY" "$BUILD_ID" "$VERSION" "${deploy_only[@]}"
+  "$ROOT_DIR" "$STAGE_DEPLOY" "$BUILD_ID" "$VERSION" "${deploy_only[@]}"
 
 blocked=(
   "clients"
@@ -110,13 +110,6 @@ blocked=(
   "backup"
   ".env"
 )
-
-for path in "${blocked[@]}"; do
-  if [ -e "$ROOT_DIR/deploy/$path" ]; then
-    echo "[ОШИБКА] В deploy найден сгенерированный или устаревший файл: $path" >&2
-    exit 1
-  fi
-done
 
 DEPLOY_DIR="$STAGE_DEPLOY" "$PYTHON3" - <<'PY'
 import json
@@ -198,9 +191,6 @@ while IFS= read -r file; do
   fi
 done < <(find "$STAGE_DEPLOY" -type f -print | sort)
 
-# Обновляем checked-in deploy-зеркало только после полной проверки временного дерева.
-"$PYTHON3" tools/build_deploy_tree.py sync "$ROOT_DIR" "$STAGE_DEPLOY"
-
 rm -f "$ARCHIVE"
 ARCHIVE="$ARCHIVE" STAGE_DIR="$STAGE_DIR" "$PYTHON3" - <<'PY'
 import gzip
@@ -233,5 +223,5 @@ with archive_path.open("wb") as output:
                 )
 PY
 
-echo "[OK] Deploy синхронизирован по каноническому списку: ${#canonical[@]} файлов"
+echo "[OK] Deploy собран из canonical source без tracked-зеркала: ${#canonical[@]} файлов"
 echo "[OK] Deploy archive: $ARCHIVE"

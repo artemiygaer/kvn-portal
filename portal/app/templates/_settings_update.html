@@ -106,7 +106,7 @@
           <li>Создайте бэкап: <code>sudo ./tools/project-backup.sh</code></li>
           <li>Проверьте архив: <code>sha256sum &lt;archive&gt;</code></li>
           <li>Запустите: <code>sudo ./update.sh &lt;archive&gt;</code></li>
-          <li>Если старый updater не принимает новый архив: <code>sudo ./update.sh --bootstrap-only &lt;archive&gt;</code>, затем повторите полный запуск.</li>
+          <li>Если портал v3.1.3 отклоняет v4 до запуска: один раз по SSH скачайте <code>tools/bootstrap-v4.sh</code> из официального репозитория и выполните <code>sudo bash bootstrap-v4.sh --sha256 &lt;SHA256&gt; &lt;archive&gt; &lt;project-root&gt;</code>. Мост сам установит updater v4 и продолжит полное обновление.</li>
         </ol>
       </details>
     </article>

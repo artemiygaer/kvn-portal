@@ -4,6 +4,7 @@ import base64
 import json
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -57,6 +58,8 @@ class VisualAgent:
                 "asset_preference": "deploy",
             }
         if method == "project.release.check":
+            if self.github_state == "slow":
+                time.sleep(5)
             errors = {
                 "private": "release_not_found: visual",
                 "rate": "github_rate_limited: visual",
@@ -191,11 +194,32 @@ class VisualAgent:
                 "features": dict(self.performance_features),
                 "endpoint": {"host": "46.29.239.64", "host_kind": "ipv4", "public_ready": True, "allow_self_signed_ip": True},
             }
+        if method == "ssh.sessions":
+            return {"available": True, "sessions": [], "users": 0}
         if method == "dashboard.snapshot":
+            if self.github_state == "loading":
+                names = (
+                    "host", "metrics", "containers", "protocols",
+                    "health_summary", "certificates", "ssh_sessions",
+                )
+                return {
+                    "sources": {
+                        name: {
+                            "data": None, "collected_at": 0,
+                            "age_seconds": None, "stale": True, "error": "",
+                        }
+                        for name in names
+                    },
+                    "generated_at": 1_800_000_000,
+                    "refreshing": True,
+                    "stale": True,
+                    "status": "loading",
+                }
             methods = {
                 "host": "health.host", "metrics": "metrics.current",
                 "containers": "stats.containers", "protocols": "protocol.stats",
                 "health_summary": "health.summary", "certificates": "certificates.status",
+                "ssh_sessions": "ssh.sessions",
             }
             return {
                 "sources": {
@@ -432,7 +456,7 @@ def set_visual_github_state():
 
     allowed = {
         "normal", "disabled", "private", "no-release", "up-to-date",
-        "rate", "offline", "digest", "agent-restart",
+        "rate", "offline", "digest", "agent-restart", "slow", "loading",
     }
     state = request.args.get("state", "")
     if state not in allowed:

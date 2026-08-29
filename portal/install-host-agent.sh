@@ -67,6 +67,7 @@ CPUQuota=40%
 TasksMax=128
 RuntimeDirectory=kvn-portal
 RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=restart
 StateDirectory=kvn-portal
 StateDirectoryMode=0750
 UMask=0007
@@ -95,11 +96,20 @@ if [[ ! -f "$UNIT" ]] || ! cmp -s "$unit_tmp" "$UNIT"; then
 fi
 
 source_fingerprint="$({
-    for source in \
-        portal/agent.py portal/agent_protocol.py portal/control.py portal/github_updates.py portal/metrics.py portal/system_user_helper.py \
-        tools/kvnctl.py tools/kvnlib/apply.py tools/kvnlib/state.py; do
-        sha256sum "$ROOT_DIR/$source"
-    done
+    find \
+        "$ROOT_DIR/portal/agent.py" \
+        "$ROOT_DIR/portal/agent_protocol.py" \
+        "$ROOT_DIR/portal/agent_handlers" \
+        "$ROOT_DIR/portal/control.py" \
+        "$ROOT_DIR/portal/control" \
+        "$ROOT_DIR/portal/github_updates.py" \
+        "$ROOT_DIR/portal/metrics.py" \
+        "$ROOT_DIR/portal/system_user_helper.py" \
+        "$ROOT_DIR/tools/kvnctl.py" \
+        "$ROOT_DIR/tools/kvnlib" \
+        -type f -name '*.py' -print0 \
+        | sort -z \
+        | xargs -0 sha256sum
 } | sha256sum | awk '{print $1}')"
 installed_fingerprint="$(cat "$FINGERPRINT_FILE" 2>/dev/null || true)"
 restart_required=0
@@ -124,8 +134,19 @@ fi
 for _ in $(seq 1 120); do
     if systemctl is-active --quiet kvn-portal-agent.service \
         && [[ -S /run/kvn-portal/control.sock ]]; then
-        if [[ "$(stat -c '%G' /run/kvn-portal)" != "kvn-portal" ]]; then
-            echo "[ОШИБКА] /run/kvn-portal имеет неверную группу" >&2
+        runtime_group="$(stat -c '%G' /run/kvn-portal)"
+        runtime_meta="$(stat -c '%U:%G:%a' /run/kvn-portal)"
+        socket_meta="$(stat -c '%U:%G:%a' /run/kvn-portal/control.sock)"
+        if [[ "$runtime_group" != "kvn-portal" || "$runtime_meta" != "root:kvn-portal:750" ]]; then
+            echo "[ОШИБКА] /run/kvn-portal имеет неверные owner/group/mode" >&2
+            exit 1
+        fi
+        if [[ "$socket_meta" != "root:kvn-portal:660" ]]; then
+            echo "[ОШИБКА] control.sock имеет неверные owner/group/mode" >&2
+            exit 1
+        fi
+        if [[ ! -r "$SECRET_FILE" || "$(stat -c '%U:%G:%a' "$SECRET_FILE")" != "root:kvn-portal:640" ]]; then
+            echo "[ОШИБКА] agent.secret недоступен или имеет неверные owner/group/mode" >&2
             exit 1
         fi
         if python3 - "$ROOT_DIR" "$SECRET_FILE" <<'PY'
@@ -138,9 +159,17 @@ from portal.agent_client import AgentClient
 secret = Path(sys.argv[2]).read_text(encoding="utf-8").strip()
 client = AgentClient(Path("/run/kvn-portal/control.sock"), secret, timeout=2)
 health = client.call("health.host", {})
+capability = client.call("ping", {})
 current = client.call("metrics.current", {})
 history = client.call("metrics.history", {"range_hours": 1, "step": 1})
-if not all(isinstance(result, dict) for result in (health, current, history)):
+required = {"rpc-v1", "dashboard-snapshot-v1", "runtime-apply-v1", "session-bound-shell-v1"}
+if (
+    not all(isinstance(result, dict) for result in (health, capability, current, history))
+    or capability.get("status") != "ok"
+    or not isinstance(capability.get("generation"), str)
+    or len(capability["generation"]) != 32
+    or not required.issubset(set(capability.get("capabilities", [])))
+):
     raise SystemExit(1)
 PY
         then

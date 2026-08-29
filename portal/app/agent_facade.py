@@ -29,7 +29,8 @@ class AgentFacade:
             ).strip()
         except OSError as exc:
             raise AgentClientError(
-                "Host-agent недоступен: секрет RPC не читается."
+                "Host-agent недоступен: секрет RPC не читается.",
+                code="transport_secret_unreadable",
             ) from exc
         cached = AgentClient(Path(self.app.config["AGENT_SOCKET"]), secret)
         self.app.extensions["kvn_agent_client"] = cached

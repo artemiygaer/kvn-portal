@@ -175,7 +175,7 @@ class ClientExportPolicyTests(unittest.TestCase):
 
     def test_deploy_template_has_safe_export_defaults(self) -> None:
         state = json.loads(
-            (ROOT / "deploy" / "users.json").read_text(encoding="utf-8")
+            (ROOT / "packaging/deploy-template/users.json").read_text(encoding="utf-8")
         )
         self.assertEqual(state["server"], "YOUR_SERVER_IP")
         self.assertEqual(

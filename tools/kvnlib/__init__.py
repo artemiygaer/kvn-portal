@@ -20,6 +20,16 @@ from .client_export import (
     validate_public_ipv4,
     with_client_export_policy,
 )
+from .core import (
+    CURRENT_STATE_SCHEMA_VERSION,
+    ProjectPaths,
+    StateMigrationError,
+    StateValidationError,
+    migrate_state,
+    redact_secrets,
+    state_schema_version,
+    validate_state_shape,
+)
 from .cli import (
     add_client_export_parsers,
     atomic_write_private,
@@ -31,6 +41,7 @@ from .export_bundle import (
     UserExportBundle,
     build_user_export_bundle,
 )
+from .exports import RENDERER_NAMES, RendererRegistry
 from .state import (
     JsonStateStore,
     StateLockTimeout,
@@ -49,9 +60,11 @@ from .services import (
     effective_service_plan,
     service_preference,
 )
+from .runtime import ApplyResult, VerificationResult, host_tunnel_action, normalize_apply_report
 
 __all__ = [
     "ApplyAction",
+    "ApplyResult",
     "ALLOWED_ARTIFACTS",
     "ChangeSet",
     "ClientExportPolicy",
@@ -59,17 +72,24 @@ __all__ = [
     "ExportSection",
     "ExportBundleError",
     "COMPOSE_SERVICE_ORDER",
+    "CURRENT_STATE_SCHEMA_VERSION",
     "DOCKER_SERVICE_ORDER",
     "EffectiveServicePlan",
     "HOST_SERVICE_ORDER",
     "JsonStateStore",
     "RenderResult",
+    "RENDERER_NAMES",
+    "RendererRegistry",
     "OPERATOR_SERVICE_ORDER",
+    "ProjectPaths",
     "SERVICE_CAPABILITIES",
     "StateLockTimeout",
+    "StateMigrationError",
     "StateRevisionConflict",
+    "StateValidationError",
     "SubscriptionIpReadiness",
     "UserExportBundle",
+    "VerificationResult",
     "atomic_write_json",
     "atomic_write_private",
     "add_client_export_parsers",
@@ -79,13 +99,19 @@ __all__ = [
     "client_connection_host",
     "configured_service_preferences",
     "effective_service_plan",
+    "host_tunnel_action",
     "merge_service_change",
+    "migrate_state",
     "normalize_client_export_state",
+    "normalize_apply_report",
     "render_export_document",
+    "redact_secrets",
     "service_preference",
     "serialize_user_export",
     "state_revision",
+    "state_schema_version",
     "subscription_ip_readiness",
     "validate_public_ipv4",
+    "validate_state_shape",
     "with_client_export_policy",
 ]

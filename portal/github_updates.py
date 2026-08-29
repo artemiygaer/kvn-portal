@@ -15,11 +15,11 @@ from pathlib import Path
 from typing import Any, BinaryIO, Protocol
 from urllib.parse import quote, urljoin, urlsplit
 
-from tools.deploy_archive import ArchiveValidationError, MAX_ARCHIVE_BYTES, inspect_archive
-from tools.release_archive import (
+from tools.release.artifact import inspect_update_artifact
+from tools.release.deploy_archive import ArchiveValidationError, MAX_ARCHIVE_BYTES
+from tools.release.full_archive import (
     MAX_RELEASE_BYTES,
     ReleaseValidationError,
-    validate_release,
 )
 
 
@@ -460,8 +460,9 @@ class GitHubReleaseSource:
     @staticmethod
     def _validate_archive(path: Path, kind: str) -> dict[str, Any]:
         try:
+            inspection = inspect_update_artifact(path, kind)  # type: ignore[arg-type]
             if kind == "release":
-                manifest = validate_release(path)
+                manifest = inspection["manifest"]
                 validation = {
                     "internal": "release-manifest.json",
                     "build_id": manifest["build_id"],
@@ -471,7 +472,7 @@ class GitHubReleaseSource:
                 if "version" in manifest:
                     validation["version"] = manifest["version"]
                 return validation
-            metadata = inspect_archive(path)
+            metadata = inspection["metadata"]
             return {
                 "internal": "deploy-inspector",
                 "member_count": metadata["member_count"],

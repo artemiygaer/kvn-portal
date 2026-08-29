@@ -8,6 +8,7 @@ from .auth import blueprint as auth_blueprint
 from .diagnostics import blueprint as diagnostics_blueprint
 from .services import blueprint as services_blueprint
 from .settings import blueprint as settings_blueprint
+from .updates import blueprint as updates_blueprint
 from .users import blueprint as users_blueprint
 
 
@@ -17,6 +18,7 @@ BLUEPRINTS = (
     services_blueprint,
     diagnostics_blueprint,
     settings_blueprint,
+    updates_blueprint,
 )
 
 

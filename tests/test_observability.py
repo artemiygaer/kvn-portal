@@ -188,6 +188,33 @@ class ProtocolCollectorTests(unittest.TestCase):
         self.assertEqual(stale["data"]["revision"], 100)
         self.assertEqual(stale["error"], "Источник временно недоступен.")
 
+    def test_dashboard_recovery_replaces_stale_snapshot_automatically(self):
+        clock = [100]
+        failing = [False]
+
+        def loader(name, _context):
+            if name == "host" and failing[0]:
+                raise TimeoutError
+            return {"source": name, "revision": clock[0]}
+
+        cache = DashboardSnapshotCache(loader, now_provider=lambda: clock[0])
+        cache.get()
+        self.assertTrue(cache.wait(timeout=1))
+        clock[0] += 61
+        failing[0] = True
+        cache.get()
+        self.assertTrue(cache.wait(timeout=1))
+        self.assertTrue(cache.get()["sources"]["host"]["stale"])
+
+        clock[0] += 15
+        failing[0] = False
+        cache.get()
+        self.assertTrue(cache.wait(timeout=1))
+        recovered = cache.get()["sources"]["host"]
+        self.assertFalse(recovered["stale"])
+        self.assertEqual(recovered["data"]["revision"], clock[0])
+        self.assertEqual(recovered["error"], "")
+
     def test_background_refresh_keeps_last_successful_snapshot_current(self):
         clock = [100]
         block_refresh = [False]
@@ -218,6 +245,36 @@ class ProtocolCollectorTests(unittest.TestCase):
 
         release_refresh.set()
         self.assertTrue(cache.wait(timeout=1))
+
+    def test_cached_dashboard_p95_stays_below_two_seconds_during_slow_refresh(self):
+        clock = [100]
+        slow_refresh = [False]
+        refresh_started = threading.Event()
+
+        def loader(name, _context):
+            if slow_refresh[0] and name == "host":
+                refresh_started.set()
+                time.sleep(5)
+            return {"source": name, "revision": clock[0]}
+
+        cache = DashboardSnapshotCache(loader, now_provider=lambda: clock[0])
+        cache.get()
+        self.assertTrue(cache.wait(timeout=1))
+
+        clock[0] += 61
+        slow_refresh[0] = True
+        cache.get()
+        self.assertTrue(refresh_started.wait(timeout=1))
+        durations = []
+        for _ in range(20):
+            started = time.monotonic()
+            snapshot = cache.get()
+            durations.append(time.monotonic() - started)
+            self.assertEqual(snapshot["status"], "ok")
+        p95 = sorted(durations)[18]
+
+        self.assertLess(p95, 2.0)
+        self.assertTrue(cache.wait(timeout=7))
 
     def test_protocol_fixture_matrix_is_aggregated_without_identifiers(self):
         dispatcher = AgentDispatcher(Path("/srv/kvn"), ObservabilityRunner(), ObservabilityControl())

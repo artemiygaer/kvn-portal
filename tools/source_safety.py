@@ -13,10 +13,10 @@ from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
 ALLOWED_RUNTIME_TEMPLATES = {
-    "deploy/users.json",
-    "deploy/nginx/site/index.html",
-    "deploy/portal-data/.gitkeep",
-    "deploy/portal-runtime/.gitkeep",
+    "packaging/deploy-template/users.json",
+    "packaging/deploy-template/nginx/site/index.html",
+    "packaging/deploy-template/portal-data/.gitkeep",
+    "packaging/deploy-template/portal-runtime/.gitkeep",
 }
 DENIED_PARTS = {
     ".supergoal",

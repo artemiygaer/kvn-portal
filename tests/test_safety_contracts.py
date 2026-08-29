@@ -6,6 +6,7 @@ import ast
 import base64
 import json
 import re
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -30,7 +31,7 @@ class SafetyContractsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             fixture = Path(directory) / "users.json"
             fixture.write_text(
-                (ROOT / "deploy" / "users.json").read_text(encoding="utf-8"),
+                (ROOT / "packaging/deploy-template/users.json").read_text(encoding="utf-8"),
                 encoding="utf-8",
             )
             state = json.loads(fixture.read_text(encoding="utf-8"))
@@ -45,9 +46,10 @@ class SafetyContractsTests(unittest.TestCase):
             "ocserv/ocserv.conf", "ocserv/users.txt", "ocserv/ocserv.env",
             "portal-runtime/users.json",
         }
+        template_root = ROOT / "packaging/deploy-template"
         deploy_paths = {
-            path.relative_to(ROOT / "deploy").as_posix()
-            for path in (ROOT / "deploy").rglob("*")
+            path.relative_to(template_root).as_posix()
+            for path in template_root.rglob("*")
             if path.is_file()
         }
         for path in deploy_paths:
@@ -110,8 +112,8 @@ class SafetyContractsTests(unittest.TestCase):
         for forbidden in ["private_key", "preshared", "password", "sub_token", "shortids", "content_base64"]:
             self.assertNotIn(forbidden, source)
 
-    def test_shell_inventory_is_strict_and_deploy_mirror_is_exact(self):
-        """Все канонические shell entry points известны и синхронизированы."""
+    def test_shell_inventory_is_strict_and_deploy_mirror_is_absent(self):
+        """Shell entry points известны, а tracked source-зеркало отсутствует."""
         canonical = sorted(
             relative
             for relative in (ROOT / "tools/canonical-files.txt").read_text(encoding="utf-8").splitlines()
@@ -121,7 +123,10 @@ class SafetyContractsTests(unittest.TestCase):
         canonical.append("tools/build-deploy.sh")
         canonical.sort()
         self.assertEqual(len(canonical), 20, canonical)
-        self.assertEqual(len(list((ROOT / "deploy").rglob("*.sh"))), 19)
+        tracked_deploy = subprocess.check_output(
+            ["git", "ls-files", "deploy"], cwd=ROOT, text=True, encoding="utf-8"
+        ).strip()
+        self.assertEqual(tracked_deploy, "")
         self.assertEqual(len(list((ROOT / "tests").rglob("*.sh"))), 1)
 
         for relative in canonical:
@@ -139,11 +144,9 @@ class SafetyContractsTests(unittest.TestCase):
                     r"(?m)^[ \t]*trap[ \t]+",
                     f"{relative}: временные файлы должны очищаться через trap",
                 )
-            if relative == "tools/build-deploy.sh":
-                continue
-            mirror = ROOT / "deploy" / relative
-            self.assertTrue(mirror.is_file(), relative)
-            self.assertEqual(source, mirror.read_bytes(), relative)
+        builder = (ROOT / "tools/build-deploy.sh").read_text(encoding="utf-8")
+        self.assertNotIn("build_deploy_tree.py sync", builder)
+        self.assertIn("STAGE_DEPLOY", builder)
 
         legacy = ROOT / "tests" / "fixtures" / "legacy-deploy" / "update.sh"
         self.assertTrue(legacy.is_file())
@@ -216,24 +219,13 @@ class SafetyContractsTests(unittest.TestCase):
 
     def test_agent_dispatch_matches_versioned_rpc_allowlist(self):
         """Host-agent не получает неописанный универсальный exec RPC."""
-        source = (ROOT / "portal" / "agent.py").read_text(encoding="utf-8")
-        tree = ast.parse(source)
-        handler_methods = None
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.FunctionDef) or node.name != "dispatch":
-                continue
-            for item in node.body:
-                if not isinstance(item, ast.Assign):
-                    continue
-                if not any(isinstance(target, ast.Name) and target.id == "handlers" for target in item.targets):
-                    continue
-                self.assertIsInstance(item.value, ast.Dict)
-                handler_methods = {
-                    key.value
-                    for key in item.value.keys
-                    if isinstance(key, ast.Constant) and isinstance(key.value, str)
-                }
-        self.assertIsNotNone(handler_methods)
+        from portal.agent_handlers.registry import build_handler_registry
+
+        class DispatcherStub:
+            def __getattr__(self, _name):
+                return lambda _params=None: {}
+
+        handler_methods = set(build_handler_registry(DispatcherStub()))
         self.assertEqual(handler_methods, ALLOWED_METHODS)
         self.assertIn("logs.tail", READ_ONLY_METHODS)
         self.assertIn("sni.diagnose", READ_ONLY_METHODS)

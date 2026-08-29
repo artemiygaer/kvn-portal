@@ -31,9 +31,9 @@ class SourceSafetyTests(unittest.TestCase):
             with self.subTest(relative=relative):
                 self.assertTrue(denied_path(relative))
         for relative in [
-            "deploy/users.json",
-            "deploy/nginx/site/index.html",
-            "deploy/portal-data/.gitkeep",
+            "packaging/deploy-template/users.json",
+            "packaging/deploy-template/nginx/site/index.html",
+            "packaging/deploy-template/portal-data/.gitkeep",
             "README.md",
         ]:
             self.assertEqual(denied_path(relative), "")

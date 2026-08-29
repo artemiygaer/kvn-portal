@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import re
@@ -49,21 +50,21 @@ class DeployBuildTests(unittest.TestCase):
             ".git", ".supergoal", "__pycache__", "*.pyc", "clients", "certs",
             "site-certs", "portal-data", "portal-runtime", ".verify-server-release",
             "kvn-vpn-deploy*.tar.gz", "kvn-vpn-release*.tar.gz", "kvn-vpn-images*.tar",
-            "test_on_server",
+            "test_on_server", "deploy",
         )
         shutil.copytree(ROOT, self.project, ignore=ignored)
-        placeholder = self.project / "deploy/portal-data/.gitkeep"
-        placeholder.parent.mkdir(parents=True, exist_ok=True)
-        placeholder.write_bytes(b"")
-        runtime_placeholder = self.project / "deploy/portal-runtime/.gitkeep"
-        runtime_placeholder.parent.mkdir(parents=True, exist_ok=True)
-        runtime_placeholder.write_bytes(b"")
+        for relative in ("portal-data/.gitkeep", "portal-runtime/.gitkeep"):
+            source = ROOT / "packaging/deploy-template" / relative
+            target = self.project / "packaging/deploy-template" / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
 
     def tearDown(self):
         self.tmp.cleanup()
 
     def build(self):
         env = os.environ.copy()
+        env.update({"KVN_BUILD_ID": "v4-test-repro", "KVN_VERSION": "v4.0.0"})
         if os.name == "nt":
             env["PYTHON3"] = sys.executable
         return subprocess.run(
@@ -112,7 +113,7 @@ class DeployBuildTests(unittest.TestCase):
                     self.assertIn(b"KVN_BUILD_ID=", payload)
                 else:
                     self.assertEqual((self.project / relative).read_bytes(), payload, relative)
-                self.assertEqual((self.project / "deploy" / relative).read_bytes(), payload, relative)
+        self.assertFalse((self.project / "deploy").exists())
         self.assertIn("deploy/.kvn-canonical-files", names)
         self.assertIn("deploy/portal/build_info.py", names)
         denied = ["portal.db", "metrics.db", "portal-runtime/users.json", "password_hash", "clients/", ".png", "portal-gateway.conf", ".supergoal"]
@@ -120,13 +121,23 @@ class DeployBuildTests(unittest.TestCase):
         metadata = inspect_archive(self.project / "package.tar.gz")
         self.assertEqual(metadata["member_count"], sum(member.isfile() for member in members))
 
+        first_sha256 = hashlib.sha256(
+            (self.project / "package.tar.gz").read_bytes()
+        ).hexdigest()
         second = self.build()
         self.assertEqual(second.returncode, 0, second.stdout)
         self.assertEqual((self.project / "portal/Dockerfile").read_bytes(), dockerfile_before)
+        second_sha256 = hashlib.sha256(
+            (self.project / "package.tar.gz").read_bytes()
+        ).hexdigest()
+        self.assertEqual(first_sha256, second_sha256)
 
+        extracted = Path(self.tmp.name) / "built-deploy"
+        with tarfile.open(self.project / "package.tar.gz", "r:gz") as archive:
+            archive.extractall(extracted, filter="data")
         cli = subprocess.run(
             [sys.executable, "tools/kvnctl.py", "portal", "status"],
-            cwd=self.project / "deploy",
+            cwd=extracted / "deploy",
             text=True,
             encoding="utf-8",
             errors="replace",
@@ -146,6 +157,7 @@ class DeployBuildTests(unittest.TestCase):
         self.assertIn("tools/canonical-files.txt", updater)
         self.assertIn("canonical-files.txt", validator)
         self.assertNotIn("canonical=(", updater)
+        self.assertNotIn("build_deploy_tree.py sync", builder)
 
     @unittest.skipUnless(
         os.name != "nt" and hasattr(os, "geteuid") and os.geteuid() == 0,
@@ -180,6 +192,20 @@ class DeployBuildTests(unittest.TestCase):
         self.assertNotIn("Docker-сервисы", result.stdout)
         self.assertNotEqual((installed / "update.sh").read_bytes(), legacy_update)
         self.assertTrue((installed / "portal/agent.py").is_file())
+        self.assertEqual((installed / "VERSION").read_text(encoding="utf-8").strip(), "v4.0.0")
+        health = subprocess.run(
+            [sys.executable, "tools/kvnctl.py", "service-plan", "--format", "lines"],
+            cwd=installed,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=20,
+            check=False,
+        )
+        self.assertEqual(health.returncode, 0, health.stdout)
+        self.assertIn("portal-agent\t0", health.stdout)
 
     @unittest.skipUnless(
         os.name != "nt" and hasattr(os, "geteuid") and os.geteuid() == 0,
@@ -237,20 +263,20 @@ class DeployBuildTests(unittest.TestCase):
         self.assertIn("Не найден исходный файл: portal/Dockerfile", result.stdout)
 
     def test_build_rejects_injected_portal_runtime(self):
-        runtime = self.project / "deploy/portal-data/portal.db"
+        runtime = self.project / "packaging/deploy-template/portal-data/portal.db"
         runtime.parent.mkdir(parents=True, exist_ok=True)
         runtime.write_bytes(b"SQLite format 3")
         result = self.build()
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("сгенерированный или устаревший файл", result.stdout)
+        self.assertIn("Неожиданный deploy-only шаблон", result.stdout)
 
     def test_build_rejects_injected_portal_state_mirror(self):
-        runtime = self.project / "deploy/portal-runtime/users.json"
+        runtime = self.project / "packaging/deploy-template/portal-runtime/users.json"
         runtime.parent.mkdir(parents=True, exist_ok=True)
         runtime.write_text('{"portal":{"password_hash":"secret"}}', encoding="utf-8")
         result = self.build()
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("сгенерированный или устаревший файл", result.stdout)
+        self.assertIn("Неожиданный deploy-only шаблон", result.stdout)
 
     def test_build_rejects_malformed_portal_template(self):
         template = self.project / "portal/app/templates/base.html"
@@ -264,7 +290,7 @@ class DeployDocumentationTests(unittest.TestCase):
     def test_docs_cover_portal_security_operations_and_recovery(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
-        deploy = (ROOT / "deploy/DEPLOY.md").read_text(encoding="utf-8")
+        deploy = (ROOT / "DEPLOY.md").read_text(encoding="utf-8")
         for marker in [
             "portal reset-credentials", "portal unlock-ip", "portal configure",
             "kvn-portal-agent.service", "portal-data/portal.db", "/var/lib/kvn-portal/metrics.db",
@@ -292,7 +318,7 @@ class DeployDocumentationTests(unittest.TestCase):
             self.assertIn(marker, deploy)
 
     def test_relative_markdown_links_exist(self):
-        documents = [ROOT / "README.md", ROOT / "AGENTS.md", ROOT / "deploy/DEPLOY.md"]
+        documents = [ROOT / "README.md", ROOT / "AGENTS.md", ROOT / "DEPLOY.md"]
         for document in documents:
             text = document.read_text(encoding="utf-8")
             for target in re.findall(r"\[[^]]+\]\(([^)]+)\)", text):

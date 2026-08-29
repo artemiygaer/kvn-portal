@@ -352,19 +352,19 @@ class PortalObservabilityTests(unittest.TestCase):
         self.assertIn("Host-agent недоступен".encode(), unavailable_page.data)
         self.assertIn(b'role="alert"', unavailable_page.data)
 
-    def test_missing_agent_secret_or_socket_returns_502(self):
+    def test_missing_agent_secret_or_socket_returns_503(self):
         self.app.config["AGENT_CLIENT"] = None
         secret_file = Path(self.tmp.name) / "missing-agent.secret"
         self.app.config["AGENT_SECRET_FILE"] = secret_file
         self.app.config["AGENT_SOCKET"] = Path(self.tmp.name) / "missing-control.sock"
 
         missing_secret = self.client.get("/gaer/users", headers=self.headers)
-        self.assertEqual(missing_secret.status_code, 502)
+        self.assertEqual(missing_secret.status_code, 503)
         self.assertIn("Host-agent недоступен".encode(), missing_secret.data)
 
         secret_file.write_text("a" * 64, encoding="utf-8")
         missing_socket = self.client.get("/gaer/users", headers=self.headers)
-        self.assertEqual(missing_socket.status_code, 502)
+        self.assertEqual(missing_socket.status_code, 503)
         self.assertIn("Host-agent недоступен".encode(), missing_socket.data)
 
     def test_internal_health_is_light_and_does_not_call_agent(self):

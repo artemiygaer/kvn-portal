@@ -86,7 +86,7 @@ class PortalRouteContractTests(unittest.TestCase):
         self.assertEqual(actual, EXPECTED)
         self.assertEqual(
             set(app.blueprints),
-            {"auth", "users", "services", "diagnostics", "settings"},
+            {"auth", "users", "services", "diagnostics", "settings", "updates"},
         )
 
     def test_blueprints_do_not_execute_host_commands_directly(self):

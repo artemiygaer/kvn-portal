@@ -1,6 +1,7 @@
 # Локальное состояние и секреты нельзя передавать даже локальному BuildKit.
 /.git
 /.supergoal
+/deploy
 /.playwright-cli
 /output
 /users.json
@@ -22,7 +23,7 @@
 /kvn-vpn-release*.tar.gz
 /kvn-vpn-backup-*.tar
 
-# Generated runtime; чистое deploy-зеркало при этом остаётся в контексте.
+# Generated runtime.
 /nginx/web
 /nginx/nginx.conf
 /nginx/site/index.html

@@ -353,7 +353,7 @@ class PortalSettingsTests(unittest.TestCase):
             b"sudo ./tools/project-backup.sh",
             b"sha256sum &lt;archive&gt;",
             b"sudo ./update.sh &lt;archive&gt;",
-            b"sudo ./update.sh --bootstrap-only &lt;archive&gt;",
+            b"sudo bash bootstrap-v4.sh --sha256 &lt;SHA256&gt; &lt;archive&gt; &lt;project-root&gt;",
         ]:
             self.assertIn(marker, page.data)
 
@@ -980,7 +980,11 @@ class PortalSettingsTests(unittest.TestCase):
         app_dir = Path(__file__).resolve().parents[1] / "app"
         source = "\n".join(
             path.read_text(encoding="utf-8")
-            for path in (app_dir / "__init__.py", app_dir / "blueprints/views.py")
+            for path in (
+                app_dir / "__init__.py",
+                app_dir / "blueprints/views.py",
+                app_dir / "routes/implementation.py",
+            )
         )
         self.assertIn("upload_stream.read(1024 * 1024)", source)
         self.assertIn('request.mimetype == "application/octet-stream"', source)

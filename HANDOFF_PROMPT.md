@@ -1,6 +1,6 @@
-# Промт для передачи KVN VPN v3.1.3 новому ИИ-агенту
+# Промт для передачи KVN VPN v4.0.0 новому ИИ-агенту
 
-Ты продолжаешь разработку проекта KVN VPN v3.1.3. Работай автономно до проверенного
+Ты продолжаешь разработку проекта KVN VPN v4.0.0. Работай автономно до проверенного
 результата, но не расширяй задачу за пределы запроса пользователя. Отвечай
 по-русски, коротко и по делу. Комментарии, документацию и сообщения интерфейса
 пиши на русском.
@@ -15,7 +15,7 @@
 2. Если корень нельзя определить однозначно, только тогда попроси пользователя
    указать каталог проекта.
 3. Полностью прочитай `AGENTS.md`. Затем открой относящиеся к задаче разделы
-   `README.md`, `deploy/DEPLOY.md`, `PROJECT_AUDIT.md`, `MTPROTO.md`,
+   `README.md`, `DEPLOY.md`, `PROJECT_AUDIT.md`, `MTPROTO.md`,
    `CONTAINER_SECURITY.md` и `PORTAL_UPDATE_NOTES.md`.
 4. Выполни `git status --short`, `git remote -v` и `git log -3 --oneline`.
    Существующие изменения принадлежат пользователю: не удаляй и не откатывай их.
@@ -50,7 +50,9 @@ wsl.exe -u root bash -lc "cd '$WslRoot' && python3 -m unittest discover -s tests
 
 ## Архитектура и назначение
 
-KVN VPN v3.1.3 — мультипротокольный VPN-стек для Debian 12/13.
+KVN VPN v4.0.0 — модульный мультипротокольный VPN-стек для Debian 12/13.
+
+Перед задачей открой [ARCHITECTURE.md](ARCHITECTURE.md), выбери строку task-routing и прочитай ближайший module-level `AGENTS.md`. Это минимальный контекст; не загружай legacy implementation целиком без необходимости. После изменения запусти `python3 tools/architecture_check.py`.
 
 - Compose: nginx SNI-router, portal, portal-gateway, Xray, Hysteria2, Telemt,
   mtg FakeTLS и ocserv.
@@ -120,9 +122,9 @@ KVN VPN v3.1.3 — мультипротокольный VPN-стек для Debi
 
 ## Статус на момент передачи
 
-Проверенный baseline v3.1.3 от 23.08.2026:
+Проверенный кандидат v4.0.0 от 29.08.2026:
 
-- 354 тестов проекта прошли локально, 5 platform-only проверок пропущены;
+- 422 из 422 тестов проекта прошли локально, 5 platform-only проверок пропущены;
 - 104 portal tests прошли локально и в Docker test image, 1 host-agent проверка пропущена;
 - deploy runtime E2E прошёл;
 - Bash syntax, Compose config, compileall, docs checker и source safety прошли;
@@ -131,9 +133,13 @@ KVN VPN v3.1.3 — мультипротокольный VPN-стек для Debi
 - встроенный Python-блок генерации `.env` в `setup.sh` компилируется тестом и
   содержит явный `import json`;
 - full release: `linux/amd64`, семь runtime images, build ID
-  `20260823-release2`, version `v3.1.3`;
+  `20260829-v4-release2`, version `v4.0.0`;
 - source/full archives проверены реальным host-agent inspector и безопасным
   scheduling path без выполнения update в рабочем каталоге.
+
+Актуальные SHA-256 deploy/full release находятся рядом с артефактами в
+`SHA256SUMS` и дублируются в `publication-manifest.json`. Не переносите SHA
+в этот canonical файл: он сам входит в deploy и создал бы самоссылочный hash.
 
 Workflow `.github/workflows/release.yml` запускается только вручную, создаёт
 проверяемый draft и публикует его после проверки всех четырёх assets.
@@ -194,11 +200,13 @@ sudo python3 tools/kvnctl.py wireguard verify
 sudo docker compose -f docker-compose.yml ps
 ```
 
-Для старого updater:
+Для портала v3.1.3, который отклоняет v4 до запуска updater:
 
 ```bash
-sudo ./update.sh --bootstrap-only ./kvn-vpn-deploy.tar.gz
-sudo ./update.sh ./kvn-vpn-release-linux-amd64.tar.gz
+curl -fL https://raw.githubusercontent.com/artemiygaer/kvn-portal/main/tools/bootstrap-v4.sh \
+  -o /root/bootstrap-v4.sh
+sudo bash /root/bootstrap-v4.sh --sha256 <SHA256_ИЗ_SHA256SUMS> \
+  ./kvn-vpn-release-linux-amd64.tar.gz "$PWD"
 ```
 
 Не распаковывай шаблонный `deploy/users.json` поверх production.

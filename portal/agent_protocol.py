@@ -13,7 +13,7 @@ MAX_REQUEST_BYTES = 64 * 1024
 MAX_RESPONSE_BYTES = 512 * 1024
 MAX_REQUEST_ID_LENGTH = 64
 
-READ_ONLY_METHODS = {
+READ_ONLY_METHODS = frozenset({
     "ping",
     "service.status",
     "logs.tail",
@@ -47,8 +47,8 @@ READ_ONLY_METHODS = {
     "maintenance.commands",
     "shell.read",
     "system.users",
-}
-MUTATION_METHODS = {
+})
+MUTATION_METHODS = frozenset({
     "service.action",
     "state.apply",
     "state.reconcile",
@@ -69,7 +69,7 @@ MUTATION_METHODS = {
     "shell.resize",
     "shell.close",
     "system.user.create",
-}
+})
 ALLOWED_METHODS = READ_ONLY_METHODS | MUTATION_METHODS
 
 _ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")

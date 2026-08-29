@@ -1,4 +1,4 @@
-# KVN VPN v3.1.3
+# KVN VPN v4.0.0
 
 Мультипротокольный VPN-стек для Debian 12/13. Основные сервисы запускаются через Compose.
 
@@ -12,8 +12,14 @@ Runtime-образы закреплены на проверенных верси
 
 ## Изменения релиза
 
+- v4.0.0 переводит проект на модульный монолит: core, protocols, exports, runtime, CLI, portal control, host-agent handlers, routes и release имеют явных владельцев и направленные зависимости;
+- добавлены `ARCHITECTURE.md`, локальные module-level `AGENTS.md` и AST-проверка обратных импортов;
+- сохранены публичные facade, 53 RPC, 49 HTTP routes, форматы конфигураций и безопасный переход с v3 через `--bootstrap-only`;
+- Unix RPC после restart агента восстанавливается без recreate портала; capability generation и transport errors типизированы;
+- canonical deploy больше не зависит от tracked source-зеркала, а source/full release проходят общую validation policy до mutation;
+
 - исправлено завершение чистой установки после запуска host-agent: генератор `.env` теперь явно импортирует `json`, а исполняемость встроенного Python-блока проверяется тестом;
-- номер продукта хранится отдельно от build ID: портал показывает `v3.1.3`, а GitHub Release с той же версией больше не считается обновлением;
+- номер продукта хранится отдельно от build ID: портал показывает `v4.0.0`, а GitHub Release с той же версией больше не считается обновлением;
 - «Настройки» разделены на группы «Портал и экспорт», «VPN-протоколы», «Доступ» и «Обновление»; открытая группа загружает только свои данные и JavaScript;
 - в группе «Доступ» можно создать обычного системного SSH-пользователя с домашним каталогом и `/bin/bash`; группы `sudo`, `adm` и `wheel` не назначаются;
 - опциональный профиль AmneziaWG 3.1: `HeaderProtectionKey`, S3/S4, content padding и изменяемые тайминги официальных AWG 3.x tools; legacy остаётся default для совместимости;
@@ -63,7 +69,7 @@ ENDPOINT="203.0.113.10"
 DOWNLOAD_DIR="/root/kvn-install-v313"
 PROJECT="/srv/kvn-vpn"
 RELEASE="$DOWNLOAD_DIR/kvn-vpn-release-linux-amd64.tar.gz"
-TAG="v3.1.3"
+TAG="v4.0.0"
 
 if [ -e "$PROJECT" ]; then
   echo "[ОШИБКА] Каталог уже существует: $PROJECT" >&2
@@ -97,7 +103,7 @@ set -euo pipefail
 
 PROJECT="/srv/kvn-vpn"
 WORK="$(mktemp -d /root/kvn-update-v313.XXXXXX)"
-TAG="v3.1.3"
+TAG="v4.0.0"
 trap 'rm -rf "$WORK"' EXIT
 
 curl -fL --retry 3 \
@@ -158,7 +164,17 @@ sudo ./update.sh ./kvn-vpn-release-linux-amd64.tar.gz
 
 Не закрывайте страницу во время передачи файла. После появления карточки готовности страницу можно закрыть и вернуться позже. Ошибка проверки не заменяет уже подготовленный архив; ошибка запуска возвращает его в состояние готовности. При сообщении об отсутствующем или изменившемся архиве удалите подготовленный файл и загрузите release заново. Повторный запуск уже занятого ID отклоняется без второго systemd unit.
 
-Если старая версия портала ещё не принимает full release, сначала загрузите `kvn-vpn-deploy.tar.gz` и выберите режим «Только updater и host-agent». После завершения снова откройте портал и загрузите full release в обычном режиме. Bootstrap-only не запускает render, build/pull или VPN-контейнеры.
+Портал v3.1.3 проверяет v4 по старому canonical manifest и отклоняет как full release, так и source deploy ещё до запуска updater. Это ограничение уже установленного кода нельзя исправить новым архивом через тот же портал. Выполните один раз по SSH:
+
+```bash
+cd /root/deploy   # либо другой фактический корень проекта
+curl -fL https://raw.githubusercontent.com/artemiygaer/kvn-portal/main/tools/bootstrap-v4.sh \
+  -o /root/bootstrap-v4.sh
+sudo bash /root/bootstrap-v4.sh --sha256 <SHA256_ИЗ_SHA256SUMS> \
+  ./kvn-vpn-release-linux-amd64.tar.gz "$PWD"
+```
+
+Мост сначала сверяет внешний SHA-256, извлекает только allowlisted bootstrap-файлы, устанавливает updater/host-agent v4 без рестарта VPN-контейнеров и затем сам запускает полное offline-обновление. После этого следующие версии снова обновляются через портал. Не подставляйте SHA, вычисленный только с локального файла: возьмите опубликованное значение из `SHA256SUMS` или GitHub Release.
 
 GitHub Releases — дополнительный источник, а не отдельный updater. Репозиторий зафиксирован в коде как `artemiygaer/kvn-portal`; портал умеет проверить latest stable либо заданный tag, скачать и проверить штатный asset, после чего показывает ту же карточку «Готов к обновлению». Для публичного репозитория token не нужен. Для приватного создайте credential только на сервере:
 
@@ -188,6 +204,8 @@ Token вводится через `getpass`, хранится только в `/
 AmneziaWG и стандартный WireGuard не запускаются в контейнерах. После установки должны существовать интерфейсы `awg0`/`wg0` и активные службы `kvn-amneziawg.service`/`kvn-wireguard.service`.
 
 ## Архитектура
+
+Карта модульного монолита, направлений импортов и минимального test surface для типовых задач находится в [ARCHITECTURE.md](ARCHITECTURE.md). Границы проверяются командой `python3 tools/architecture_check.py`; локальные `AGENTS.md` рядом с модулем указывают его public API и обязательные тесты.
 
 `nginx` принимает `80/tcp` и `443/tcp`: HTTP-корень `/` отвечает `200 OK` для внешних доменных проверок, остальные HTTP-пути редиректятся на HTTPS, а HTTPS через `ssl_preread` читает SNI из TLS ClientHello и направляет соединение в нужный backend без расшифровки. Hysteria 2, DTLS ocserv, AmneziaWG и WireGuard используют UDP напрямую.
 
@@ -616,7 +634,7 @@ docker build --target test -t kvn-portal:test portal
 KVN_BUILD_ID=YYYYMMDD-release1 ./tools/build-release.sh
 ```
 
-Deploy-архив создаётся из явного списка файлов. В него не попадают пользователи, клиенты, приватные ключи, сертификаты и сгенерированные конфиги. Шаблон `deploy/users.json` всегда должен содержать пустой список `users`.
+Deploy-архив создаётся из canonical source и `packaging/deploy-template/` во временном staging. Tracked-каталога `deploy/` в Git нет. В архив не попадают пользователи, клиенты, приватные ключи, сертификаты и сгенерированные конфиги. Шаблон `packaging/deploy-template/users.json` всегда должен содержать пустой список `users`.
 
 ## Передача проекта
 

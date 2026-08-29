@@ -1,4 +1,11 @@
-# Аудит проекта KVN VPN v3.1.3
+# Аудит проекта KVN VPN v4.0.0
+
+## Модульная миграция v4.0.0 — 28.08.2026
+
+- Canonical source разделён на core/protocols/exports/runtime/CLI/control/agent/routes/release с машинно проверяемым направлением импортов.
+- Совместимые facade сохраняют CLI, 53 RPC и 49 HTTP routes; v3 source/full bootstrap и rollback проверены исполняемыми тестами.
+- Deploy runtime E2E подтверждает HTTPS, portal login, metrics, AWG apply, QR, reconcile и отсутствие Docker socket у web-портала.
+- Модульная карта даёт минимальный file/test routing для 19 типовых задач.
 
 ## Исправление v3.1.3 — 23.08.2026
 
@@ -84,12 +91,12 @@ backup archives не могут попасть в обычный `git add`. Ка
 | Зона | Объём | Результат baseline |
 |---|---:|---|
 | Канонические shell-скрипты | 20 | Все используют `set -euo pipefail`, `bash -n` проходит |
-| Shell-копии в `deploy/` | 19 | Побайтово совпадают с canonical; `build-deploy.sh` намеренно не поставляется |
+| Tracked source-копии в `deploy/` | 0 | Удалены; builder создаёт только временный staging |
 | Legacy shell fixture | 1 | Воспроизводит updater до появления archive validator |
 | Крупные Python-зоны | 4 | `kvnctl`, portal app, host-agent, control/RPC; compile проходит |
 | Compose-сервисы | 8 | 6 data-plane + portal + portal-gateway по profiles |
 | Уникальные release images | 7 | nginx используется двумя сервисами; AWG/WG работают на host |
-| Документация | 6 entry points | `AGENTS.md`, `README.md`, `deploy/DEPLOY.md`, `MTPROTO.md`, update notes и handoff согласованы |
+| Документация | 6 entry points | `AGENTS.md`, `README.md`, `DEPLOY.md`, `MTPROTO.md`, update notes и handoff согласованы |
 
 ## Shell inventory
 
@@ -97,7 +104,7 @@ backup archives не могут попасть в обычный `git add`. Ка
 |---|---:|---|---|---|
 | `setup.sh` | 1403 | Установка, мастер state, certs, host-службы, Compose | да | Bounded maintenance lock, reboot boundary, effective service plan |
 | `update.sh` | 399 | Staged source/full-release update и rollback до Compose | да | Shared lock, archive validator, staging, snapshot, cleanup trap |
-| `tools/build-deploy.sh` | 231 | Canonical deploy mirror и безопасный tar.gz | нет | Allowlist, denylist runtime, пакетное Python-копирование, temp tree |
+| `tools/build-deploy.sh` | 221 | Временный canonical staging и безопасный tar.gz | нет | Allowlist, denylist runtime, templates из `packaging/`, temp tree |
 | `tools/build-release.sh` | 147 | Семь linux/amd64 images и release manifest | нет | Temp workspace, checksums, platform/image-set validation |
 | `tools/project-backup.sh` | 171 | Root-only runtime + Docker images в `/backup` | да | Shared lock; архив содержит секреты; root-only target и cleanup trap |
 | `tools/restore-backup.sh` | 108 | Restore в новый абсолютный каталог | да | Shared lock; проверяет имя, target и пустой каталог |
@@ -116,7 +123,7 @@ backup archives не могут попасть в обычный `git add`. Ка
 | `portal/install-host-agent.sh` | 156 | Root-agent, socket, secret, systemd unit | да | Идемпотентные права, restart только при изменении |
 | `ocserv/entrypoint.sh` | 45 | Runtime users и запуск ocserv | контейнер root/capability | Использует сгенерированные read-only inputs |
 
-Deploy содержит 19 зеркальных копий production-скриптов; их SHA-256 проверяет canonical mirror contract. Единственный fixture `tests/fixtures/legacy-deploy/update.sh` намеренно несовместим с новым validator и покрывает bootstrap-переход.
+Tracked `deploy/` удалён: production-скрипты читаются только из canonical root, а deploy-only шаблоны — из `packaging/deploy-template/`. Единственный fixture `tests/fixtures/legacy-deploy/update.sh` намеренно несовместим с новым validator и покрывает bootstrap-переход.
 
 ## Python и privilege boundaries
 
@@ -200,7 +207,7 @@ RPC разделён на `READ_ONLY_METHODS` и `MUTATION_METHODS`, огран�
 
 ## Правило закрытия findings
 
-Finding переводится в `resolved` только после изменения canonical source, regression test, обязательных команд фазы и синхронизации deploy через `tools/build-deploy.sh`. Ошибка внешнего DNS помечается отдельно и не маскирует падение исходников.
+Finding переводится в `resolved` только после изменения canonical source, regression test, обязательных команд фазы и сборки временного deploy через `tools/build-deploy.sh`. Ошибка внешнего DNS помечается отдельно и не маскирует падение исходников.
 
 ## Модульные границы портала — 23.07.2026
 

@@ -1,0 +1,58 @@
+{
+  "golden_outputs": {
+    "awg_client": {
+      "bytes": 471,
+      "sha256": "10f3261575d2b1ccc08565dd9af4807ebd685f12ce3e11e249d55fdd659e91a0"
+    },
+    "happ": {
+      "bytes": 1052,
+      "sha256": "e3bd85c8284778975ed87ae49a10c5041c6f9225012673127941a739f5e10a59"
+    },
+    "karing": {
+      "bytes": 1052,
+      "sha256": "e3bd85c8284778975ed87ae49a10c5041c6f9225012673127941a739f5e10a59"
+    },
+    "mtg_server": {
+      "bytes": 764,
+      "sha256": "8cb7000b19557d5f9f35296b192a5ec28a19d748f8fdcaf2964236f9af6efc5e"
+    },
+    "ocserv_client": {
+      "bytes": 691,
+      "sha256": "a78707b455aa07f83321ae11cd287b5d62e827265d187b67b8a8e85746f33f4c"
+    },
+    "ocserv_server": {
+      "bytes": 1022,
+      "sha256": "50c6efbc7b20ebaedb6761c72659f06b12f3306427481d826ec047b1c109f397"
+    },
+    "telemt_server": {
+      "bytes": 1671,
+      "sha256": "da5ee66f110dfe2db04634929afa396939f90ad9e5e01a69a9f8c87f0c231f15"
+    },
+    "wg_client": {
+      "bytes": 358,
+      "sha256": "d6027b71938642af1a8706311f16e360d5ed5304a95e0c84adad5c9a6430c2b1"
+    },
+    "xray_server": {
+      "bytes": 1481,
+      "sha256": "5c51061b71376195b223761c9ccb20c01ed992ecf7dc2119dbb626cc30f3fe2d"
+    }
+  },
+  "inventory_counts": {
+    "canonical_files": 214,
+    "cli_options": 196,
+    "cli_paths": 51,
+    "http_routes": 49,
+    "rpc_all": 53,
+    "rpc_mutations": 20,
+    "rpc_read_only": 33
+  },
+  "inventory_sha256": {
+    "canonical_files": "0463933e369c489658caf091e27842b435509d4e4717bc41e9f5bb4f463870bb",
+    "cli": "061ce01c1caf74da1d42de5781125811f5ed43d233af483f7a34365427f415c9",
+    "http_routes": "a5912fdd5d4b2d140c70edf5eb79067d028e35c636a74e94b0dabfaa53fbbe46",
+    "rpc_all": "89f99381cff0238e4cd60c13cad648a2d1b63128e44004632935ceecf7c962c6",
+    "rpc_mutations": "1a979f7852566f2c033f337cc62b144bff1b0a56c0af4acac36221d8bef655d9",
+    "rpc_read_only": "8a4dbe11f1a7be1b6192defc89e70969d8937971616840a9b513a738177757ff"
+  },
+  "version": "v3.1.3"
+}

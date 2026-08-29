@@ -42,7 +42,10 @@ class HostHardeningTests(unittest.TestCase):
 
     def test_host_agent_has_resource_bounds_and_transient_work_stays_separate(self):
         installer = (ROOT / "portal/install-host-agent.sh").read_text(encoding="utf-8")
-        agent = (ROOT / "portal/agent.py").read_text(encoding="utf-8")
+        agent = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in [ROOT / "portal/agent.py", *sorted((ROOT / "portal/agent_handlers").glob("*.py"))]
+        )
         for marker in ["MemoryHigh=192M", "MemoryMax=256M", "CPUQuota=40%", "TasksMax=128"]:
             self.assertIn(marker, installer)
         for marker in ["kvn-project-update-", "kvn-portal-root-shell-", "systemd-run"]:

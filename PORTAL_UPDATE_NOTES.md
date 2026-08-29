@@ -1,5 +1,14 @@
 # Заметки об обновлении KVN Portal
 
+## v4.0.0 — 29.08.2026
+
+- Проект разделён на направленные модули без изменения публичных CLI/RPC/HTTP-контрактов.
+- Переход v3.1.3→v4 выполняется одноразовым `tools/bootstrap-v4.sh`: старый портал не умеет проверить новый canonical manifest. Мост требует опубликованный SHA-256, сохраняет runtime и после bootstrap автоматически продолжает полный offline update.
+- Portal reconnect после restart host-agent больше не требует recreate контейнера.
+- Source и full release проверяются одной политикой; generated/runtime/secrets в deploy запрещены.
+- Для дальнейшей разработки добавлены architecture map, task-routing и машинная проверка импортов.
+- Исправлен переход со старого портала v3.1.3: добавлен проверяющий SHA-256 `tools/bootstrap-v4.sh`, потому что старый canonical validator не может принять v4 через browser до обновления собственного кода.
+
 ## v3.1.3 — 23.08.2026
 
 - Чистая установка больше не останавливается после запуска host-agent с `NameError: name 'json' is not defined`.

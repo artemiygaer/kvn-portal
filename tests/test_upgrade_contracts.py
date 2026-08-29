@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import hashlib
 import json
 import os
 import shutil
@@ -47,6 +48,96 @@ def validate_release_fixture(members: list[dict]) -> None:
 
 
 class UpgradeContractTests(unittest.TestCase):
+    @staticmethod
+    def _tar_gz_bytes(files: dict[str, bytes]) -> bytes:
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+            for name, payload in files.items():
+                info = tarfile.TarInfo(name)
+                info.size = len(payload)
+                info.mode = 0o700 if name.endswith(".sh") else 0o600
+                archive.addfile(info, io.BytesIO(payload))
+        return buffer.getvalue()
+
+    @unittest.skipUnless(os.name == "posix", "нужен POSIX shell")
+    def test_v3_bridge_verifies_full_release_then_runs_bootstrap_and_full_update(self):
+        fake_update = b"""#!/usr/bin/env bash
+set -euo pipefail
+root="${KVN_UPDATE_ROOT:?}"
+if [ "${KVN_UPDATE_MODE:-full}" = "bootstrap-only" ]; then
+    cp "$0" "$root/update.sh"
+    printf 'bootstrap\\n' >> "$root/steps"
+else
+    printf 'full:%s\\n' "$(basename "$1")" >> "$root/steps"
+fi
+"""
+        deploy = self._tar_gz_bytes({
+            "deploy/update.sh": fake_update,
+            "deploy/tools/deploy_archive.py": b"# fixture validator\n",
+            "deploy/tools/canonical-files.txt": b"update.sh\n",
+        })
+        images = b"fixture-images"
+        manifest = {
+            "format": 1,
+            "platform": "linux/amd64",
+            "source": {
+                "name": "kvn-vpn-deploy.tar.gz",
+                "size": len(deploy),
+                "sha256": hashlib.sha256(deploy).hexdigest(),
+            },
+            "images": {
+                "name": "kvn-vpn-images-linux-amd64.tar",
+                "size": len(images),
+                "sha256": hashlib.sha256(images).hexdigest(),
+            },
+        }
+        release = self._tar_gz_bytes({
+            "release-manifest.json": (json.dumps(manifest) + "\n").encode(),
+            "kvn-vpn-deploy.tar.gz": deploy,
+            "kvn-vpn-images-linux-amd64.tar": images,
+        })
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "project"
+            project.mkdir()
+            (project / "update.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+            archive = root / "kvn-vpn-release-linux-amd64.tar.gz"
+            archive.write_bytes(release)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            fake_id = fake_bin / "id"
+            fake_id.write_text("#!/bin/sh\nprintf 0\n", encoding="utf-8")
+            fake_id.chmod(0o700)
+            env = os.environ.copy()
+            env["PATH"] = f"{fake_bin}:{env['PATH']}"
+            result = subprocess.run(
+                [
+                    "bash", str(ROOT / "tools/bootstrap-v4.sh"), "--sha256",
+                    hashlib.sha256(release).hexdigest(), str(archive), str(project),
+                ],
+                cwd=root, env=env, text=True, stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT, timeout=30, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertEqual(
+                (project / "steps").read_text(encoding="utf-8").splitlines(),
+                ["bootstrap", "full:kvn-vpn-release-linux-amd64.tar.gz"],
+            )
+
+            (project / "steps").unlink()
+            rejected = subprocess.run(
+                [
+                    "bash", str(ROOT / "tools/bootstrap-v4.sh"), "--sha256",
+                    "0" * 64, str(archive), str(project),
+                ],
+                cwd=root, env=env, text=True, stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT, timeout=10, check=False,
+            )
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("SHA-256 архива не совпадает", rejected.stdout)
+            self.assertFalse((project / "steps").exists())
+
     def test_maintenance_operations_share_bounded_flock_before_mutation(self):
         cases = {
             "setup.sh": "apt-get update",
@@ -140,7 +231,7 @@ class UpgradeContractTests(unittest.TestCase):
         self.assertIn("--keyserver-options timeout=15", awg_installer)
 
     def test_management_export_commands_share_state_and_user_lookup(self):
-        source = (ROOT / "tools" / "kvnctl.py").read_text(encoding="utf-8")
+        source = (ROOT / "tools/kvnlib/commands/implementation.py").read_text(encoding="utf-8")
         command_block = source.split(
             "def client_export_command_state(", 1
         )[1].split("def cmd_interactive(", 1)[0]

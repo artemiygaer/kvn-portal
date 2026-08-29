@@ -66,22 +66,26 @@ class OfflineReleaseTests(unittest.TestCase):
     def test_three_entry_paths_share_release_contract_and_offline_compose(self):
         update = (ROOT / "update.sh").read_text(encoding="utf-8")
         setup = (ROOT / "setup.sh").read_text(encoding="utf-8")
-        agent = (ROOT / "portal/agent.py").read_text(encoding="utf-8")
+        agent = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in [ROOT / "portal/agent.py", *sorted((ROOT / "portal/agent_handlers").glob("*.py"))]
+        )
         portal = "\n".join(
             path.read_text(encoding="utf-8")
             for path in (
                 ROOT / "portal/app/__init__.py",
                 ROOT / "portal/app/blueprints/views.py",
+                ROOT / "portal/app/routes/implementation.py",
             )
         )
-        gateway = (ROOT / "tools/kvnctl.py").read_text(encoding="utf-8")
+        gateway = (ROOT / "tools/kvnlib/commands/implementation.py").read_text(encoding="utf-8")
         for source in (update, setup):
             self.assertIn("tools.release_archive", source)
             self.assertIn("docker image load", source)
             self.assertIn("verify-loaded", source)
             self.assertIn("--no-build --pull never", source)
         self.assertLess(update.index("docker image load"), update.index("SOURCES_INSTALLED=1"))
-        self.assertIn("validate_release(archive_path)", agent)
+        self.assertIn("inspect_update_artifact(archive_path", agent)
         self.assertIn('"release" if is_release else "deploy"', agent)
         for marker in ["upload_stream.read(1024 * 1024)", "os.fsync", "os.replace", "disk_usage"]:
             self.assertIn(marker, portal)
@@ -90,7 +94,7 @@ class OfflineReleaseTests(unittest.TestCase):
         self.assertIn("SpooledTemporaryFile", portal)
         for marker in ["client_max_body_size 2g", "proxy_request_buffering off", "proxy_read_timeout 30m"]:
             self.assertIn(marker, gateway)
-        self.assertNotIn("client_max_body_size 128m", (ROOT / "tools/kvnctl.py").read_text(encoding="utf-8"))
+        self.assertNotIn("client_max_body_size 128m", gateway)
 
     @unittest.skipIf(os.name == "nt", "Исполняемый rollback-тест запускается в Linux-контейнере")
     @unittest.skipUnless(
@@ -107,6 +111,8 @@ class OfflineReleaseTests(unittest.TestCase):
             for relative in [
                 "update.sh", "tools/deploy_archive.py", "tools/release_archive.py",
                 "tools/canonical-files.txt", "tools/__init__.py",
+                "tools/release/__init__.py", "tools/release/deploy_archive.py",
+                "tools/release/full_archive.py",
             ]:
                 source = ROOT / relative
                 destination = installed / relative

@@ -152,7 +152,7 @@ class PortalAuthTests(unittest.TestCase):
         blocked = restarted_client.get("/gaer/login", headers=self.headers)
         self.assertEqual(blocked.status_code, 429)
         self.assertEqual(blocked.headers["Retry-After"], "43200")
-        with mock.patch("app.blueprints.views.verify_password") as verify:
+        with mock.patch("app.routes.implementation.verify_password") as verify:
             blocked_post = restarted_client.post(
                 "/gaer/login",
                 data={"login": "admin", "password": PASSWORD, "csrf_token": "ignored"},

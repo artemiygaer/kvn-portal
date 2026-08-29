@@ -1,5 +1,14 @@
 """Маршруты мониторинга, логов, аудита и внутренних проверок."""
 
-from .common import make_compat_blueprint
+from flask import Blueprint
 
-blueprint = make_compat_blueprint("diagnostics")
+from .common import register_group_routes
+
+
+def create_blueprint() -> Blueprint:
+    result = Blueprint("diagnostics", __name__)
+    result.record_once(lambda state: register_group_routes(state, group="diagnostics"))
+    return result
+
+
+blueprint = create_blueprint()

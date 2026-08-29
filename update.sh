@@ -90,7 +90,11 @@ if [ "${KVN_UPDATE_WORKER:-0}" != "1" ]; then
             ARCHIVE="$WORKER_DIR/release/kvn-vpn-deploy.tar.gz"
             ;;
     esac
-    python3 - "$ARCHIVE" "$WORKER_DIR" <<'PY'
+    if [ -f "$ROOT_DIR/tools/release/migrations.py" ]; then
+        python3 -m tools.release.migrations extract-bootstrap "$ARCHIVE" "$WORKER_DIR"
+    else
+        # Legacy fallback: новый update.sh может быть скопирован на v3 без пакета tools.release.
+        python3 - "$ARCHIVE" "$WORKER_DIR" <<'PY'
 import json
 import sys
 import tarfile
@@ -121,6 +125,7 @@ try:
 except (OSError, tarfile.TarError) as exc:
     raise SystemExit(f"[ОШИБКА] Не удалось извлечь bootstrap из архива: {exc}") from exc
 PY
+    fi
     chmod 700 "$WORKER_DIR/update.sh"
     KVN_UPDATE_WORKER=1 KVN_UPDATE_ROOT="$ROOT_DIR" KVN_UPDATE_WORKER_DIR="$WORKER_DIR" \
         KVN_UPDATE_INSPECTOR="$WORKER_DIR/tools/deploy_archive.py" KVN_UPDATE_MODE="$UPDATE_MODE" \

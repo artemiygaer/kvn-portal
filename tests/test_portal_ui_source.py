@@ -136,7 +136,7 @@ class PortalUiSourceTests(unittest.TestCase):
             "github_settings.repository", "Проверить GitHub", "Скачать и проверить",
             "Обновление вручную с сервера", "sudo ./tools/project-backup.sh",
             "sha256sum &lt;archive&gt;", "sudo ./update.sh &lt;archive&gt;",
-            "sudo ./update.sh --bootstrap-only &lt;archive&gt;",
+            "sudo bash bootstrap-v4.sh --sha256 &lt;SHA256&gt; &lt;archive&gt; &lt;project-root&gt;",
         ]:
             self.assertIn(marker, settings)
         update_script = script
@@ -229,6 +229,7 @@ class PortalUiSourceTests(unittest.TestCase):
             for path in (
                 ROOT / "portal/app/__init__.py",
                 ROOT / "portal/app/blueprints/views.py",
+                ROOT / "portal/app/routes/implementation.py",
             )
         )
         base = (ROOT / "portal/app/templates/base.html").read_text(encoding="utf-8")
@@ -326,6 +327,7 @@ class PortalUiSourceTests(unittest.TestCase):
             for path in (
                 ROOT / "portal/app/__init__.py",
                 ROOT / "portal/app/blueprints/views.py",
+                ROOT / "portal/app/routes/implementation.py",
             )
         )
         backups_template = (ROOT / "portal/app/templates/backups.html").read_text(encoding="utf-8")
@@ -416,7 +418,10 @@ class PortalUiSourceTests(unittest.TestCase):
 
     def test_terminal_page_has_allowlist_and_authenticated_root_shell(self):
         app_source = (ROOT / "portal/app/__init__.py").read_text(encoding="utf-8")
-        agent_source = (ROOT / "portal/agent.py").read_text(encoding="utf-8")
+        agent_source = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in [ROOT / "portal/agent.py", *sorted((ROOT / "portal/agent_handlers").glob("*.py"))]
+        )
         protocol = (ROOT / "portal/agent_protocol.py").read_text(encoding="utf-8")
         template = (ROOT / "portal/app/templates/terminal.html").read_text(encoding="utf-8")
         shell_template = (ROOT / "portal/app/templates/root_shell.html").read_text(encoding="utf-8")
