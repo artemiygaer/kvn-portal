@@ -90,7 +90,7 @@ class RuntimeImageContractsTests(unittest.TestCase):
         dockerfile = (ROOT / "portal/Dockerfile").read_text(encoding="utf-8")
         self.assertIn("ARG KVN_BUILD_ID=dev", dockerfile)
         self.assertIn("KVN_BUILD_ID=${KVN_BUILD_ID}", dockerfile)
-        self.assertIn("ARG KVN_VERSION=v4.0.0", dockerfile)
+        self.assertIn("ARG KVN_VERSION=v4.0.1", dockerfile)
         self.assertIn("KVN_VERSION=${KVN_VERSION}", dockerfile)
         builder = (ROOT / "tools/build-release.sh").read_text(encoding="utf-8")
         self.assertIn('--build-arg "KVN_BUILD_ID=$BUILD_ID"', builder)

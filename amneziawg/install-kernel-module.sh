@@ -21,7 +21,7 @@ fi
 
 echo "[INFO] Устанавливаю зависимости AmneziaWG kernel module..."
 apt-get update
-apt-get install -y ca-certificates gnupg dirmngr
+apt-get install -y ca-certificates gnupg dirmngr dkms build-essential kmod
 
 INSTALLED_VERSION_BEFORE="$(dpkg-query -W -f='${Version}' amneziawg 2>/dev/null || true)"
 
@@ -86,6 +86,27 @@ if ! grep -q -- 'header-protection-key' <<<"$AWG_SET_HELP" \
     exit 1
 fi
 echo "[OK] awg-tools поддерживает HeaderProtectionKey, ContentPaddingAddition и тайминги AWG 3.x"
+
+# Пакет мог быть установлен до появления headers текущего ядра. В этом случае
+# повторный apt install не запускает DKMS postinst, а tools остаются без модуля.
+if ! modinfo -k "$CURRENT_KERNEL" amneziawg >/dev/null 2>&1; then
+    echo "[WARN] Модуль AmneziaWG отсутствует для текущего kernel: ${CURRENT_KERNEL}"
+    echo "[INFO] Запускаю явную DKMS-сборку для текущего kernel..."
+    DKMS_AUTOINSTALL_OK=1
+    dkms autoinstall -k "$CURRENT_KERNEL" || DKMS_AUTOINSTALL_OK=0
+    depmod -a "$CURRENT_KERNEL"
+    if ! modinfo -k "$CURRENT_KERNEL" amneziawg >/dev/null 2>&1; then
+        echo "[ОШИБКА] DKMS не установил модуль AmneziaWG для kernel ${CURRENT_KERNEL}" >&2
+        dkms status -m amneziawg >&2 || true
+        echo "[ПОДСКАЗКА] Проверьте последний make.log:" >&2
+        echo "  find /var/lib/dkms/amneziawg -name make.log -type f -print" >&2
+        exit 1
+    fi
+    if [ "$DKMS_AUTOINSTALL_OK" -eq 0 ]; then
+        echo "[WARN] DKMS сообщил об ошибке другого модуля, но AmneziaWG для текущего kernel установлен."
+    fi
+    echo "[OK] DKMS-модуль AmneziaWG установлен для kernel ${CURRENT_KERNEL}"
+fi
 
 if [ "$NEW_KERNEL_INSTALLED" -eq 1 ]; then
     echo "" >&2

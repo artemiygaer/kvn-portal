@@ -1,4 +1,4 @@
-# Установка и обновление KVN VPN v4.0.0
+# Установка и обновление KVN VPN v4.0.1
 
 Каталог `deploy/` является чистым пакетом для Debian 12/13. Он не содержит пользователей, portal credentials/DB, клиентских файлов, сертификатов, приватных ключей и сгенерированных серверных конфигов.
 
@@ -177,6 +177,10 @@ sudo ./amneziawg/install-kernel-module.sh
 sudo python3 tools/kvnctl.py amneziawg configure --profile 3.1 --apply
 sudo python3 tools/kvnctl.py amneziawg verify
 ```
+
+Установщик проверяет модуль именно для текущего `uname -r`. Если пакет DKMS был
+установлен раньше headers, он явно выполняет `dkms autoinstall`, `depmod` и только
+после этого запускает `kvn-amneziawg.service`.
 
 После переключения обязательно заново экспортируйте и импортируйте все
 `amneziawg.conf`: `HeaderProtectionKey` и параметры AWG 3.1 должны совпадать.

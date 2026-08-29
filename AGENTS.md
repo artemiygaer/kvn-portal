@@ -1,10 +1,10 @@
-# KVN VPN v4.0.0: краткая инструкция для ИИ-ассистента
+# KVN VPN v4.0.1: краткая инструкция для ИИ-ассистента
 
 Говорить с пользователем по-русски, коротко и по делу. Комментарии и документацию писать на русском. Перед правками сначала смотреть код вокруг задачи; подробности есть в `README.md`, `DEPLOY.md` и `ARCHITECTURE.md`. Для модульной задачи сначала читать ближайший вложенный `AGENTS.md` и брать минимальный test surface из task-routing.
 
 ## Суть проекта
 
-KVN VPN v4.0.0 — мультипротокольный VPN-стек для Debian 12/13. Основные сервисы идут через Docker Compose. Host-службы:
+KVN VPN v4.0.1 — мультипротокольный VPN-стек для Debian 12/13. Основные сервисы идут через Docker Compose. Host-службы:
 
 - `kvn-amneziawg.service`: AmneziaWG, `awg0`, `51820/udp`;
 - `kvn-wireguard.service`: стандартный WireGuard, `wg0`, `51821/udp`;
@@ -105,7 +105,7 @@ docker build --target test -t kvn-portal:test portal
 python3 tools/kvnctl.py render
 python3 tests/deploy_runtime_e2e.py
 bash tools/build-deploy.sh
-KVN_BUILD_ID=20260829-v4-release2 KVN_VERSION=v4.0.0 bash tools/build-release.sh
+KVN_BUILD_ID=20260829-v4.0.1-release1 KVN_VERSION=v4.0.1 bash tools/build-release.sh
 ```
 
 Debian-only: systemd, socket права, firewall, Certbot HTTP-01, реальный Compose lifecycle. Если Docker/WSL недоступен локально, явно указать это в ответе.

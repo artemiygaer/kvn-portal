@@ -64,7 +64,7 @@ class DeployBuildTests(unittest.TestCase):
 
     def build(self):
         env = os.environ.copy()
-        env.update({"KVN_BUILD_ID": "v4-test-repro", "KVN_VERSION": "v4.0.0"})
+        env.update({"KVN_BUILD_ID": "v4-test-repro", "KVN_VERSION": "v4.0.1"})
         if os.name == "nt":
             env["PYTHON3"] = sys.executable
         return subprocess.run(
@@ -192,7 +192,7 @@ class DeployBuildTests(unittest.TestCase):
         self.assertNotIn("Docker-сервисы", result.stdout)
         self.assertNotEqual((installed / "update.sh").read_bytes(), legacy_update)
         self.assertTrue((installed / "portal/agent.py").is_file())
-        self.assertEqual((installed / "VERSION").read_text(encoding="utf-8").strip(), "v4.0.0")
+        self.assertEqual((installed / "VERSION").read_text(encoding="utf-8").strip(), "v4.0.1")
         health = subprocess.run(
             [sys.executable, "tools/kvnctl.py", "service-plan", "--format", "lines"],
             cwd=installed,

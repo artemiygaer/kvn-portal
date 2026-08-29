@@ -353,6 +353,18 @@ class KvnctlSecurityTests(unittest.TestCase):
             self.assertIn(capability, installer)
         self.assertNotIn("random-trailers", installer)
 
+    def test_amneziawg_installer_repairs_missing_current_kernel_module(self):
+        installer = (kvnctl.ROOT / "amneziawg" / "install-kernel-module.sh").read_text(encoding="utf-8")
+
+        self.assertIn("dkms build-essential kmod", installer)
+        self.assertIn('modinfo -k "$CURRENT_KERNEL" amneziawg', installer)
+        self.assertIn('dkms autoinstall -k "$CURRENT_KERNEL"', installer)
+        self.assertIn('depmod -a "$CURRENT_KERNEL"', installer)
+        self.assertLess(
+            installer.index('dkms autoinstall -k "$CURRENT_KERNEL"'),
+            installer.index('modprobe amneziawg'),
+        )
+
     def test_amneziawg_enabled_user_is_rendered_as_service_peer(self):
         state = base_state()
         user = state["users"][0]
