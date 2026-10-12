@@ -84,6 +84,7 @@ class OfflineReleaseTests(unittest.TestCase):
             self.assertIn("docker image load", source)
             self.assertIn("verify-loaded", source)
             self.assertIn("--no-build --pull never", source)
+            self.assertIn("retag-transport", source)
         self.assertLess(update.index("docker image load"), update.index("SOURCES_INSTALLED=1"))
         self.assertIn("inspect_update_artifact(archive_path", agent)
         self.assertIn('"release" if is_release else "deploy"', agent)

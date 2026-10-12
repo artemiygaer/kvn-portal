@@ -18,6 +18,7 @@ from tools.release_archive import (
     validate_release,
     verify_loaded_images,
 )
+from tools.release.full_archive import RUNTIME_IMAGE_REFS, TRANSPORT_ALIASES, retag_transport_images
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,9 +28,9 @@ class RuntimeImageContractsTests(unittest.TestCase):
     def test_runtime_images_are_pinned_without_floating_tags(self):
         compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
         for image in [
-            "ghcr.io/telemt/telemt:3.4.24",
+            "ghcr.io/telemt/telemt:3.5.14",
             "nineseconds/mtg:2.2.8",
-            "tobyxdd/hysteria:v2.10.0",
+            "tobyxdd/hysteria:v2.13.0",
             "ghcr.io/xtls/xray-core:26.3.27",
         ]:
             self.assertIn(image, compose)
@@ -72,7 +73,7 @@ class RuntimeImageContractsTests(unittest.TestCase):
 
         compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
         compose_refs = set(re.findall(r"^\s+image:\s*([^\s]+)\s*$", compose, re.MULTILINE))
-        self.assertEqual(compose_refs, set(EXPECTED_IMAGE_REFS))
+        self.assertEqual(compose_refs, set(RUNTIME_IMAGE_REFS))
         builder = (ROOT / "tools/build-release.sh").read_text(encoding="utf-8")
         for ref in EXPECTED_IMAGE_REFS:
             self.assertIn(f'"{ref}"', builder)
@@ -90,7 +91,7 @@ class RuntimeImageContractsTests(unittest.TestCase):
         dockerfile = (ROOT / "portal/Dockerfile").read_text(encoding="utf-8")
         self.assertIn("ARG KVN_BUILD_ID=dev", dockerfile)
         self.assertIn("KVN_BUILD_ID=${KVN_BUILD_ID}", dockerfile)
-        self.assertIn("ARG KVN_VERSION=v4.0.1", dockerfile)
+        self.assertIn("ARG KVN_VERSION=v4.1.0", dockerfile)
         self.assertIn("KVN_VERSION=${KVN_VERSION}", dockerfile)
         builder = (ROOT / "tools/build-release.sh").read_text(encoding="utf-8")
         self.assertIn('--build-arg "KVN_BUILD_ID=$BUILD_ID"', builder)
@@ -185,6 +186,36 @@ class ReleaseArchiveTests(unittest.TestCase):
         validated = validate_release(self.release)
         self.assertEqual(validated["platform"], "linux/amd64")
         self.assertEqual([item["ref"] for item in validated["images"]["items"]], list(EXPECTED_IMAGE_REFS))
+
+    def test_compat_transport_is_allowlisted_and_verified_before_retag(self):
+        manifest = create_release(self.release, "transport-test", self.source, self.images, self.metadata, "v4.1.0")
+        self.assertEqual(manifest["transport_aliases"], TRANSPORT_ALIASES)
+        self.assertEqual(validate_release(self.release)["transport_aliases"], TRANSPORT_ALIASES)
+        path = self.root / "manifest.json"
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        with mock.patch("tools.release.full_archive.verify_loaded_images") as verify, mock.patch("tools.release.full_archive.subprocess.run") as command:
+            command.return_value.returncode = 0
+            self.assertEqual(set(retag_transport_images(path)), set(TRANSPORT_ALIASES.values()))
+            verify.assert_called_once_with(path)
+        manifest["transport_aliases"] = {"nginx:1.31.1-alpine":"untrusted/image:latest"}
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        with mock.patch("tools.release.full_archive.subprocess.run") as command:
+            with self.assertRaises(ReleaseValidationError): retag_transport_images(path)
+            command.assert_not_called()
+
+    def test_transport_accepts_future_pinned_versions_but_not_repository_override(self):
+        create_release(self.release, "transport-future", self.source, self.images, self.metadata, "v4.2.0")
+        future = {"nginx:1.31.1-alpine": "nginx:1.33.0-alpine",
+                  "ghcr.io/xtls/xray-core:26.3.27": "ghcr.io/xtls/xray-core:26.10.1"}
+        candidate = self.root / "future.tar.gz"
+        self._rewrite(candidate, manifest_change=lambda m: m.update(transport_aliases=future))
+        self.assertEqual(validate_release(candidate)["transport_aliases"], future)
+        for aliases in (None, [], {"foreign/image:1.0.0":"nginx:1.33.0-alpine"},
+                        {"nginx:1.31.1-alpine":"nginx:latest"},
+                        {"nginx:1.31.1-alpine":"nginx:1.33.0-alpine;echo unsafe"}):
+            self._rewrite(candidate, manifest_change=lambda m: m.update(transport_aliases=aliases))
+            with self.subTest(aliases=aliases), self.assertRaises(ReleaseValidationError):
+                validate_release(candidate)
 
     def test_version_metadata_is_additive_and_legacy_release_stays_valid(self):
         legacy = create_release(

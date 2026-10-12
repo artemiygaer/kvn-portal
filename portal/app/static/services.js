@@ -15,7 +15,8 @@
     let visible = 0;
     serviceCards.forEach((card) => {
       const matchesQuery = !query || (card.dataset.serviceName || "").includes(query);
-      const matchesStatus = status === "all" || card.dataset.serviceActive === status;
+      const matchesStatus = status === "all" || (status === "disabled"
+        ? card.dataset.serviceEnabled === "false" : card.dataset.serviceActive === status);
       const matchesKind = kind === "all" || card.dataset.serviceKind === kind;
       const matched = matchesQuery && matchesStatus && matchesKind;
       card.hidden = !matched;

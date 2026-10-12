@@ -12,7 +12,7 @@
 </header>
 <section class="panel service-toolbar" aria-label="{{ t('filter_services') }}">
   <label>{{ t('service_search') }}<input type="search" data-service-filter placeholder="xray, wireguard, nginx"></label>
-  <label>{{ t('service_state') }}<select data-service-status><option value="all">{{ t('all') }}</option><option value="running">{{ t('running') }}</option><option value="stopped">{{ t('stopped') }}</option></select></label>
+  <label>{{ t('service_state') }}<select data-service-status><option value="all">{{ t('all') }}</option><option value="running">{{ t('running') }}</option><option value="stopped">{{ t('stopped') }}</option><option value="disabled">Отключённые</option></select></label>
   <label>{{ t('service_kind') }}<select data-service-kind><option value="all">{{ t('all') }}</option><option value="host">{{ t('host_service') }}</option><option value="docker">{{ t('docker_service') }}</option></select></label>
 </section>
 <p class="muted filter-results" data-service-count role="status" aria-live="polite"></p>
@@ -22,22 +22,34 @@
   {% set guide = service_guide(item.service) %}
   {% set enabled = item.enabled if item.enabled is defined else true %}
   {% set kind = 'host' if guide and guide.host_service else 'docker' %}
-  <article class="panel service-card" data-service-card data-service-name="{{ item.service|lower }} {{ (guide.label if guide else '')|lower }} {{ (guide.purpose if guide else '')|lower }}" data-service-active="{{ 'running' if item.active else 'stopped' }}" data-service-kind="{{ kind }}">
+  <article class="panel service-card" data-service-card data-service-name="{{ item.service|lower }} {{ (guide.label if guide else '')|lower }} {{ (guide.purpose if guide else '')|lower }}" data-service-active="{{ 'running' if item.active else 'stopped' }}" data-service-enabled="{{ 'true' if enabled else 'false' }}" data-service-kind="{{ kind }}">
     <div class="status-line">
       <h2>{{ guide.label if guide else item.service }} <small class="muted"><code>{{ item.service }}</code></small></h2>
       <div class="service-card-meta">
         <span class="service-tag">{{ t('host_service') if kind == 'host' else t('docker_service') }}</span>
-        <span class="status {{ 'ok' if item.active else 'down' }}">{{ t('running') if item.active else t('stopped') }}</span>
+        <span class="status {{ 'ok' if item.active else 'neutral' if not enabled else 'down' }}">{{ t('running') if item.active else 'Отключён' if not enabled else t('stopped') }}</span>
       </div>
     </div>
     <dl class="fact-grid">
       <div><dt>Runtime</dt><dd>{{ t('running') if item.active else t('stopped') }}</dd></div>
       <div><dt>Постоянное состояние</dt><dd>{{ 'включён' if enabled else 'отключён' }}</dd></div>
     </dl>
+    {% if 'disable' in service_actions[item.service] %}
+    {% set toggle_action = 'disable' if enabled else 'enable' %}
+    <div class="notice service-toggle">
+      <div><strong>{{ 'Сервис включён' if enabled else 'Сервис отключён' }}</strong><p class="muted">{{ 'Отключение остановит сервис и сохранится после перезагрузки и обновления.' if enabled else 'Автозапуск выключен. Конфигурации сохранены; сервис можно включить снова.' }}</p></div>
+      <form method="post" action="{{ public_url('service_action', service=item.service) }}"{% if enabled %} data-confirm="Отключить сервис" data-object="{{ item.service }}"{% endif %}>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="action" value="{{ toggle_action }}">
+        {% if enabled %}<input type="hidden" name="confirmation_token" value="{{ confirmations[item.service ~ ':disable'] }}">{% endif %}
+        <button type="submit" class="{{ 'danger' if enabled else 'success' }} compact" aria-label="{{ 'Отключить' if enabled else 'Включить' }} {{ guide.label if guide else item.service }}">{{ 'Отключить сервис' if enabled else 'Включить сервис' }}</button>
+      </form>
+    </div>
+    {% endif %}
     {{ service_help(guide) }}
     <div class="action-group service-actions">
       {% for action in service_actions[item.service] %}
-      {% if (item.active and action != 'start') or ((not item.active) and action in ['start','enable','disable','apply']) %}
+      {% if action not in ['enable','disable'] and enabled and ((item.active and action != 'start') or ((not item.active) and action in ['start','apply'])) %}
       <form method="post" action="{{ public_url('service_action', service=item.service) }}"{% if action in ['stop','restart','disable','apply'] %} data-confirm="{{ labels[action] }}" data-object="{{ item.service }}"{% endif %}>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="action" value="{{ action }}">

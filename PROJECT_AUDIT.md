@@ -1,4 +1,11 @@
-# Аудит проекта KVN VPN v4.0.1
+# Аудит проекта KVN VPN v4.1.0
+
+## Стабилизация v4.1.0 — 12.10.2026
+
+- Исправлен расчёт nginx map hash для длинных SNI и больших пулов.
+- Постоянное отключение сервиса явно отделено от временной остановки; отсутствующий контейнер не блокирует enable/disable.
+- Обновлены stable runtime версии и base digests. Canonical inventory сохранён для старого portal inspector; обновление проверено из опубликованного v4.0.1 в отдельном Docker daemon через HTTPS upload → ready → start.
+- Сохранены пользователи, сертификаты и persistent disabled ocserv; новые Telemt/Hysteria/Xray запускаются, nginx -t проходит с максимальным SNI. Проверки: Linux/root suite проекта 428 tests без пропусков, portal 105 (skipped=1), IP deploy runtime E2E.
 
 ## Модульная миграция v4.0.0 — 28.08.2026
 

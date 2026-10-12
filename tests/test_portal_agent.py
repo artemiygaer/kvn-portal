@@ -1039,6 +1039,39 @@ class PortalAgentProtocolTests(unittest.TestCase):
         self.assertTrue(reconciled[0]["ok"])
         self.assertFalse(any("start" in call or "up" in call for call, _timeout, _max in runner.calls))
 
+    def test_service_action_accepts_the_real_portal_request_id(self):
+        runner = StatefulRunner()
+        dispatcher = AgentDispatcher(Path("/srv/kvn"), runner, FakeServiceControl())
+        result = dispatcher.dispatch(RpcRequest("test", "service.action", {
+            "service":"ocserv", "action":"disable", "request_id":"a" * 32,
+        }))
+        self.assertTrue(result["ok"])
+        runner.calls.clear()
+        with self.assertRaises(ProtocolError):
+            dispatcher.dispatch(RpcRequest("bad", "service.action", {
+                "service":"ocserv", "action":"enable", "request_id":[],
+            }))
+        self.assertEqual(runner.calls, [])
+
+    def test_service_toggle_handles_removed_container(self):
+        class MissingContainerRunner(StatefulRunner):
+            def run(self, argv, **kwargs):
+                if argv[:2] == ["docker", "inspect"]:
+                    self.calls.append((tuple(argv), kwargs.get("timeout", 30), 0))
+                    return CommandResult(tuple(argv), 1, "", "No such object", 1)
+                return super().run(argv, **kwargs)
+
+        for action, enabled in [("disable", False), ("enable", True)]:
+            with self.subTest(action=action):
+                control = FakeServiceControl()
+                runner = MissingContainerRunner()
+                runner.active["ocserv"] = False
+                dispatcher = AgentDispatcher(Path("/srv/kvn"), runner, control)
+                result = dispatcher._service_action({"service": "ocserv", "action": action})
+                self.assertTrue(result["ok"], result)
+                self.assertEqual(control.preferences["ocserv"], enabled)
+                self.assertFalse(any(call[:2] == ("docker", "update") for call, *_ in runner.calls))
+
     def test_self_restart_returns_warning_and_delayed_agent_command(self):
         runner = StatefulRunner()
         dispatcher = AgentDispatcher(Path("/srv/kvn"), runner, FakeServiceControl())

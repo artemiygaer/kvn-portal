@@ -1366,6 +1366,11 @@ class AgentDispatcher:
         return {"service": service, "active": active, "enabled": enabled, "command": result.to_dict()}
 
     def _service_action(self, params: dict) -> dict[str, Any]:
+        if "request_id" in params and (
+            not isinstance(params["request_id"], str)
+            or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", params["request_id"])
+        ):
+            raise ProtocolError("invalid_params", "Некорректный идентификатор операции сервиса.")
         started = time.monotonic()
         correlation_id = uuid.uuid4().hex
         service = self._service(params)
@@ -1441,11 +1446,15 @@ class AgentDispatcher:
             argv = [*self.compose, *reload_argv]
         elif action == "enable":
             container = CONTAINER_NAMES[service]
-            precommand = self.runner.run(["docker", "update", "--restart=unless-stopped", container], timeout=20)
+            exists = self.runner.run(["docker", "inspect", "--format", "{{.Id}}", container], timeout=10)
+            if exists.returncode == 0:
+                precommand = self.runner.run(["docker", "update", "--restart=unless-stopped", container], timeout=20)
             argv = [*self.compose, "up", "-d", service]
         elif action == "disable":
             container = CONTAINER_NAMES[service]
-            precommand = self.runner.run(["docker", "update", "--restart=no", container], timeout=20)
+            exists = self.runner.run(["docker", "inspect", "--format", "{{.Id}}", container], timeout=10)
+            if exists.returncode == 0:
+                precommand = self.runner.run(["docker", "update", "--restart=no", container], timeout=20)
             argv = [*self.compose, "stop", service]
         else:
             argv = [*self.compose, action, service]

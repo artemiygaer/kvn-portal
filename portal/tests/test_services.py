@@ -142,6 +142,22 @@ class PortalServiceTests(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(len(self.agent.calls), before)
 
+    def test_disabled_service_has_only_enable_toggle_and_keeps_config(self):
+        original = self.agent.call
+        def disabled_status(method, params):
+            if method == "service.status" and params["service"] == "ocserv":
+                return {"service": "ocserv", "active": False, "enabled": False}
+            return original(method, params)
+        self.agent.call = disabled_status
+        page = self.client.get("/gaer/services", headers=self.headers)
+        text = page.data.decode()
+        card = re.search(r'<article[^>]+data-service-name="ocserv.*?</article>', text, re.S).group()
+        self.assertIn('data-service-enabled="false"', card)
+        self.assertIn('value="enable"', card)
+        self.assertNotIn('value="start"', card)
+        self.assertNotIn('value="disable"', card)
+        self.assertIn("Автозапуск выключен", card)
+
     def test_catalog_help_covers_service_cards_and_project_reference(self):
         services = self.client.get("/gaer/services", headers=self.headers)
         self.assertEqual(services.status_code, 200)

@@ -319,6 +319,7 @@ if [ -n "$OFFLINE_RELEASE" ]; then
         python3 -m tools.release_archive extract "$OFFLINE_RELEASE" "$RELEASE_WORK/content" >/dev/null
         docker image load -i "$RELEASE_WORK/content/kvn-vpn-images-linux-amd64.tar"
         python3 -m tools.release_archive verify-loaded "$RELEASE_WORK/content/release-manifest.json" >/dev/null
+        python3 -m tools.release_archive retag-transport "$RELEASE_WORK/content/release-manifest.json" >/dev/null
     )
     SETUP_OFFLINE=1
     ok "Семь release-образов загружены и проверены"

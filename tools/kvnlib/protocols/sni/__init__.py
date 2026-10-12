@@ -14,4 +14,17 @@ def unique_domains(*groups: list[str]) -> list[str]:
                 result.append(domain)
     return result
 
-__all__ = ["reality_alias_allowed", "route_collisions", "unique_domains"]
+def nginx_map_hash_sizes(keys: list[str]) -> tuple[int, int]:
+    """Размеры nginx map для UTF-8 ключей с выравниванием 64-битного hash entry."""
+    bucket = 64
+    longest = max((len(key.encode("utf-8")) for key in keys), default=0)
+    # Значение entry и завершающий NULL-pointer bucket занимают по 8 байт.
+    entry_size = 16 + ((longest + 2 + 7) // 8) * 8
+    while bucket < entry_size:
+        bucket *= 2
+    max_size = 2048
+    while max_size < len(keys) * 2:
+        max_size *= 2
+    return bucket, max_size
+
+__all__ = ["nginx_map_hash_sizes", "reality_alias_allowed", "route_collisions", "unique_domains"]

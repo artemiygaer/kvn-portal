@@ -6,13 +6,13 @@
 
 | Компонент | Было | Стало | Причина |
 |---|---|---|---|
-| Telemt | 3.4.22 | 3.4.24 | ограничение очередей по resident bytes и очистка key schedule; конфиг совместим |
-| Hysteria | v2.9.3 | v2.10.0 | исправления транспорта и зависимостей; существующий server config совместим |
+| Telemt | 3.4.24 | 3.5.14 | исправления Middle-End lifecycle, reload и ограничений пользователей |
+| Hysteria | v2.10.0 | v2.13.0 | исправления QUIC sniffing и актуальный quic-go |
 | Gunicorn | 23.0.0 | 26.0.0 | актуальный стабильный WSGI server; wheel закреплён SHA-256 |
 | Xray | 26.3.27 | без изменения | проверенный Reality baseline; pre-release не принимаются автоматически |
 | mtg | 2.2.8 | без изменения | совместимый стабильный backend |
 | Flask | 3.1.3 | без изменения | текущая стабильная ветка в offline wheelhouse |
-| nginx | 1.31.1-alpine | без изменения | совместим с SNI stream routing и текущими templates |
+| nginx | 1.31.1-alpine | 1.31.6-alpine | актуальный mainline; генератор поддерживает длинные SNI map keys |
 
 ## Матрица ограничений
 
@@ -39,9 +39,9 @@ Portal и gateway вместе ограничены 0.50 CPU, 256 MiB memory и 
 
 ## Пиннинг и release
 
-- Portal base закреплён как `python:3.13-alpine@sha256:399babc…`; проверенный manifest `linux/amd64` — `sha256:c25cd44f…`.
+- Portal base закреплён как `python:3.13-alpine@sha256:2d9aefe…`; используется актуальная CPython 3.13/Alpine база.
 - Base ocserv закреплён полным Debian digest в `ocserv/Dockerfile`.
-- Upstream runtime-образы используют version tags в Compose, потому что `docker image save/load` должен сохранить эти же tags для `update --no-build --pull never`.
+- Upstream runtime-образы используют фиксированные version tags в Compose. Для перехода с v4.0.1 full archive сохраняет старые транспортные aliases; `transport_aliases` в manifest явно связывает их с новыми версиями. Проверка image ID выполняется до `docker image tag`; затем Compose использует реальные новые теги с `--no-build --pull never`.
 - `tools/build-release.sh` принудительно получает `linux/amd64`, а manifest сохраняет image ID и `RepoDigests`; release без digest любого upstream-образа отклоняется.
 - Source-only deploy остаётся fallback и использует version tags. Immutable transport гарантирует полный release, а не online pull source-режима.
 

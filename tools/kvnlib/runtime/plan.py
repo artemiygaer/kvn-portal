@@ -23,7 +23,7 @@ _PRIORITY = {
 
 SERVICE_CAPABILITIES = {
     "nginx": {
-        "version": "nginx:1.31.1-alpine",
+        "version": "nginx:1.31.6-alpine",
         "preferred": "reload",
         "evidence": "nginx HUP: https://nginx.org/en/docs/control.html",
         "fallback": "restart",
@@ -35,13 +35,13 @@ SERVICE_CAPABILITIES = {
         "fallback": "restart",
     },
     "hysteria": {
-        "version": "tobyxdd/hysteria:v2.10.0",
+        "version": "tobyxdd/hysteria:v2.13.0",
         "preferred": "external-http-auth",
         "evidence": "server source принимает SIGTERM, но не SIGHUP; доступны HTTP auth и trafficStats",
         "fallback": "restart",
     },
     "telemt": {
-        "version": "ghcr.io/telemt/telemt:3.4.24",
+        "version": "ghcr.io/telemt/telemt:3.5.14",
         "preferred": "hot-update",
         "evidence": "config watcher/SIGHUP и Control API в официальном репозитории telemt/telemt",
         "fallback": "restart",

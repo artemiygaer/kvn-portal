@@ -1,4 +1,4 @@
-# KVN VPN v4.0.1
+# KVN VPN v4.1.0
 
 Мультипротокольный VPN-стек для Debian 12/13. Основные сервисы запускаются через Compose.
 
@@ -6,12 +6,15 @@ AmneziaWG работает на хосте как systemd-служба `kvn-amne
 
 Поддерживаются VLESS TLS Vision, VLESS Reality xHTTP, VLESS Reality TCP Vision, Hysteria 2, AmneziaWG, стандартный WireGuard, OpenConnect/ocserv, Telemt и mtg FakeTLS.
 
-Runtime-образы закреплены на проверенных версиях: Hysteria `v2.10.0`, Xray `26.3.27`, Telemt `3.4.24`, mtg `2.2.8`. Для ocserv используется закреплённый Debian 13 base с пакетом `1.3.0-2` из stable/security archive; testing/unstable пакеты не подключаются автоматически. Версии, capabilities и writable paths описаны в `CONTAINER_SECURITY.md`.
+Runtime-образы закреплены на проверенных версиях: nginx `1.31.6-alpine`, Hysteria `v2.13.0`, Xray `26.3.27`, Telemt `3.5.14`, mtg `2.2.8`. Python 3.13/Alpine и Debian 13 base обновлены и закреплены digest. Для ocserv используется пакет из Debian stable/security; testing/unstable пакеты не подключаются автоматически. Версии, capabilities и writable paths описаны в `CONTAINER_SECURITY.md`.
 
 Веб-портал управляет пользователями, сервисами, логами, статистикой, сертификатами, диагностикой и аудитом. Привилегированные операции выполняет отдельный host-agent по Unix socket; web-контейнер не получает Docker socket и root-доступ.
 
 ## Изменения релиза
 
+- v4.1.0: на странице «Сервисы» выделена кнопка постоянного включения/отключения, добавлен фильтр отключённых сервисов. Отключение сохраняется после reboot, render, reconcile и update;
+- исправлен nginx `could not build map_hash`: размер hash bucket рассчитывается по длине SNI, включая DNS-имена до 253 символов;
+- обновлены Hysteria, Telemt, nginx и base images; полный release совместим с inspector портала v4.0.1 и обновляется через upload → проверка → отдельный запуск;
 - v4.0.1 восстанавливает отсутствующий DKMS-модуль AmneziaWG для текущего kernel после установки headers;
 - v4.0.0 переводит проект на модульный монолит: core, protocols, exports, runtime, CLI, portal control, host-agent handlers, routes и release имеют явных владельцев и направленные зависимости;
 - добавлены `ARCHITECTURE.md`, локальные module-level `AGENTS.md` и AST-проверка обратных импортов;
@@ -20,7 +23,7 @@ Runtime-образы закреплены на проверенных верси
 - canonical deploy больше не зависит от tracked source-зеркала, а source/full release проходят общую validation policy до mutation;
 
 - исправлено завершение чистой установки после запуска host-agent: генератор `.env` теперь явно импортирует `json`, а исполняемость встроенного Python-блока проверяется тестом;
-- номер продукта хранится отдельно от build ID: портал показывает `v4.0.1`, а GitHub Release с той же версией больше не считается обновлением;
+- номер продукта хранится отдельно от build ID: портал показывает `v4.1.0`, а GitHub Release с той же версией больше не считается обновлением;
 - «Настройки» разделены на группы «Портал и экспорт», «VPN-протоколы», «Доступ» и «Обновление»; открытая группа загружает только свои данные и JavaScript;
 - в группе «Доступ» можно создать обычного системного SSH-пользователя с домашним каталогом и `/bin/bash`; группы `sudo`, `adm` и `wheel` не назначаются;
 - опциональный профиль AmneziaWG 3.1: `HeaderProtectionKey`, S3/S4, content padding и изменяемые тайминги официальных AWG 3.x tools; legacy остаётся default для совместимости;
@@ -70,7 +73,7 @@ ENDPOINT="203.0.113.10"
 DOWNLOAD_DIR="/root/kvn-install-v313"
 PROJECT="/srv/kvn-vpn"
 RELEASE="$DOWNLOAD_DIR/kvn-vpn-release-linux-amd64.tar.gz"
-TAG="v4.0.1"
+TAG="v4.1.0"
 
 if [ -e "$PROJECT" ]; then
   echo "[ОШИБКА] Каталог уже существует: $PROJECT" >&2
@@ -104,7 +107,7 @@ set -euo pipefail
 
 PROJECT="/srv/kvn-vpn"
 WORK="$(mktemp -d /root/kvn-update-v313.XXXXXX)"
-TAG="v4.0.1"
+TAG="v4.1.0"
 trap 'rm -rf "$WORK"' EXIT
 
 curl -fL --retry 3 \
@@ -304,6 +307,28 @@ Docker-образ портала ставит Flask/gunicorn из `portal/wheels
 В стандартном режиме активность загружается при открытии карточки и обновляется не чаще раза в 60 секунд только в видимой вкладке. В облегчённом режиме initial/background request отключён, остаётся кнопка «Обновить». Inline-логи сервиса не загружаются вместе со страницей и не имеют polling: первый запрос выполняется при раскрытии панели, последующие — только кнопкой обновления. Полная страница логов остаётся для фильтрации и скачивания.
 
 `services.*.enabled` — постоянное operator preference. Setup, update, portal apply и reconcile используют один effective service plan: отключённый сервис исключается из Compose profiles/действий и не «оживает» после обновления. Runtime stop без изменения enabled-предпочтения не заменяет постоянное отключение.
+
+### Экономия памяти на небольшом сервере
+
+В «Настройки → Портал и экспорт» выберите облегчённый профиль. На странице
+«Сервисы» нажмите «Отключить сервис» у неиспользуемых VPN-протоколов. Конфиги
+и пользователи сохранятся; кнопка «Остановить» отключает сервис только временно.
+nginx, portal-gateway и host-agent нужны для работы портала — их отключать нельзя.
+
+Для диагностики выполните:
+
+```bash
+free -m
+docker stats --no-stream
+systemctl show kvn-portal-agent.service -p MemoryCurrent -p MemoryPeak
+ps -eo pid,comm,rss --sort=-rss | head -20
+```
+
+В `free` смотрите `available`, а не только `free`: часть кеша освобождается по
+запросу. В htop клавиша `H` скрывает потоки; одинаковые строки dockerd/Telemt
+не означают отдельные копии процесса. Память потоков не суммируется. Docker,
+containerd, shim/proxy и ядро расходуют память сверх `docker stats`; значение
+`MemoryPeak` host-agent — исторический пик, а не постоянное потребление.
 
 ## Пользователи и клиентские файлы
 
@@ -621,6 +646,10 @@ OpenConnect: ответ nginx вместо ocserv означает неверн�
 Прямые порты `2443-2448/tcp` позволяют проверить backend в обход nginx. Если прямое подключение работает, а `443/tcp` нет, проверяйте SNI-карту и логи nginx.
 
 ## Проверка проекта
+
+Полный suite запускается в Linux/WSL: host-agent использует Unix-модули
+`pwd` и проверки ownership. Нативный Windows Python подходит для компиляции и
+чистых render/export-задач, но не заменяет Linux/root-проверки.
 
 ```bash
 python3 -m py_compile tools/kvnctl.py portal/agent.py portal/control.py

@@ -1,6 +1,6 @@
-# Промт для передачи KVN VPN v4.0.1 новому ИИ-агенту
+# Промт для передачи KVN VPN v4.1.0 новому ИИ-агенту
 
-Ты продолжаешь разработку проекта KVN VPN v4.0.1. Работай автономно до проверенного
+Ты продолжаешь разработку проекта KVN VPN v4.1.0. Работай автономно до проверенного
 результата, но не расширяй задачу за пределы запроса пользователя. Отвечай
 по-русски, коротко и по делу. Комментарии, документацию и сообщения интерфейса
 пиши на русском.
@@ -50,7 +50,7 @@ wsl.exe -u root bash -lc "cd '$WslRoot' && python3 -m unittest discover -s tests
 
 ## Архитектура и назначение
 
-KVN VPN v4.0.1 — модульный мультипротокольный VPN-стек для Debian 12/13.
+KVN VPN v4.1.0 — модульный мультипротокольный VPN-стек для Debian 12/13.
 
 Перед задачей открой [ARCHITECTURE.md](ARCHITECTURE.md), выбери строку task-routing и прочитай ближайший module-level `AGENTS.md`. Это минимальный контекст; не загружай legacy implementation целиком без необходимости. После изменения запусти `python3 tools/architecture_check.py`.
 
@@ -122,20 +122,26 @@ KVN VPN v4.0.1 — модульный мультипротокольный VPN-�
 
 ## Статус на момент передачи
 
-Проверенный кандидат v4.0.1 от 29.08.2026:
+Проверенный релиз v4.1.0 от 12.10.2026; обновление протестировано из опубликованного v4.0.1:
 
-- 422 из 422 тестов проекта прошли локально, 5 platform-only проверок пропущены;
-- 104 portal tests прошли локально и в Docker test image, 1 host-agent проверка пропущена;
-- deploy runtime E2E прошёл;
+- 428 тестов проекта прошли в Linux/WSL от root; suite: OK без пропусков;
+- suite портала: 105 tests локально и в Docker test image, OK (skipped=1);
+- deploy runtime E2E прошёл в IP-режиме без DNS;
+- `tests/portal_upgrade_e2e.py` проверил настоящий HTTPS upload/ready/start,
+  старый agent/updater, новый Compose и сохранение state/certs/disabled ocserv
+  в отдельном Docker daemon. Systemd заменён узким тестовым shim; настоящий
+  Debian systemd/AWG kernel lifecycle локально не проверяется;
+- nginx -t прошёл с SNI длиной 253 байта; новые Telemt/Hysteria/Xray запущены;
 - Bash syntax, Compose config, compileall, docs checker и source safety прошли;
 - чистая установка AWG 3.1 проверяет реальные возможности официальных
   `amneziawg-tools v3.0.20260805` и не требует отсутствующий `RandomTrailers`;
 - встроенный Python-блок генерации `.env` в `setup.sh` компилируется тестом и
   содержит явный `import json`;
 - full release: `linux/amd64`, семь runtime images, build ID
-  `20260829-v4.0.1-release1`, version `v4.0.1`;
-- source/full archives проверены реальным host-agent inspector и безопасным
-  scheduling path без выполнения update в рабочем каталоге.
+  `20261012-v4.1.0-release1`, version `v4.1.0`;
+- inspector v4.0.1 принимает source/full archives без bootstrap; три
+  transport alias восстанавливаются только после image-ID verify. Версии могут
+  обновляться дальше, но repository и синтаксис tag ограничены allowlist.
 
 Актуальные SHA-256 deploy/full release находятся рядом с артефактами в
 `SHA256SUMS` и дублируются в `publication-manifest.json`. Не переносите SHA
@@ -229,7 +235,7 @@ if ($PythonCommand) {
 & $Python @PythonArgs -m compileall -q portal tools
 & $Python @PythonArgs tools\docs_check.py
 & $Python @PythonArgs tools\source_safety.py --mode worktree
-& $Python @PythonArgs -m unittest discover -s tests -v
+# Полный suite — в WSL: host-agent использует Unix-модули pwd/ownership.
 
 $GitExe = (Get-Command git.exe -ErrorAction Stop).Source
 $GitRoot = Split-Path (Split-Path $GitExe -Parent) -Parent
@@ -251,7 +257,7 @@ Linux/root suite:
 $ProjectRoot = (Resolve-Path .).Path
 $PortableRoot = $ProjectRoot.Replace('\', '/')
 $WslRoot = (wsl.exe wslpath -a -u $PortableRoot).Trim()
-wsl.exe -u root bash -lc "cd '$WslRoot' && PYTHONIOENCODING=utf-8 python3 -m unittest discover -s tests -v"
+wsl.exe -u root bash -lc "cd '$WslRoot' && GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='$WslRoot' PYTHONIOENCODING=utf-8 python3 -m unittest discover -s tests -v"
 ```
 
 Сборка выполняется только после проверок и только когда действительно нужны

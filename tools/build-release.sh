@@ -89,14 +89,20 @@ fi
 
 if [ "$OFFLINE" = "0" ]; then
   for ref in \
-    "nginx:1.31.1-alpine" \
-    "ghcr.io/telemt/telemt:3.4.24" \
+    "nginx:1.31.6-alpine" \
+    "ghcr.io/telemt/telemt:3.5.14" \
     "nineseconds/mtg:2.2.8" \
-    "tobyxdd/hysteria:v2.10.0" \
+    "tobyxdd/hysteria:v2.13.0" \
     "ghcr.io/xtls/xray-core:26.3.27"; do
     docker pull --platform linux/amd64 "$ref"
   done
 fi
+
+# Транспортный контракт v4.0.1 фиксирует старые теги. Экспортируем актуальные
+# бинарники под совместимыми alias; manifest и updater сохраняют реальные версии.
+docker image tag nginx:1.31.6-alpine nginx:1.31.1-alpine
+docker image tag ghcr.io/telemt/telemt:3.5.14 ghcr.io/telemt/telemt:3.4.24
+docker image tag tobyxdd/hysteria:v2.13.0 tobyxdd/hysteria:v2.10.0
 
 printf '%s\n' "${refs[@]}" > "$REFS_FILE"
 docker image inspect "${refs[@]}" > "$RAW_METADATA"

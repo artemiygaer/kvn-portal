@@ -271,6 +271,15 @@ fi
 
 chmod 755 setup.sh update.sh tools/*.sh amneziawg/*.sh wireguard/*.sh ocserv/*.sh portal/*.sh 2>/dev/null || true
 
+if [ "${KVN_UPDATE_OFFLINE:-0}" = "1" ]; then
+    TRANSPORT_MANIFEST="${KVN_UPDATE_WORKER_DIR:-}/release/release-manifest.json"
+    if [ ! -f "$TRANSPORT_MANIFEST" ]; then
+        echo "[ОШИБКА] Не найден проверенный manifest offline release" >&2
+        exit 1
+    fi
+    python3 -m tools.release_archive retag-transport "$TRANSPORT_MANIFEST" >/dev/null
+fi
+
 EFFECTIVE_DOCKER_SERVICES=()
 DISABLED_DOCKER_SERVICES=()
 EFFECTIVE_HOST_SERVICES=()

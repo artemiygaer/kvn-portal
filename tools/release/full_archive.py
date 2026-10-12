@@ -32,6 +32,23 @@ EXPECTED_IMAGE_REFS = (
     "kvn-ocserv:local",
     "ghcr.io/xtls/xray-core:26.3.27",
 )
+# Транспортные теги остаются совместимыми с inspector v4.0.1. Бинарники и их
+# настоящие runtime-теги описаны явно; updater восстанавливает теги до Compose.
+TRANSPORT_ALIASES = {
+    "nginx:1.31.1-alpine": "nginx:1.31.6-alpine",
+    "ghcr.io/telemt/telemt:3.4.24": "ghcr.io/telemt/telemt:3.5.14",
+    "tobyxdd/hysteria:v2.10.0": "tobyxdd/hysteria:v2.13.0",
+}
+# Версии могут меняться в следующих релизах без обновления старого inspector.
+# Репозитории и синтаксис pinned tags остаются жёстко ограниченными.
+TRANSPORT_TAG_PATTERNS = {
+    "nginx:1.31.1-alpine": r"nginx:\d+\.\d+\.\d+-alpine",
+    "ghcr.io/telemt/telemt:3.4.24": r"ghcr\.io/telemt/telemt:\d+\.\d+\.\d+",
+    "tobyxdd/hysteria:v2.10.0": r"tobyxdd/hysteria:v\d+\.\d+\.\d+",
+    "nineseconds/mtg:2.2.8": r"nineseconds/mtg:\d+\.\d+\.\d+",
+    "ghcr.io/xtls/xray-core:26.3.27": r"ghcr\.io/xtls/xray-core:\d+\.\d+\.\d+",
+}
+RUNTIME_IMAGE_REFS = tuple(TRANSPORT_ALIASES.get(ref, ref) for ref in EXPECTED_IMAGE_REFS)
 MAX_RELEASE_BYTES = 2 * 1024 * 1024 * 1024
 MAX_IMAGES_BYTES = 1792 * 1024 * 1024
 MAX_SOURCE_BYTES = 128 * 1024 * 1024
@@ -43,6 +60,17 @@ REPO_DIGEST_RE = re.compile(r"^[^@\s]+@sha256:[0-9a-f]{64}$")
 
 class ReleaseValidationError(ValueError):
     """Релиз не соответствует безопасному офлайн-формату KVN."""
+
+
+def _validate_transport_aliases(value: object) -> dict[str, str]:
+    if not isinstance(value, dict) or any(
+        source not in TRANSPORT_TAG_PATTERNS
+        or not isinstance(destination, str)
+        or re.fullmatch(TRANSPORT_TAG_PATTERNS[source], destination, flags=re.ASCII) is None
+        for source, destination in value.items()
+    ):
+        raise ReleaseValidationError("transport manifest содержит неизвестные runtime-теги")
+    return value
 
 
 def sha256_file(path: Path) -> str:
@@ -103,6 +131,8 @@ def build_manifest(
     }
     if version is not None:
         manifest["version"] = version
+        if tuple(int(part) for part in version[1:].split(".")) >= (4, 1, 0):
+            manifest["transport_aliases"] = TRANSPORT_ALIASES
     return manifest
 
 
@@ -282,6 +312,7 @@ def validate_release(path: Path) -> dict:
             refs = [item.get("ref") for item in items if isinstance(item, dict)]
             if refs != list(EXPECTED_IMAGE_REFS):
                 raise ReleaseValidationError(f"неверный список image refs: {refs}")
+            _validate_transport_aliases(manifest.get("transport_aliases", {}))
             for item in items:
                 if item.get("platform") != PLATFORM or not IMAGE_ID_RE.fullmatch(str(item.get("id", ""))):
                     raise ReleaseValidationError(f"неверные metadata образа: {item.get('ref', '')}")
@@ -440,6 +471,25 @@ def _load_metadata(path: Path) -> list[dict]:
     return value
 
 
+def retag_transport_images(manifest_path: Path) -> list[str]:
+    """Восстанавливает фиксированные runtime-теги после проверенного docker load."""
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ReleaseValidationError("transport manifest не читается") from exc
+    aliases = _validate_transport_aliases(manifest.get("transport_aliases", {}))
+    if not aliases:
+        return []
+    verify_loaded_images(manifest_path)
+    restored = []
+    for source, destination in aliases.items():
+        result = subprocess.run(["docker", "image", "tag", source, destination], check=False, capture_output=True)
+        if result.returncode:
+            raise ReleaseValidationError(f"не удалось восстановить runtime-тег: {destination}")
+        restored.append(destination)
+    return restored
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Сборка и проверка офлайн-релиза KVN")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -459,6 +509,8 @@ def main() -> int:
     extract.add_argument("target", type=Path)
     verify = subparsers.add_parser("verify-loaded")
     verify.add_argument("manifest", type=Path)
+    retag = subparsers.add_parser("retag-transport")
+    retag.add_argument("manifest", type=Path)
     args = parser.parse_args()
     try:
         if args.command == "create":
@@ -477,6 +529,8 @@ def main() -> int:
             manifest = {"normalized": args.archive.name, "sha256": sha256_file(args.archive)}
         elif args.command == "extract":
             manifest = extract_release(args.release, args.target)
+        elif args.command == "retag-transport":
+            manifest = {"retagged": retag_transport_images(args.manifest)}
         else:
             manifest = {"verified": verify_loaded_images(args.manifest)}
         sys.stdout.write(json.dumps(manifest, ensure_ascii=False, sort_keys=True) + "\n")

@@ -87,6 +87,14 @@ class ProxyGoldenTests(unittest.TestCase):
                 kvnctl.HY2_CONFIG = original
 
 class SniPackageTests(unittest.TestCase):
+    def test_nginx_hash_handles_maximum_dns_name_and_large_route_pool(self):
+        maximum_domain = ".".join(["a" * 63, "b" * 63, "c" * 63, "d" * 61])
+        self.assertEqual(len(maximum_domain), 253)
+        self.assertEqual(sni.nginx_map_hash_sizes(["1:" + maximum_domain]), (512, 2048))
+        self.assertEqual(sni.nginx_map_hash_sizes(["1:example.com"]), (64, 2048))
+        self.assertEqual(sni.nginx_map_hash_sizes(["1:" + "a" * 45]), (128, 2048))
+        self.assertEqual(sni.nginx_map_hash_sizes([str(i) for i in range(3000)]), (64, 8192))
+
     def test_collision_and_reality_alias_behavior(self):
         routes = {"a.example": [("tls", "xray:443"), ("mtg", "mtg:3128")], "b.example": [("x", "same"), ("y", "same")]}
         self.assertEqual(set(sni.route_collisions(routes)), {"a.example"})

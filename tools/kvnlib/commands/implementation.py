@@ -3582,6 +3582,7 @@ def render_nginx(state: dict) -> None:
             continue
         tcp_map_lines.append(f'        "{m.group(1)}"    {backend_names[m.group(2)]};')
     tcp_map_lines.append(f"        default    {backend_names[default_backend]};")
+    map_bucket_size, map_max_size = sni_protocol.nginx_map_hash_sizes(list(seen))
 
     nginx_conf = f"""worker_processes auto;
 worker_rlimit_nofile 262144;
@@ -3599,6 +3600,8 @@ events {{
 http {{
     include /etc/nginx/mime.types;
     default_type application/octet-stream;
+    map_hash_bucket_size {map_bucket_size};
+    map_hash_max_size {map_max_size};
     resolver 127.0.0.11 valid=10s ipv6=off;
 
     sendfile on;
@@ -3644,6 +3647,8 @@ http {{
 
 # STREAM-блок: L4-проксирование VPN/прокси трафика.
 stream {{
+    map_hash_bucket_size {map_bucket_size};
+    map_hash_max_size {map_max_size};
     resolver 127.0.0.11 valid=10s ipv6=off;
     resolver_timeout 2s;
     preread_buffer_size 16k;

@@ -1,5 +1,13 @@
 # Заметки об обновлении KVN Portal
 
+## v4.1.0 — 12.10.2026
+
+- Отдельное постоянное включение/отключение сервисов в портале; выключенные сервисы не запускаются после reboot/update. Включение отсутствующего контейнера создаёт его через Compose.
+- Исправлен RPC-контракт `service.action`: передаваемый порталом `request_id` больше не отклоняется registry. Проверяется реальный HTTP → RPC путь.
+- Генератор nginx рассчитывает `map_hash_bucket_size` и `map_hash_max_size` по SNI, устраняя `could not build map_hash`.
+- nginx 1.31.6, Hysteria 2.13.0, Telemt 3.5.14; обновлены digest Python/Alpine и Debian base. Xray 26.3.27 и mtg 2.2.8 остаются актуальными stable.
+- Full release сохраняет транспортный контракт v4.0.1. Manifest содержит реальные runtime-теги и image ID; updater восстанавливает новые теги перед Compose. Старый портал принимает архив без bootstrap по SSH.
+
 ## v4.0.1 — 29.08.2026
 
 - Установщик AmneziaWG явно выполняет DKMS-сборку для текущего `uname -r`, если пакет установлен, а kernel-модуль отсутствует.
