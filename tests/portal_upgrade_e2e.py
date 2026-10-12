@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Реальное обновление опубликованного v4.0.1 через HTTPS-портал в отдельном Docker daemon."""
+"""Обновление опубликованного baseline через HTTPS upload/GitHub в отдельном Docker daemon."""
 
 import argparse
 import hashlib
@@ -20,6 +20,8 @@ from urllib.parse import urlencode
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE_SHA = "a26816589796c3a32e4a9d6777b9993ae3c5ddc745c9d4eea8b5609665b7073b"
 BASELINE_URL = "https://github.com/artemiygaer/kvn-portal/releases/download/v4.0.1/kvn-vpn-release-linux-amd64.tar.gz"
+BASELINES = {"v4.0.1":BASELINE_SHA,
+             "v4.1.0":"801a0deb92fa08ae91fe25ba7355263ffe20e6a45a8f19e81e143f024d0038a7"}
 NAME = "kvn-portal-upgrade-e2e"
 LOGIN_PASSWORD = "UpgradePortal-Test-2026"
 ROOT_PASSWORD = "UpgradeRoot-Test-2026"
@@ -82,8 +84,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--release", type=Path, default=ROOT / "kvn-vpn-release-linux-amd64.tar.gz")
     parser.add_argument("--baseline", type=Path)
+    parser.add_argument("--baseline-version", choices=tuple(BASELINES), default="v4.0.1")
+    parser.add_argument("--github", action="store_true", help="Скачать опубликованный release через старый портал")
     parser.add_argument("--keep", action="store_true")
     args = parser.parse_args()
+    with tarfile.open(args.release) as handle:
+        target_manifest=json.load(handle.extractfile('release-manifest.json'))
+    target_version=target_manifest['version']
     work = Path(tempfile.mkdtemp(prefix="kvn-portal-upgrade-"))
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0)); port = listener.getsockname()[1]
@@ -91,9 +98,10 @@ def main():
     project = work / "project"
     baseline = args.baseline or work / "baseline.tar.gz"
     if not args.baseline:
-        run(["curl", "-fL", "--retry", "3", BASELINE_URL, "-o", str(baseline)])
-    if hashlib.sha256(baseline.read_bytes()).hexdigest() != BASELINE_SHA:
-        raise RuntimeError("SHA-256 опубликованной v4.0.1 не совпадает")
+        url=BASELINE_URL.replace('/v4.0.1/',f'/{args.baseline_version}/')
+        run(["curl", "-fL", "--retry", "3", url, "-o", str(baseline)])
+    if hashlib.sha256(baseline.read_bytes()).hexdigest() != BASELINES[args.baseline_version]:
+        raise RuntimeError("SHA-256 опубликованного baseline не совпадает")
     seed = work / "seed"; seed.mkdir()
     extract(baseline, seed); extract(seed / "kvn-vpn-deploy.tar.gz", work)
     (work / "deploy").rename(project)
@@ -106,7 +114,7 @@ state=json.loads(open('/project/users.json').read())
 state['server']='1.1.1.1'
 state['ocserv']={'enabled':True,'sni_enabled':True,'sni':'oc.example.test'}
 state['services']={name:{'enabled':False} for name in ['xray','hysteria','telemt','mtg','amneziawg','wireguard']}
-state['services'].update({name:{'enabled':True} for name in ['nginx','portal','agent','ocserv']})
+state['services'].update({name:{'enabled':True} for name in ['nginx','portal','agent','ocserv','xray']})
 state['portal']={'enabled':True,'name':'Upgrade E2E','domain':'1.1.1.1','port':8443,'path':'/gaer',
     'login':'admin','password_hash':hash_password('UpgradePortal-Test-2026'),
     'proxy_secret':'b'*64,'hysteria_secret':'c'*64,'allow_self_signed_ip':True,
@@ -124,11 +132,12 @@ open('/project/.env','w').write('KVN_PORTAL_GID=12345\\nKVN_PORTAL_PORT=8443\\nC
     dind, agent = NAME + "-docker", NAME + "-agent"
     def agent_run(*command, input=None):
         return run(["docker", "exec", "-i", agent, *command], input=input)
-    def request(method, path, *, data=None, cookie="", upload=None):
+    def request(method, path, *, data=None, cookie="", upload=None, json_response=False):
         connection = http.client.HTTPSConnection("127.0.0.1", port, timeout=600,
                                                 context=ssl._create_unverified_context())
         headers = {"Host":"1.1.1.1", "User-Agent":"KVN-Portal-Upgrade-E2E"}
         if cookie: headers["Cookie"] = cookie
+        if json_response: headers["Accept"] = "application/json"
         body = urlencode(data).encode() if data else None
         if data: headers["Content-Type"] = "application/x-www-form-urlencoded"
         if upload:
@@ -139,6 +148,20 @@ open('/project/.env','w').write('KVN_PORTAL_GID=12345\\nKVN_PORTAL_PORT=8443\\nC
         else: connection.request(method,path,body=body,headers=headers)
         response = connection.getresponse(); content=response.read().decode(errors="replace")
         result=(response.status,dict(response.getheaders()),content); connection.close(); return result
+    def github_check(cookie, expected_installed):
+        status,_,page=request("GET","/gaer/settings?group=update",cookie=cookie)
+        if status!=200: raise RuntimeError("Настройки обновления недоступны")
+        status,_,text=request("POST","/gaer/settings/update/github/check",cookie=cookie,
+                              data={"csrf_token":csrf(page)},json_response=True)
+        if status!=200: raise RuntimeError("Проверка GitHub отклонена: "+text)
+        result=json.loads(text)
+        release=result.get("release",{})
+        expected_sha=hashlib.sha256(args.release.read_bytes()).hexdigest()
+        if (result.get("ok") is not True or release.get("tag")!=target_version
+                or release.get("up_to_date") is not expected_installed
+                or release.get("asset",{}).get("sha256")!=expected_sha):
+            raise RuntimeError("GitHub metadata не совпали с целевым release: "+text)
+        return release
     def wait_portal(version):
         deadline=time.monotonic()+180
         while time.monotonic()<deadline:
@@ -167,7 +190,7 @@ open('/project/.env','w').write('KVN_PORTAL_GID=12345\\nKVN_PORTAL_PORT=8443\\nC
             detail = re.sub('<[^>]+>',' ',main.group(1) if main else text[:2500])
             raise RuntimeError(f"Переключение {service} HTTP {status}: "+detail.strip()[:2500])
     try:
-        print("[INFO] Поднимаю опубликованный baseline v4.0.1 в изолированном Docker daemon",flush=True)
+        print(f"[INFO] Поднимаю опубликованный baseline {args.baseline_version} в изолированном Docker daemon",flush=True)
         run(["docker","build","-f",str(ROOT/'tests/portal-upgrade-agent.Dockerfile'),"-t",NAME+"-host",str(ROOT)])
         run(["docker","network","create",network])
         for volume in volumes: run(["docker","volume","create",volume])
@@ -189,22 +212,44 @@ open('/project/.env','w').write('KVN_PORTAL_GID=12345\\nKVN_PORTAL_PORT=8443\\nC
         agent_run("chpasswd",input="root:"+ROOT_PASSWORD+"\n")
         agent_run("bash","-ceu","mkdir -p site-certs; openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj /CN=1.1.1.1 -addext subjectAltName=IP:1.1.1.1 -keyout site-certs/server.key -out site-certs/server.crt >/dev/null 2>&1; python3 tools/kvnctl.py render; bash portal/install-host-agent.sh")
         agent_run("docker","image","load","-i","/seed/kvn-vpn-images-linux-amd64.tar")
-        agent_run("docker","compose","--profile","portal","--profile","portal-custom","up","-d","--no-build","--pull","never","nginx","portal","portal-gateway","ocserv")
-        cookie=login("v4.0.1")
+        if args.baseline_version != "v4.0.1":
+            # Реальные setup/update восстанавливают runtime-теги после проверенного load.
+            agent_run("python3","-m","tools.release_archive","retag-transport","/seed/release-manifest.json")
+        agent_run("docker","compose","--profile","portal","--profile","portal-custom","up","-d","--no-build","--pull","never","nginx","portal","portal-gateway","ocserv","xray")
+        cookie=login(args.baseline_version)
         # В опубликованном v4.0.1 route передаёт request_id, который его registry
         # ещё не допускает. Подготовка persistent-состояния выполняется через
         # старый allowlisted RPC без этого поля; portal update остаётся реальным.
         agent_run("python3","-c","from portal.agent_client import AgentClient; from pathlib import Path; c=AgentClient(Path('/run/kvn-portal/control.sock'),Path('/etc/kvn-portal/agent.secret').read_text().strip()); r=c.call('service.action',{'service':'ocserv','action':'disable'}); assert r['ok']")
         agent_run("python3","-c","import json; from tools.kvnctl import STATE_STORE; state=STATE_STORE.load(); state['sni_routes']['reality-tcp']['aliases'].append('.'.join(['a'*63,'b'*63,'c'*63,'d'*61])); STATE_STORE.save(state)")
+        if args.github:
+            agent_run("python3","tools/kvnctl.py","updates","configure","--enable","true",
+                      "--channel","stable","--asset-preference","release","--clear-token")
+        # Baseline должен уже применять сохранённый длинный alias: сравниваем
+        # рабочий config, а не несогласованный state до первоначального render.
+        agent_run("python3","tools/kvnctl.py","render")
+        agent_run("docker","compose","restart","xray")
         before=json.loads(agent_run("python3","-c","import json; print(json.dumps(json.load(open('users.json'))))"))
         certificate=agent_run("sha256sum","site-certs/server.crt").split()[0]
-        print("[OK] Опубликованный v4.0.1 запущен; persistent ocserv=false задан старым allowlisted RPC",flush=True)
-        status,_,page=request("GET","/gaer/settings?group=update",cookie=cookie)
-        status,_,text=request("POST","/gaer/settings/update/prepare",cookie=cookie,
-                              data={"csrf_token":csrf(page)},upload=args.release)
+        external_config=agent_run("sha256sum","xray/config.json").split()[0]
+        external_links=agent_run("sha256sum","clients/UpgradeUser/links.txt").split()[0]
+        external_started=agent_run("docker","inspect","--format","{{.State.StartedAt}}","xray").strip()
+        print(f"[OK] Опубликованный {args.baseline_version} запущен; persistent ocserv=false задан allowlisted RPC",flush=True)
+        if args.github:
+            release=github_check(cookie,False)
+            print(f"[OK] {args.baseline_version} видит новое обновление {target_version} на public GitHub",flush=True)
+            status,_,page=request("GET","/gaer/settings?group=update",cookie=cookie)
+            status,_,text=request("POST","/gaer/settings/update/github/prepare",cookie=cookie,
+                                  data={"csrf_token":csrf(page),"release_id":release["release_id"],
+                                        "asset_id":release["asset"]["id"],"asset_sha256":release["asset"]["sha256"]},
+                                  json_response=True)
+        else:
+            status,_,page=request("GET","/gaer/settings?group=update",cookie=cookie)
+            status,_,text=request("POST","/gaer/settings/update/prepare",cookie=cookie,
+                                  data={"csrf_token":csrf(page)},upload=args.release)
         if status!=201: raise RuntimeError("Старый портал отклонил архив: "+text)
         prepared=json.loads(text)
-        print("[OK] v4.0.1 загрузил и проверил full release; ready",flush=True)
+        print(f"[OK] {args.baseline_version} загрузил и проверил full release; ready",flush=True)
         status,_,page=request("GET","/gaer/settings?group=update",cookie=cookie)
         token=re.search(r'name="prepared_id" value="([^"]+)"',page).group(1)
         status,_,text=request("POST","/gaer/settings/update/start",cookie=cookie,
@@ -218,15 +263,36 @@ open('/project/.env','w').write('KVN_PORTAL_GID=12345\\nKVN_PORTAL_PORT=8443\\nC
                 break
             time.sleep(1)
         else: raise RuntimeError("Updater не завершился: "+log[-10000:])
-        cookie=login("v4.1.0")
-        print("[OK] Updater завершился; портал v4.1.0 доступен",flush=True)
+        cookie=login(target_version)
+        if agent_run('docker','exec','kvn-portal','printenv','KVN_BUILD_ID').strip()!=target_manifest['build_id']:
+            raise RuntimeError('Портал не переключился на целевой build ID')
+        print(f"[OK] Updater завершился; портал {target_manifest['build_id']} доступен",flush=True)
+        if args.github:
+            github_check(cookie,True)
+            print("[OK] После GitHub update портал считает текущий release актуальным",flush=True)
         after=json.loads(agent_run("python3","-c","import json; print(json.dumps(json.load(open('users.json'))))"))
         for key in ('users','portal'):
             if after[key]!=before[key]: raise RuntimeError("Обновление изменило state: "+key)
         if agent_run("sha256sum","site-certs/server.crt").split()[0]!=certificate: raise RuntimeError("Изменился сертификат")
+        if agent_run("sha256sum","xray/config.json").split()[0]!=external_config:
+            raise RuntimeError("Обновление изменило действующий внешний Reality config")
+        if agent_run("sha256sum","clients/UpgradeUser/links.txt").split()[0]!=external_links:
+            raise RuntimeError("Обновление изменило прежние клиентские ссылки")
         if after['services']['ocserv']['enabled'] is not False: raise RuntimeError("ocserv включился после update")
         running=agent_run("docker","compose","ps","--status","running","--services")
         if 'ocserv' in running: raise RuntimeError("Отключённый ocserv запущен")
+        if 'xray' not in running.splitlines(): raise RuntimeError("Прежний внешний Reality не запущен")
+        if agent_run("docker","inspect","--format","{{.State.StartedAt}}","xray").strip()!=external_started:
+            raise RuntimeError("Обновление перезапустило прежний внешний Reality")
+        print("[OK] Внешний Reality остался запущен, config и клиентские ссылки не изменились",flush=True)
+        status,_,page=request("GET","/gaer/settings?group=protocols",cookie=cookie)
+        status,_,text=request("POST","/gaer/settings",cookie=cookie,data={"csrf_token":csrf(page),
+            "action":"reality_mode","system":"reality-tcp","mode":"external","sni":"apple.com",
+            "revision":re.search(r'name="revision" value="([^"]+)"',page).group(1)})
+        if status!=200 or "Режим Reality уже выбран." not in text:
+            raise RuntimeError("Повторное применение внешнего режима не было no-op")
+        if agent_run("sha256sum","xray/config.json").split()[0]!=external_config:
+            raise RuntimeError("No-op внешнего режима изменил config")
         agent_run("docker","compose","exec","-T","nginx","nginx","-t")
         print("[OK] nginx -t: SNI длиной 253 байта; state/certs и отключённый ocserv сохранены",flush=True)
         toggle(cookie,"enable")
@@ -242,7 +308,8 @@ open('/project/.env','w').write('KVN_PORTAL_GID=12345\\nKVN_PORTAL_PORT=8443\\nC
         print("[OK] Новые Telemt/Hysteria/Xray запущены с generated-конфигами",flush=True)
         for service in ("telemt","hysteria","xray"):
             toggle(cookie,"disable",service)
-        print("[OK] PORTAL_UPGRADE_E2E: v4.0.1 → v4.1.0, реальные HTTPS upload/ready/start/Compose, сохранение state/certs, ocserv disable/enable",flush=True)
+        source="GitHub download" if args.github else "upload"
+        print(f"[OK] PORTAL_UPGRADE_E2E: {args.baseline_version} → {target_manifest['build_id']}, реальные HTTPS {source}/ready/start/Compose, сохранение state/certs, ocserv disable/enable",flush=True)
     finally:
         if args.keep:
             print(f"[INFO] Стенд сохранён: {work}, https://127.0.0.1:{port}/gaer/")

@@ -905,10 +905,17 @@ def validate_sni_uniqueness(state: dict) -> None:
     routes = get_sni_routes(state)
     fatal_errors: list[str] = []
     domain_to_routes: dict[str, list[tuple[str, str]]] = {}
+    site_snis = site_domains(state)
     for sys_name in NGINX_ROUTED_SYSTEMS:
         route = routes.get(sys_name, {})
         if not isinstance(route, dict):
             continue
+        if sys_name in {"reality-tcp", "reality-xhttp"}:
+            try:
+                mode = xray_protocol.reality_mode(route)
+                xray_protocol.reality_target(route.get("default", DEFAULT_SNIS[sys_name]), site_snis, mode)
+            except ValueError as exc:
+                raise SystemExit(str(exc)) from exc
         dest = route.get("dest", "")
         domains = set(route.get("aliases", []))
         if route.get("default"):
@@ -929,14 +936,14 @@ def validate_sni_uniqueness(state: dict) -> None:
             fatal_errors.append("ocserv включён, но ocserv.sni не задан")
             err("ocserv включён, но ocserv.sni не задан")
         else:
-            domain_to_routes.setdefault(sni, []).append(("ocserv", "ocserv:443"))
+            if sni not in site_snis:
+                domain_to_routes.setdefault(sni, []).append(("ocserv", "ocserv:443"))
         for front_sni in ocserv_front_snis(state):
-            domain_to_routes.setdefault(front_sni, []).append(("ocserv-front", "ocserv:443"))
-    site_snis = site_domains(state)
-    ocserv_primary_sni = ocserv_sni(state)
+            if front_sni not in site_snis:
+                domain_to_routes.setdefault(front_sni, []).append(("ocserv-front", "ocserv:443"))
     for site_sni in site_snis:
-        if site_sni != ocserv_primary_sni:
-            domain_to_routes.setdefault(site_sni, []).append(("site", "127.0.0.1:8443"))
+        destination = sni_protocol.site_route_destination(site_sni, site_snis, routes)
+        domain_to_routes.setdefault(site_sni, []).append(("site", destination))
     # Плюс пользовательские оверрайды
     for user in state.get("users", []):
         for sys_name, dom in user.get("sni_overrides", {}).items():
@@ -1483,6 +1490,8 @@ def xhttp_mode(state: dict) -> str:
 
 def reality_xhttp_server_names(state: dict) -> list[str]:
     """Широкий список serverNames для Reality xHTTP, отдельно от nginx map."""
+    if xray_protocol.reality_mode(get_sni_routes(state).get("reality-xhttp", {})) == "self-steal":
+        return [name for name in route_server_names(state, "reality-xhttp") if name in site_domains(state)]
     names = xray_config_state(state).get("reality_xhttp_server_names", REALITY_XHTTP_COMPAT_SNIS)
     result: list[str] = []
     for name in names:
@@ -1496,6 +1505,7 @@ def all_sni_aliases(state: dict) -> dict[str, str]:
     Возвращает {sni_domain: "service:port"}"""
     routes = get_sni_routes(state)
     mapping: dict[str, str] = {}
+    site_snis = site_domains(state)
 
     def put(sni: str, dest: str) -> None:
         if not sni or not dest:
@@ -1546,14 +1556,14 @@ def all_sni_aliases(state: dict) -> dict[str, str]:
     oc_cfg = ocserv_config(state)
     if oc_cfg.get("enabled") and oc_cfg.get("sni_enabled"):
         oc_sni = ocserv_sni(state)
-        if oc_sni:
+        if oc_sni and oc_sni not in site_snis:
             put(oc_sni, "ocserv:443")
         for front_sni in ocserv_front_snis(state):
-            put(front_sni, "ocserv:443")
+            if front_sni not in site_snis:
+                put(front_sni, "ocserv:443")
 
-    for site_sni in site_domains(state):
-        if site_sni and site_sni != oc_sni:
-            put(site_sni, "127.0.0.1:8443")
+    for site_sni in site_snis:
+        put(site_sni, sni_protocol.site_route_destination(site_sni, site_snis, routes))
 
     return mapping
 
@@ -2125,7 +2135,10 @@ def ocserv_front_snis(state: dict) -> list[str]:
     return list(cfg.get("front_snis", []))
 
 
-def ocserv_public_tcp_port(state: dict) -> int:
+def ocserv_public_tcp_port(state: dict, sni: str | None = None) -> int:
+    # Общий web SNI остаётся сайту/Reality; OpenConnect использует прямой backend.
+    if (ocserv_sni(state) if sni is None else sni) in site_domains(state):
+        return DIRECT_PORTS["ocserv"]
     return int(ocserv_config(state).get("tcp_port", 443))
 
 
@@ -3348,6 +3361,7 @@ def decoy_server_block(state: dict) -> str:
     # Внешний порт не публикуется: stream-прокси отправляет сюда нужные SNI.
     server {
         listen 8443 ssl;
+        http2 on;
         client_max_body_size 2g;
         ssl_certificate /etc/nginx/certs/server.crt;
         ssl_certificate_key /etc/nginx/certs/server.key;
@@ -3751,7 +3765,7 @@ def default_xray_config(state: dict) -> dict:
                     "security": "reality",
                     "realitySettings": {
                         "show": False,
-                        "target": f"{xhttp_sni}:443",
+                        "target": xray_protocol.reality_target(xhttp_sni, site_domains(state), xray_protocol.reality_mode(get_sni_routes(state).get("reality-xhttp", {}))),
                         "serverNames": reality_xhttp_server_names(state),
                         "fingerprint": "chrome",
                     },
@@ -3773,7 +3787,7 @@ def default_xray_config(state: dict) -> dict:
                     "security": "reality",
                     "realitySettings": {
                         "show": False,
-                        "target": f"{tcp_sni}:443",
+                        "target": xray_protocol.reality_target(tcp_sni, site_domains(state), xray_protocol.reality_mode(get_sni_routes(state).get("reality-tcp", {}))),
                         "serverNames": route_server_names(state, "reality-tcp") or [tcp_sni],
                         "fingerprint": "chrome",
                     },
@@ -3849,6 +3863,10 @@ def render_xray(state: dict) -> None:
     tls_inbound = ensure_inbound(config, TLS_INBOUND_TAG)
     xhttp_inbound = ensure_inbound(config, REALITY_XHTTP_INBOUND_TAG)
     tcp_inbound = ensure_reality_tcp_inbound(config, state)
+    previous_covers = {
+        system: {f"{name}:443" for name in inbound.get("streamSettings", {}).get("realitySettings", {}).get("serverNames", [])}
+        for system, inbound in (("reality-xhttp", xhttp_inbound), ("reality-tcp", tcp_inbound))
+    }
 
     tls_inbound["settings"]["clients"] = tls_clients
     xhttp_inbound["settings"]["clients"] = reality_xhttp_clients
@@ -3896,13 +3914,21 @@ def render_xray(state: dict) -> None:
         xhttp_rs.pop("maxTimeDiff", None)
         tcp_rs.pop("maxTimeDiff", None)
 
-    # Target для reality = default SNI
-    xhttp_target = system_sni(state, "reality-xhttp")
-    xhttp_rs["target"] = f"{xhttp_target}:443"
-
-    tcp_target = system_sni(state, "reality-tcp")
-    tcp_rs["target"] = f"{tcp_target}:443"
-
+    # Self-steal — явный режим. Прежний внешний config при обычном update
+    # не меняет target/dest/xver, даже если оператор настраивал их отдельно.
+    local_domains = site_domains(state)
+    for system, settings in (("reality-xhttp", xhttp_rs), ("reality-tcp", tcp_rs)):
+        route = get_sni_routes(state).get(system, {})
+        mode = xray_protocol.reality_mode(route)
+        if mode == "self-steal" or settings.get("target") == xray_protocol.LOCAL_REALITY_TARGET:
+            settings["target"] = xray_protocol.reality_target(system_sni(state, system), local_domains, mode)
+            settings.pop("dest", None)
+            settings["xver"] = 0
+        elif settings.get("target") in previous_covers[system]:
+            # Явное изменение внешнего default SNI по-прежнему обновляет cover.
+            # При неизменном SNI target остаётся тем же; custom target вне пула
+            # и его dest/xver обычное обновление не трогает.
+            settings["target"] = xray_protocol.reality_target(system_sni(state, system), local_domains)
     # Очищаем устаревшие fallbacks и allocate
     for inbound in config["inbounds"]:
         if inbound.get("tag") == "api-inbound":
@@ -4445,7 +4471,7 @@ def openconnect_client_text(state: dict, user: dict) -> str:
             "Дополнительные адреса:",
         ])
         for front_sni in ocserv_front_snis(state):
-            lines.append(f"https://{front_sni}:{port}/")
+            lines.append(f"https://{front_sni}:{ocserv_public_tcp_port(state, front_sni)}/")
     direct_host = (
         connection_host
         if ip_export
@@ -4516,7 +4542,9 @@ def openconnect_client_text(state: dict, user: dict) -> str:
     lines.extend([
         "",
         (
-            f"Примечание: OpenConnect TCP доступен на {port}/tcp через отдельный SNI-домен ocserv."
+            "Примечание: общий домен на 443/tcp принадлежит сайту/Reality; OpenConnect доступен напрямую на 2448/tcp."
+            if oc_cfg.get("sni_enabled") and port == DIRECT_PORTS["ocserv"]
+            else f"Примечание: OpenConnect TCP доступен на {port}/tcp через отдельный SNI-домен ocserv."
             if oc_cfg.get("sni_enabled")
             else f"Примечание: OpenConnect TCP доступен на {port}/tcp через nginx default/no-SNI route; основной домен сайта остаётся на 443/tcp."
         ),
@@ -8430,7 +8458,7 @@ def cmd_show(args: argparse.Namespace) -> None:
         if not show_secrets:
             oc_password = mask_secret(oc_password)
         oc_host = ocserv_sni(state) or state.get("server", "-")
-        oc_port = 443 if ocserv_config(state).get("sni_enabled") else ocserv_public_tcp_port(state)
+        oc_port = ocserv_public_tcp_port(state)
         print(f"  {C.dim}OpenConnect:{C.reset} https://{oc_host}:{oc_port}/  {C.dim}password:{C.reset} {oc_password}")
     sni_overrides = user.get("sni_overrides", {})
     if sni_overrides:
@@ -8480,6 +8508,19 @@ def cmd_sni_routes(args: argparse.Namespace) -> None:
             print(f"DNS addresses: {result['addresses']}")
         print(f"TLS: {result['tls']}")
         print(f"Result: {result['reason']}")
+
+    elif args.action == "set-reality-mode":
+        route = ensure_sni_route(state, args.system)
+        try:
+            updated = sni_protocol.reality_route_for_mode(route, args.mode, validate_sni_domain(args.sni), site_domains(state))
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        state["sni_routes"][args.system] = updated
+        render_changed = render_all(state)
+        save_state(state)
+        if getattr(args, "restart", False):
+            restart_services(render_changed)
+        ok(f"Режим {args.system}: {args.mode}. Переэкспортируйте изменённые клиентские профили.")
 
     elif args.action == "set-default":
         route = ensure_sni_route(state, args.system)
@@ -8859,6 +8900,13 @@ def build_parser() -> argparse.ArgumentParser:
     sni_set_default.add_argument("sni", help="Новый default SNI-домен")
     sni_set_default.add_argument("--restart", action="store_true", help="Перезапустить сервисы после изменения")
     sni_set_default.set_defaults(func=cmd_sni_routes)
+
+    sni_reality = sni_sub.add_parser("set-reality-mode", help="Явно выбрать внешний Reality или self-steal")
+    sni_reality.add_argument("system", choices=("reality-tcp", "reality-xhttp"))
+    sni_reality.add_argument("mode", choices=xray_protocol.REALITY_MODES)
+    sni_reality.add_argument("sni", help="Default SNI: внешний домен или собственный HTTPS-сайт")
+    sni_reality.add_argument("--restart", action="store_true", help="Применить изменения runtime")
+    sni_reality.set_defaults(func=cmd_sni_routes)
 
     sni_set_aliases = sni_sub.add_parser("set-aliases", help="Задать полный список SNI aliases сервиса")
     sni_set_aliases.add_argument("system", choices=SNI_ROUTE_SYSTEMS, help="Система")

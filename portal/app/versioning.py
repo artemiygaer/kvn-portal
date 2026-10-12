@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 
-APP_VERSION = "v4.1.0"
+APP_VERSION = "v4.1.1"
 VERSION_RE = re.compile(r"^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 
 

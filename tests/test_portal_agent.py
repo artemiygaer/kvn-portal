@@ -551,6 +551,19 @@ class PortalAgentProtocolTests(unittest.TestCase):
         self.assertEqual(response["error"]["code"], "invalid_params")
         self.assertEqual(self.runner.calls, [])
 
+    def test_explicit_reality_mode_is_allowlisted_without_general_exec(self):
+        control=mock.Mock()
+        control.apply_sni_route.return_value={"changed":True}
+        dispatcher=AgentDispatcher(Path("/srv/kvn"),self.runner,control)
+        app=AgentApplication(SECRET,dispatcher)
+        params={"action":"set-reality-mode","system":"reality-tcp","mode":"self-steal",
+                "sni":"web.example.test","revision":"a"*64}
+        allowed=json.loads(app.handle_line(request_line("sni.apply",params)).decode())
+        denied=json.loads(app.handle_line(request_line("sni.apply",{**params,"target":"attacker:443"})).decode())
+        self.assertTrue(allowed["ok"]); self.assertFalse(denied["ok"])
+        control.apply_sni_route.assert_called_once_with(params)
+        self.assertEqual(self.runner.calls,[])
+
     def test_protocol_apply_is_exactly_allowlisted_and_typed(self):
         dispatcher = AgentDispatcher(Path("/srv/kvn"), self.runner, FakeServiceControl())
         app = AgentApplication(SECRET, dispatcher)

@@ -1127,7 +1127,7 @@ class KvnctlSecurityTests(unittest.TestCase):
             self.assertIn("MTProto mtg FakeTLS", combined_text)
             self.assertIn("secret:", combined_text)
 
-    def test_ocserv_can_claim_custom_sni_on_443_when_enabled(self):
+    def test_ocserv_shared_site_sni_uses_direct_port_and_keeps_https_site(self):
         state = base_state()
         state["server"] = "vpn.example.com"
         state["letsencrypt"] = {"enabled": True, "domain": "vpn.example.com"}
@@ -1139,8 +1139,9 @@ class KvnctlSecurityTests(unittest.TestCase):
         kvnctl.validate_sni_uniqueness(state)
         aliases = kvnctl.all_sni_aliases(state)
 
-        self.assertEqual(aliases["vpn.example.com"], "ocserv:443")
-        self.assertNotEqual(aliases["vpn.example.com"], "xray:443")
+        self.assertEqual(aliases["vpn.example.com"], "127.0.0.1:8443")
+        self.assertEqual(kvnctl.ocserv_public_tcp_port(state), 2448)
+        self.assertIn("Server: https://vpn.example.com:2448/", kvnctl.openconnect_client_text(state, state["users"][0]))
 
     def test_ocserv_separate_sni_keeps_site_domain_for_site(self):
         state = base_state()
@@ -1351,7 +1352,7 @@ class KvnctlSecurityTests(unittest.TestCase):
         self.assertIn('auth = "plain[passwd=/run/ocserv/ocpasswd]"', conf)
         self.assertIn("ipv4-network = 10.77.77.0", conf)
         self.assertIn("Alice:OpenConnect123", users)
-        self.assertIn("https://vpn.example.com:443/", client)
+        self.assertIn("https://vpn.example.com:2448/", client)
 
     def test_edit_user_sets_manual_ocserv_password(self):
         state = base_state()

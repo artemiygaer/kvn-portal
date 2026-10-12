@@ -1969,7 +1969,7 @@ def build_views(
             active_group = "portal"
         if request.method == "POST":
             action = request.form.get("action", "")
-            if action in {"amneziawg_profile", "sni_diagnose", "mtproto_diagnose", "mtproto_origin", "sni_add", "sni_set_default", "sni_remove_alias"}:
+            if action in {"amneziawg_profile", "sni_diagnose", "mtproto_diagnose", "mtproto_origin", "sni_add", "sni_set_default", "sni_remove_alias", "reality_mode"}:
                 active_group = "protocols"
             elif action in {"password", "system_user_create"}:
                 active_group = "access"
@@ -2202,6 +2202,24 @@ def build_views(
                     "Режим маскировки MTProto обновлён."
                     if result.get("changed") else "Режим маскировки уже был выбран."
                 )
+            elif action == "reality_mode":
+                result = call_agent("sni.apply", {
+                    "action": "set-reality-mode", "revision": request.form.get("revision", ""),
+                    "system": request.form.get("system", ""), "mode": request.form.get("mode", ""),
+                    "sni": request.form.get("sni", "").strip(),
+                })
+                if not isinstance(result, dict):
+                    return result
+                apply = result.get("apply", {})
+                storage.audit(
+                    app.config["ADMIN_LOGIN"], g.client_ip, "reality.mode",
+                    "failed" if apply.get("outcome") == "failed" else ("success" if result.get("changed") else "unchanged"),
+                    json.dumps({"system": request.form.get("system", ""), "mode": request.form.get("mode", "")}, separators=(",", ":")), now(),
+                )
+                if apply.get("outcome") == "failed":
+                    error = "Режим сохранён, но runtime не применён. Выполните согласование состояния."
+                else:
+                    notice = "Режим Reality применён. Проверьте SNI пользователей и переэкспортируйте изменённые профили." if result.get("changed") else "Режим Reality уже выбран."
             elif action in {"sni_add", "sni_set_default", "sni_remove_alias"}:
                 sni_action = {
                     "sni_add": "add-alias",

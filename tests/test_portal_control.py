@@ -747,6 +747,43 @@ class PortalAtomicPrepareTests(unittest.TestCase):
             self.assertIn("cdn.example.com", stored["sni_routes"]["reality-xhttp"]["aliases"])
             restart.assert_called_once()
 
+    def test_reality_mode_is_atomic_explicit_and_leaves_other_protocol_unchanged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); state=base_state(); state["server"]="web.example.test"
+            path=root/"users.json"; atomic_write_json(path,state)
+            store=JsonStateStore(path,root/".lock"); control=self.protocol_control(root,store)
+            with (
+                mock.patch.object(kvnctl,"STATE_STORE",store),
+                mock.patch.object(kvnctl,"prepare_state",side_effect=kvnctl.validate_sni_uniqueness),
+                mock.patch.object(kvnctl,"render_all",return_value=kvnctl.RenderResult(("xray/config.json","nginx/nginx.conf"))),
+                mock.patch.object(kvnctl,"restart_services",return_value={"outcome":"applied"}) as apply,
+            ):
+                result=control.apply_sni_route({"action":"set-reality-mode","system":"reality-tcp",
+                    "mode":"self-steal","sni":state["server"],"revision":state_revision(state)})
+            stored=store.load()
+            self.assertTrue(result["changed"]); apply.assert_called_once()
+            self.assertEqual(stored["sni_routes"]["reality-tcp"]["reality_mode"],"self-steal")
+            self.assertEqual(stored["sni_routes"]["reality-xhttp"],state["sni_routes"]["reality-xhttp"])
+            self.assertEqual(stored["users"],state["users"])
+
+    def test_existing_external_mode_is_noop_and_invalid_mode_does_not_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); state=base_state(); path=root/"users.json"; atomic_write_json(path,state)
+            store=JsonStateStore(path,root/".lock"); control=self.protocol_control(root,store)
+            with (
+                mock.patch.object(kvnctl,"STATE_STORE",store), mock.patch.object(kvnctl,"prepare_state"),
+                mock.patch.object(kvnctl,"render_all") as render,
+                mock.patch.object(kvnctl,"restart_services") as apply,
+            ):
+                params={"action":"set-reality-mode","system":"reality-tcp","mode":"external",
+                        "sni":"apple.com","revision":state_revision(state)}
+                self.assertFalse(control.apply_sni_route(params)["changed"])
+                for mode,domain in (("automatic","apple.com"),("self-steal","foreign.example.test")):
+                    with self.subTest(mode=mode), self.assertRaises(ControlError):
+                        control.apply_sni_route({**params,"mode":mode,"sni":domain})
+                render.assert_not_called(); apply.assert_not_called()
+            self.assertEqual(store.load(),state)
+
     def test_sni_route_apply_rejects_collision_before_save(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

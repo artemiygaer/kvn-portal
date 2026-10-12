@@ -1235,7 +1235,7 @@ class AgentDispatcher:
             raise ProtocolError(code, str(exc)) from exc
 
     def _sni_apply(self, params: dict) -> dict[str, Any]:
-        allowed = {"action", "revision", "system", "sni"}
+        allowed = {"action", "revision", "system", "sni", "mode"}
         if set(params) - allowed:
             raise ProtocolError("invalid_params", "Неизвестные параметры SNI.")
         try:

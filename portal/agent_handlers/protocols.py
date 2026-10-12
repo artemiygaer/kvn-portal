@@ -18,7 +18,7 @@ def handlers(dispatcher):
         "domain.advice": HandlerSpec(dispatcher._domain_advice, False, frozenset({"zone"})),
         "sni.routes": HandlerSpec(lambda _p: control().sni_routes(), False, frozenset()),
         "sni.diagnose": HandlerSpec(lambda p: control().sni_diagnose(p), False, frozenset({"sni"})),
-        "sni.apply": HandlerSpec(dispatcher._sni_apply, True, frozenset({"action", "revision", "system", "sni"})),
+        "sni.apply": HandlerSpec(dispatcher._sni_apply, True, frozenset({"action", "revision", "system", "sni", "mode"})),
         "mtproto.status": HandlerSpec(dispatcher._mtproto_status, False, frozenset()),
         "mtproto.diagnose": HandlerSpec(dispatcher._mtproto_diagnose, False, frozenset({"system"})),
         "mtproto.apply": HandlerSpec(dispatcher._mtproto_apply, True, frozenset({"system", "origin", "revision"})),

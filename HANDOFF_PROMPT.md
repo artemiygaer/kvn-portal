@@ -1,6 +1,6 @@
-# Промт для передачи KVN VPN v4.1.0 новому ИИ-агенту
+# Промт для передачи KVN VPN v4.1.1 новому ИИ-агенту
 
-Ты продолжаешь разработку проекта KVN VPN v4.1.0. Работай автономно до проверенного
+Ты продолжаешь разработку проекта KVN VPN v4.1.1. Работай автономно до проверенного
 результата, но не расширяй задачу за пределы запроса пользователя. Отвечай
 по-русски, коротко и по делу. Комментарии, документацию и сообщения интерфейса
 пиши на русском.
@@ -50,7 +50,7 @@ wsl.exe -u root bash -lc "cd '$WslRoot' && python3 -m unittest discover -s tests
 
 ## Архитектура и назначение
 
-KVN VPN v4.1.0 — модульный мультипротокольный VPN-стек для Debian 12/13.
+KVN VPN v4.1.1 — модульный мультипротокольный VPN-стек для Debian 12/13.
 
 Перед задачей открой [ARCHITECTURE.md](ARCHITECTURE.md), выбери строку task-routing и прочитай ближайший module-level `AGENTS.md`. Это минимальный контекст; не загружай legacy implementation целиком без необходимости. После изменения запусти `python3 tools/architecture_check.py`.
 
@@ -122,13 +122,24 @@ KVN VPN v4.1.0 — модульный мультипротокольный VPN-�
 
 ## Статус на момент передачи
 
-Проверенный релиз v4.1.0 от 12.10.2026; обновление протестировано из опубликованного v4.0.1:
+Микро-релиз v4.1.1: общий web/ocserv SNI использует
+сайт на 443 и OpenConnect на 2448. Self-steal включается явно в отдельном редакторе
+режимов Reality, выбирает внутренний target nginx:8443, xver=0; ключи не меняются.
+Без `sni_routes.<system>.reality_mode` действует внешний режим: update не меняет
+target/dest/xver существующих конфигов. TCP/xHTTP проверены
+настоящим Xray-клиентом, Linux/root suite — 438 tests OK. `tests/self_steal_e2e.py`
+не меняет production; опубликованный v4.1.0 остаётся неизменным. Основные архивы
+относятся к v4.1.1. Каталог `output/micro-self-steal/` содержит предыдущую локальную
+пробную сборку; её не публиковать вместо актуального release.
 
-- 428 тестов проекта прошли в Linux/WSL от root; suite: OK без пропусков;
-- suite портала: 105 tests локально и в Docker test image, OK (skipped=1);
+Релиз v4.1.1 от 12.10.2026; baseline обновления — опубликованный v4.1.0:
+
+- 438 тестов проекта прошли в Linux/WSL от root; suite: OK без пропусков;
+- suite портала: 106 tests локально и в Docker test image, OK (skipped=1);
 - deploy runtime E2E прошёл в IP-режиме без DNS;
 - `tests/portal_upgrade_e2e.py` проверил настоящий HTTPS upload/ready/start,
-  старый agent/updater, новый Compose и сохранение state/certs/disabled ocserv
+  старый agent/updater, новый Compose и сохранение state/certs/disabled ocserv,
+  прежнего внешнего Reality config и клиентских ссылок
   в отдельном Docker daemon. Systemd заменён узким тестовым shim; настоящий
   Debian systemd/AWG kernel lifecycle локально не проверяется;
 - nginx -t прошёл с SNI длиной 253 байта; новые Telemt/Hysteria/Xray запущены;
@@ -138,7 +149,7 @@ KVN VPN v4.1.0 — модульный мультипротокольный VPN-�
 - встроенный Python-блок генерации `.env` в `setup.sh` компилируется тестом и
   содержит явный `import json`;
 - full release: `linux/amd64`, семь runtime images, build ID
-  `20261012-v4.1.0-release1`, version `v4.1.0`;
+  `20261012-v4.1.1-release1`, version `v4.1.1`;
 - inspector v4.0.1 принимает source/full archives без bootstrap; три
   transport alias восстанавливаются только после image-ID verify. Версии могут
   обновляться дальше, но repository и синтаксис tag ограничены allowlist.

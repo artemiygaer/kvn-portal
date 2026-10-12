@@ -90,6 +90,36 @@
   </div>
   {% endif %}
 </section>
+<section class="panel" id="reality-settings">
+  <h2>Режим Reality</h2>
+  <p class="muted">Внешний HTTPS-сайт — прежний режим. Self-steal включается только вручную и использует собственный сайт внутри nginx. Обновление само режим не меняет.</p>
+  {% if sni_data %}
+  <div class="settings-grid">
+    {% for system in ['reality-tcp', 'reality-xhttp'] if system in sni_data.routes %}
+    {% set route = sni_data.routes[system] %}
+    <article class="service-card">
+      <h3>{{ system_label(system) }}</h3>
+      <form method="post" data-confirm="Изменить режим Reality и его default SNI" data-object="{{ system_label(system) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="action" value="reality_mode">
+        <input type="hidden" name="revision" value="{{ sni_data.revision }}">
+        <input type="hidden" name="system" value="{{ system }}">
+        <label for="reality-mode-{{ system }}">Режим маскировки</label>
+        <select id="reality-mode-{{ system }}" name="mode">
+          <option value="external"{% if route.reality_mode|default('external', true) == 'external' %} selected{% endif %}>Внешний HTTPS-сайт</option>
+          <option value="self-steal"{% if route.reality_mode == 'self-steal' %} selected{% endif %}>Self-steal — собственный HTTPS-сайт</option>
+        </select>
+        <label for="reality-sni-{{ system }}">Default SNI выбранного режима</label>
+        <input id="reality-sni-{{ system }}" name="sni" value="{{ route.default }}" list="reality-domains-{{ system }}" required>
+        <datalist id="reality-domains-{{ system }}">{% for domain in (route.choices + (sni_data.site_domains|default([])))|unique %}<option value="{{ domain }}">{% endfor %}</datalist>
+        <p class="form-hint">Для self-steal нужен домен своего сайта, корректные DNS и доверенный сертификат. Одно имя — только один Reality backend. Перед возвратом во внешний режим уберите собственный SNI из пользовательских overrides. При смене SNI переэкспортируйте конфиги; ключи сохраняются.</p>
+        <button type="submit" class="secondary">Применить режим Reality</button>
+      </form>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}<p class="empty-state">Режимы временно недоступны: проверьте host-agent.</p>{% endif %}
+</section>
 <section class="panel" id="sni-settings">
   <div class="section-heading">
     <div>

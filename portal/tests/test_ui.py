@@ -89,6 +89,15 @@ class FakeAgent:
             return {"changed": True, "revision": "b" * 64, "plan": {"changed": True}, "apply": {"outcome": "applied", "reconcile_required": False}, "protocol": {"system": "reality-xhttp", "xhttp_mode": _params["mode"]}}
         if method == "sni.apply":
             return {"changed": True, "revision": "b" * 64, "plan": {"changed": True}, "apply": {"outcome": "applied", "reconcile_required": False}}
+        if method == "sni.routes":
+            return {"revision":"a"*64,"systems":["reality-tcp","reality-xhttp"],"site_domains":["web.example.test"],
+                    "routes":{system:{"default":"apple.com" if system=="reality-tcp" else "github.com",
+                        "aliases":["apple.com"],"choices":["apple.com"],"user_selectable":True,
+                        "reality_mode":"external"} for system in ("reality-tcp","reality-xhttp")}}
+        if method == "mtproto.status":
+            return {"revision":"a"*64,"services":{},"origins":["external","local-site"]}
+        if method == "amneziawg.settings":
+            return {"revision":"a"*64,"protocol_version":"legacy","v3":{}}
         if method == "metrics.current":
             return {"available": True, "sample": {"cpu_percent": 10, "memory_percent": 24, "disk_percent": 42, "load1": 0.1}}
         if method == "metrics.history":
@@ -295,6 +304,24 @@ class PortalUiTests(unittest.TestCase):
             self.assertIn("change_url", item)
             self.assertTrue(item["change_url"].startswith("/gaer/"))
         self.assertEqual({method for method, _params in self.agent.calls if method.startswith("dashboard")}, {"dashboard.snapshot"})
+
+    def test_reality_mode_editor_is_opt_in_and_posts_to_protocols_group(self):
+        self.assertEqual(self.login().status_code,302)
+        page=self.client.get("/gaer/settings?group=protocols",headers=self.headers)
+        self.assertEqual(page.status_code,200)
+        self.assertIn(b'value="external" selected',page.data)
+        self.assertNotIn(b'value="self-steal" selected',page.data)
+        self.assertIn(b'web.example.test',page.data)
+        self.assertIn("Обновление само режим не меняет".encode(),page.data)
+        self.assertFalse(any(method=="sni.apply" for method,_ in self.agent.calls))
+        response=self.client.post("/gaer/settings",headers=self.headers,data={
+            "csrf_token":self.csrf(page),"action":"reality_mode","system":"reality-tcp",
+            "revision":"a"*64,"mode":"self-steal","sni":"web.example.test"})
+        self.assertEqual(response.status_code,200)
+        method,params=next((method,params) for method,params in reversed(self.agent.calls) if method=="sni.apply")
+        self.assertEqual(params,{"action":"set-reality-mode","system":"reality-tcp","revision":"a"*64,
+                                 "mode":"self-steal","sni":"web.example.test"})
+        self.assertIn(b'id="reality-settings"',response.data)
 
     def test_network_xray_editor_uses_typed_rpc_and_secret_free_audit(self):
         self.assertEqual(self.login().status_code, 302)

@@ -1,4 +1,10 @@
-# Аудит проекта KVN VPN v4.1.0
+# Аудит проекта KVN VPN v4.1.1
+
+## Микро-релиз v4.1.1 — 12.10.2026
+
+- Shared web/ocserv hostname принадлежит HTTPS-сайту на 443; OpenConnect получает прямой 2448. Конфликты разных VPN-backend по-прежнему запрещены.
+- Reality TCP/xHTTP self-steal выбирается явно и использует внутренний target nginx:8443 без внешней петли. UUID/privateKey/shortIds сохраняются; обычное обновление оставляет внешний режим и текущий target/dest/xver без изменений.
+- Проверены реальные Xray-клиенты: браузерный HTTPS без Reality-ключа и аутентифицированный SOCKS → HTTPS для TCP и xHTTP. Canonical inventory не расширен: старый portal inspector принимает новый архив.
 
 ## Стабилизация v4.1.0 — 12.10.2026
 

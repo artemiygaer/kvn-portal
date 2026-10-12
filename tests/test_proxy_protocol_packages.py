@@ -7,6 +7,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from tests.test_baseline_contracts import fixture_state, fixture_user
 from tools import kvnctl
@@ -87,6 +88,116 @@ class ProxyGoldenTests(unittest.TestCase):
                 kvnctl.HY2_CONFIG = original
 
 class SniPackageTests(unittest.TestCase):
+    def test_local_reality_target_does_not_loop_or_claim_ip_identity(self):
+        self.assertEqual(xray.reality_target("web.example.test", ["web.example.test"]), "web.example.test:443")
+        self.assertEqual(xray.reality_target("web.example.test", ["web.example.test"], "self-steal"), "nginx:8443")
+        self.assertEqual(xray.reality_target("apple.com", ["web.example.test"]), "apple.com:443")
+        for host in ("1.1.1.1", "2001:db8::1"):
+            with self.assertRaises(ValueError): xray.reality_target(host, [host], "self-steal")
+
+    def test_self_steal_routes_and_render_preserve_reality_keys(self):
+        for system, destination in (("reality-tcp", "xray:2054"), ("reality-xhttp", "xray:2053")):
+            with self.subTest(system=system), tempfile.TemporaryDirectory() as temporary:
+                state = fixture_state()
+                state["users"] = [fixture_user()]
+                state["sni_routes"][system] = {"default": state["server"], "aliases": [state["server"]], "dest": destination, "reality_mode":"self-steal"}
+                state["ocserv"].update(enabled=True, sni=state["server"])
+                kvnctl.validate_state_inputs(state)
+                kvnctl.validate_sni_uniqueness(state)
+                self.assertEqual(kvnctl.all_sni_aliases(state)[state["server"]], destination)
+                config = kvnctl.default_xray_config(state)
+                inbound = next(i for i in config["inbounds"] if i["port"] == (2054 if system == "reality-tcp" else 2053))
+                settings = inbound["streamSettings"]["realitySettings"]
+                settings.update(privateKey="fixture-key-preserved", shortIds=["0011223344556677"], dest="old.example.test:443", xver=2)
+                path = Path(temporary)/"config.json"
+                path.write_text(json.dumps(config))
+                # State — источник ключей; если они ещё не нормализованы, старый config сохраняется.
+                with mock.patch.object(kvnctl, "XRAY_CONFIG", path):
+                    kvnctl.render_xray(state)
+                actual = next(i for i in json.loads(path.read_text())["inbounds"] if i["port"] == inbound["port"])["streamSettings"]["realitySettings"]
+                self.assertEqual(actual["target"], "nginx:8443")
+                self.assertEqual(actual["xver"], 0)
+                self.assertNotIn("dest", actual)
+                self.assertEqual(actual["privateKey"], "fixture-key-preserved")
+                self.assertEqual(actual["shortIds"], ["0011223344556677"])
+                if system == "reality-xhttp": self.assertEqual(actual["serverNames"], [state["server"]])
+                self.assertIn("http2 on;", kvnctl.decoy_server_block(state))
+
+    def test_self_steal_does_not_allow_ambiguous_or_foreign_routes(self):
+        for other in ("reality-xhttp", "telemt", "custom"):
+            state = fixture_state()
+            own = state["server"]
+            state["sni_routes"]["reality-tcp"] = {"default": own, "aliases": [own], "dest":"xray:2054", "reality_mode":"self-steal"}
+            if other == "custom": state["sni_routes"]["custom"] = [{"sni":own,"dest":"mtg:3128"}]
+            else: state["sni_routes"][other].update(default=own,aliases=[own],dest="xray:2053" if other == "reality-xhttp" else "telemt:3129")
+            with self.subTest(other=other), self.assertRaises(SystemExit): kvnctl.validate_sni_uniqueness(state)
+
+    def test_external_reality_render_preserves_existing_targets_and_credentials(self):
+        for explicit in (False, True):
+            with self.subTest(explicit=explicit), tempfile.TemporaryDirectory() as temporary:
+                state=fixture_state()
+                state["users"]=[fixture_user()]
+                config=kvnctl.default_xray_config(state)
+                for system, port in (("reality-tcp",2054),("reality-xhttp",2053)):
+                    if explicit: state["sni_routes"][system]["reality_mode"]="external"
+                    settings=next(i for i in config["inbounds"] if i["port"]==port)["streamSettings"]["realitySettings"]
+                    settings.update(target="custom-cover.example.test:8443", dest="legacy-cover.example.test:443", xver=1,
+                                    privateKey="preserved-key", shortIds=["0011223344556677"])
+                before=copy.deepcopy(state)
+                path=Path(temporary)/"xray.json"; path.write_text(json.dumps(config))
+                with mock.patch.object(kvnctl,"XRAY_CONFIG",path): kvnctl.render_xray(state)
+                rendered=json.loads(path.read_text())
+                for port in (2054,2053):
+                    settings=next(i for i in rendered["inbounds"] if i["port"]==port)["streamSettings"]["realitySettings"]
+                    self.assertEqual(settings["target"],"custom-cover.example.test:8443")
+                    self.assertEqual(settings["dest"],"legacy-cover.example.test:443")
+                    self.assertEqual(settings["xver"],1)
+                    self.assertEqual(settings["privateKey"],"preserved-key")
+                for key in ("sni_routes","users","reality","reality_tcp"):
+                    self.assertEqual(state.get(key),before.get(key))
+
+    def test_explicit_external_sni_change_still_updates_cover_without_self_steal(self):
+        for system,port in (("reality-tcp",2054),("reality-xhttp",2053)):
+            with self.subTest(system=system), tempfile.TemporaryDirectory() as temporary:
+                state=fixture_state(); state["users"]=[]; config=kvnctl.default_xray_config(state)
+                path=Path(temporary)/"xray.json"; path.write_text(json.dumps(config))
+                state["sni_routes"][system]["default"]="external-new.example.test"
+                with mock.patch.object(kvnctl,"XRAY_CONFIG",path): kvnctl.render_xray(state)
+                settings=next(i for i in json.loads(path.read_text())["inbounds"] if i["port"]==port)["streamSettings"]["realitySettings"]
+                self.assertEqual(settings["target"],"external-new.example.test:443")
+                self.assertNotIn("reality_mode",state["sni_routes"][system])
+
+    def test_self_steal_is_explicit_and_can_restore_external_route(self):
+        own="web.example.test"
+        route={"default":"apple.com","aliases":["apple.com"],"dest":"xray:2054"}
+        self.assertEqual(xray.reality_mode(route),"external")
+        self.assertEqual(sni.reality_route_for_mode(route,"external","apple.com",[own]),route)
+        selected=sni.reality_route_for_mode(route,"self-steal",own,[own])
+        self.assertEqual(selected["reality_mode"],"self-steal")
+        restored=sni.reality_route_for_mode(selected,"external","apple.com",[own])
+        self.assertEqual(restored["aliases"],route["aliases"])
+        self.assertEqual(route["default"],"apple.com")
+        for mode,domain in (("automatic",own),("self-steal","foreign.example.test"),("external",own)):
+            with self.subTest(mode=mode),self.assertRaises(ValueError): sni.reality_route_for_mode(route,mode,domain,[own])
+
+    def test_ocserv_shared_front_sni_cannot_override_portal_or_subscription(self):
+        state = fixture_state()
+        state["portal"] = {"enabled":True,"domain":"web.example.test","port":8443,"path":"/gaer",
+                           "login":"admin","password_hash":"scrypt$fixture",
+                           "proxy_secret":"p"*64,"hysteria_secret":"h"*64}
+        state["subscription"] = {"enabled":True,"public_host":"cfg.example.test","public_port":443,"port":2096}
+        state["ocserv"].update(enabled=True,front_snis=["web.example.test","cfg.example.test"])
+        kvnctl.validate_state_inputs(state)
+        kvnctl.validate_sni_uniqueness(state)
+        aliases = kvnctl.all_sni_aliases(state)
+        self.assertEqual(aliases["web.example.test"], "127.0.0.1:8443")
+        self.assertEqual(aliases["cfg.example.test"], "127.0.0.1:8443")
+        self.assertEqual(aliases["oc.example.test"], "ocserv:443")
+        self.assertEqual(kvnctl.ocserv_public_tcp_port(state, "web.example.test"), 2448)
+        self.assertEqual(kvnctl.ocserv_public_tcp_port(state), 443)
+        text = kvnctl.openconnect_client_text(state, fixture_user())
+        self.assertIn("https://web.example.test:2448/", text)
+
     def test_nginx_hash_handles_maximum_dns_name_and_large_route_pool(self):
         maximum_domain = ".".join(["a" * 63, "b" * 63, "c" * 63, "d" * 61])
         self.assertEqual(len(maximum_domain), 253)

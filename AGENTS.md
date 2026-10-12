@@ -1,10 +1,10 @@
-# KVN VPN v4.1.0: краткая инструкция для ИИ-ассистента
+# KVN VPN v4.1.1: краткая инструкция для ИИ-ассистента
 
 Говорить с пользователем по-русски, коротко и по делу. Комментарии и документацию писать на русском. Перед правками сначала смотреть код вокруг задачи; подробности есть в `README.md`, `DEPLOY.md` и `ARCHITECTURE.md`. Для модульной задачи сначала читать ближайший вложенный `AGENTS.md` и брать минимальный test surface из task-routing.
 
 ## Суть проекта
 
-KVN VPN v4.1.0 — мультипротокольный VPN-стек для Debian 12/13. Основные сервисы идут через Docker Compose. Host-службы:
+KVN VPN v4.1.1 — мультипротокольный VPN-стек для Debian 12/13. Основные сервисы идут через Docker Compose. Host-службы:
 
 - `kvn-amneziawg.service`: AmneziaWG, `awg0`, `51820/udp`;
 - `kvn-wireguard.service`: стандартный WireGuard, `wg0`, `51821/udp`;
@@ -37,7 +37,7 @@ KVN VPN v4.1.0 — мультипротокольный VPN-стек для Debi
 - Dashboard показывает активные удалённые SSH-сессии через фиксированный `loginctl` с fallback `who --ips`: разрешены поля user/IP/TTY/login time, включая `root`; локальные сессии, raw output и содержимое терминала наружу не выдаются.
 - Портал создаёт только обычных Linux-пользователей SSH через узкий root-helper: домашний каталог и `/bin/bash`, пароль через stdin, без `sudo`/`adm`/`wheel`; при ошибке выполняется rollback.
 - `/settings` имеет строгие группы `portal|protocols|access|update`. Каждая группа загружает только свои RPC и JavaScript; POST должен возвращать в соответствующую группу.
-- SNI-пулы управляются через портал «Настройки» или `sni-routes`; пересечения SNI между сервисами, сайтом/подпиской и ocserv должны отклоняться до применения.
+- SNI-пулы управляются через портал «Настройки» или `sni-routes`; пересечения SNI между сервисами отклоняются до применения. Исключение: сайт может разделять имя с одним явно включённым Reality self-steal backend (target `nginx:8443`, xver=0). `sni_routes.<system>.reality_mode` отсутствует — сохранить внешний режим и действующий target/dest/xver, не включать self-steal автоматически при update. Общий с сайтом ocserv SNI обслуживается только на прямом `2448/tcp`; dedicated ocserv SNI остаётся на `443`.
 - Per-user SNI разрешён для `tls`, `reality-xhttp`, `reality-tcp` и `hysteria`; HAPP должен получать выбранные значения после render/apply. Reality SNI должен быть заранее в `sni_routes.<system>.aliases`, чтобы nginx и Xray были согласованы.
 - Telemt/mtg/ocserv имеют service-level SNI. Telemt менять через default сервиса (`sni-routes set-default telemt <domain>` или портал), иначе QR/secret и `telemt/config.toml` разойдутся.
 - Универсального SNI «белого списка» для РФ нет. До применения можно выполнить ограниченную 3 секундами проверку `sni-routes diagnose <domain>` (или кнопку портала): она не меняет state и не выдаёт IP/сертификат, но не подтверждает доступность у другого оператора.
@@ -106,7 +106,8 @@ python3 tools/kvnctl.py render
 python3 tests/deploy_runtime_e2e.py
 bash tools/build-deploy.sh
 python3 tests/portal_upgrade_e2e.py --release kvn-vpn-release-linux-amd64.tar.gz
-KVN_BUILD_ID=20261012-v4.1.0-release1 KVN_VERSION=v4.1.0 bash tools/build-release.sh
+python3 tests/self_steal_e2e.py
+KVN_BUILD_ID=20261012-v4.1.1-release1 KVN_VERSION=v4.1.1 bash tools/build-release.sh
 ```
 
 Debian-only: systemd, socket права, firewall, Certbot HTTP-01, реальный Compose lifecycle. Если Docker/WSL недоступен локально, явно указать это в ответе.

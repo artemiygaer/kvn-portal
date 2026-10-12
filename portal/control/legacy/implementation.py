@@ -197,7 +197,9 @@ class KvnControl:
                     "default": route.get("default", ""),
                     "aliases": aliases,
                     "aliases_count": len(aliases),
-                    "target": f"{route.get('default', '')}:443" if system in self.kvnctl.REALITY_SYSTEMS else "",
+                    "target": self.kvnctl.xray_protocol.reality_target(
+                        route.get("default", ""), self.kvnctl.site_domains(state), self.kvnctl.xray_protocol.reality_mode(route)
+                    ) if system in self.kvnctl.REALITY_SYSTEMS else "",
                     "server_names": server_names,
                 }
             elif system == "ocserv":
@@ -398,6 +400,7 @@ class KvnControl:
             "revision": revision,
             "systems": list(self.kvnctl.SNI_ROUTE_SYSTEMS),
             "user_systems": list(self.kvnctl.USER_SNI_OVERRIDE_SYSTEMS),
+            "site_domains": self.kvnctl.site_domains(state),
             "routes": {
                 system: self._sni_route_summary(state, system)
                 for system in self.kvnctl.SNI_ROUTE_SYSTEMS
@@ -528,6 +531,7 @@ class KvnControl:
             "aliases": list(route.get("aliases", [])),
             "choices": self.kvnctl.route_sni_choices(state, system),
             "user_selectable": system in self.kvnctl.USER_SNI_OVERRIDE_SYSTEMS,
+            "reality_mode": self.kvnctl.xray_protocol.reality_mode(route) if system in {"reality-tcp", "reality-xhttp"} else "",
         }
 
     def apply_sni_route(self, params: dict) -> dict:
@@ -535,8 +539,15 @@ class KvnControl:
         revision = params.get("revision")
         system = params.get("system")
         sni = params.get("sni")
-        if action not in {"set-default", "add-alias", "remove-alias"}:
+        if action not in {"set-default", "add-alias", "remove-alias", "set-reality-mode"}:
             raise ControlError("invalid_action", "Операция SNI не разрешена.")
+        required = {"action", "revision", "system", "sni"}
+        if action == "set-reality-mode":
+            required.add("mode")
+            if system not in {"reality-tcp", "reality-xhttp"}:
+                raise ControlError("validation_error", "Режим доступен только Reality TCP/xHTTP.")
+        if set(params) != required:
+            raise ControlError("invalid_params", "Параметры SNI не разрешены.")
         if not isinstance(revision, str) or len(revision) != 64:
             raise ControlError("invalid_revision", "Некорректная ревизия состояния.")
         if system not in self.kvnctl.SNI_ROUTE_SYSTEMS:
@@ -548,7 +559,17 @@ class KvnControl:
         def mutate(state: dict) -> None:
             route = self.kvnctl.ensure_sni_route(state, system)
             aliases = route.setdefault("aliases", [])
-            if action == "set-default":
+            if action == "set-reality-mode":
+                try:
+                    updated = self.kvnctl.sni_protocol.reality_route_for_mode(
+                        route, params["mode"], sni, self.kvnctl.site_domains(copy.deepcopy(state))
+                    )
+                except ValueError as exc:
+                    raise ControlError("validation_error", str(exc)) from exc
+                if updated == route:
+                    return
+                state["sni_routes"][system] = updated
+            elif action == "set-default":
                 route["default"] = sni
                 if sni not in aliases:
                     aliases.insert(0, sni)

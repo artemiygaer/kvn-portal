@@ -1,4 +1,4 @@
-# KVN VPN v4.1.0
+# KVN VPN v4.1.1
 
 Мультипротокольный VPN-стек для Debian 12/13. Основные сервисы запускаются через Compose.
 
@@ -12,6 +12,7 @@ Runtime-образы закреплены на проверенных верси
 
 ## Изменения релиза
 
+- v4.1.1: Reality self-steal с собственным HTTPS-сайтом; исправлен общий web/ocserv hostname. При общем имени OpenConnect экспортируется на `2448/tcp`, сайт и подписка остаются на `443`. Подробнее — раздел «Reality self-steal» ниже;
 - v4.1.0: на странице «Сервисы» выделена кнопка постоянного включения/отключения, добавлен фильтр отключённых сервисов. Отключение сохраняется после reboot, render, reconcile и update;
 - исправлен nginx `could not build map_hash`: размер hash bucket рассчитывается по длине SNI, включая DNS-имена до 253 символов;
 - обновлены Hysteria, Telemt, nginx и base images; полный release совместим с inspector портала v4.0.1 и обновляется через upload → проверка → отдельный запуск;
@@ -23,7 +24,7 @@ Runtime-образы закреплены на проверенных верси
 - canonical deploy больше не зависит от tracked source-зеркала, а source/full release проходят общую validation policy до mutation;
 
 - исправлено завершение чистой установки после запуска host-agent: генератор `.env` теперь явно импортирует `json`, а исполняемость встроенного Python-блока проверяется тестом;
-- номер продукта хранится отдельно от build ID: портал показывает `v4.1.0`, а GitHub Release с той же версией больше не считается обновлением;
+- номер продукта хранится отдельно от build ID: портал показывает `v4.1.1`, а GitHub Release с той же версией больше не считается обновлением;
 - «Настройки» разделены на группы «Портал и экспорт», «VPN-протоколы», «Доступ» и «Обновление»; открытая группа загружает только свои данные и JavaScript;
 - в группе «Доступ» можно создать обычного системного SSH-пользователя с домашним каталогом и `/bin/bash`; группы `sudo`, `adm` и `wheel` не назначаются;
 - опциональный профиль AmneziaWG 3.1: `HeaderProtectionKey`, S3/S4, content padding и изменяемые тайминги официальных AWG 3.x tools; legacy остаётся default для совместимости;
@@ -73,7 +74,7 @@ ENDPOINT="203.0.113.10"
 DOWNLOAD_DIR="/root/kvn-install-v313"
 PROJECT="/srv/kvn-vpn"
 RELEASE="$DOWNLOAD_DIR/kvn-vpn-release-linux-amd64.tar.gz"
-TAG="v4.1.0"
+TAG="v4.1.1"
 
 if [ -e "$PROJECT" ]; then
   echo "[ОШИБКА] Каталог уже существует: $PROJECT" >&2
@@ -107,7 +108,7 @@ set -euo pipefail
 
 PROJECT="/srv/kvn-vpn"
 WORK="$(mktemp -d /root/kvn-update-v313.XXXXXX)"
-TAG="v4.1.0"
+TAG="v4.1.1"
 trap 'rm -rf "$WORK"' EXIT
 
 curl -fL --retry 3 \
@@ -404,7 +405,7 @@ python3 tools/kvnctl.py edit-user USER --sni reality-tcp=example.com --restart
 python3 tools/kvnctl.py edit-user USER --sni reality-tcp=default --restart
 ```
 
-Домены сайта и подписки направляются на внутренний HTTPS-сайт. SNI ocserv направляется в `ocserv:443`. Неизвестный или пустой SNI открывает сайт-заглушку. Явные SNI VLESS, Telemt и mtg направляются в соответствующие backend.
+Домены сайта и подписки направляются на внутренний HTTPS-сайт. Отдельный SNI ocserv направляется в `ocserv:443`; при совпадении с web-доменом OpenConnect экспортируется на прямой `2448/tcp`, чтобы HTTPS не отдавал форму VPN-входа вместо сайта. Неизвестный или пустой SNI открывает сайт-заглушку, кроме явно настроенного ocserv default/no-SNI режима. Явные SNI VLESS, Telemt и mtg направляются в соответствующие backend.
 
 В портале SNI добавляются в разделе «Настройки». При применении проверяются пересечения с SNI других сервисов, доменами сайта/подписки и ocserv, чтобы nginx не маршрутизировал один домен в разные backend.
 
@@ -416,6 +417,39 @@ python3 tools/kvnctl.py edit-user USER --sni reality-tcp=default --restart
 
 Telemt и MTG поддерживают `camouflage_origin=external|local-site`. Для собственного SNI используйте `local-site`: backend обращается к внутреннему decoy `nginx:8443`, не зацикливаясь через публичный `443`. Настройка, bounded-диагностика и честные ограничения описаны в [`MTPROTO.md`](MTPROTO.md); CLI — `python3 tools/kvnctl.py mtproto status|diagnose|set-origin`. MTG остаётся shared endpoint без точной user attribution. Полную блокировку IP/TCP/TLS эта схема не гарантирует обойти.
 
+### Reality self-steal: собственный HTTPS-сайт
+
+Self-steal — отдельный явно включаемый режим для `reality-tcp` или `reality-xhttp`.
+По умолчанию сохраняется прежний внешний HTTPS target: обновление не включает
+self-steal, не меняет SNI, UUID и ключи работающих профилей. В self-steal nginx на внешнем `443` направляет собственный SNI
+в Xray, а Xray отдаёт запросы без ключа локальному TLS-сайту `nginx:8443`.
+Этот порт внутри Docker не является внешним портом портала. UUID, ключи Reality
+и shortIds сохраняются; `xver=0`, устаревший `dest` удаляется. Сайт поддерживает
+TLS 1.3 и HTTP/2. Для чужих SNI прежний внешний target не меняется.
+
+1. DNS собственного домена должен вести на сервер напрямую, без CDN-проксирования.
+   Выпустите доверенный site-сертификат с этим DNS SAN штатной командой Let's Encrypt.
+2. В «Настройки → VPN-протоколы → Режим Reality» выберите «Self-steal» и этот домен
+   как default **одного** Reality-протокола. Через CLI: `python3 tools/kvnctl.py sni-routes set-reality-mode reality-tcp self-steal YOUR_DOMAIN --restart`.
+3. В профиле каждого нужного пользователя выберите тот же SNI; прежние device
+   overrides не перезаписываются автоматически. После этого заново экспортируйте
+   конфиги HAPP/Karing. Сторонние aliases можно удалить после миграции пользователей.
+4. Откройте `https://YOUR_DOMAIN/`: должен отдаваться сайт, а не форма OpenConnect.
+   Портал по-прежнему доступен по своему пути/порту, например `:8443/gaer/`.
+
+Для возврата выберите внешний HTTPS-домен в overrides пользователей, затем
+режим «Внешний HTTPS-сайт» и его default SNI. CLI:
+`python3 tools/kvnctl.py sni-routes set-reality-mode reality-tcp external apple.com --restart`.
+Переключение может кратковременно перезапустить Xray и потребовать повторного
+экспорта; это происходит только по явной команде, не при обычном обновлении.
+
+Один SNI нельзя одновременно назначить Reality TCP и xHTTP либо MTProto:
+неоднозначная маршрутизация отклоняется. Self-steal требует работающего Xray;
+при его отключении пользуйтесь отдельным портом портала. Bare IP не заменяет DNS
+SNI и сертификат. Гарантии обхода блокировки IP/подсети или конкретного оператора нет.
+Схема: [инструкция self-steal](https://oblako.sh/wiki/ru/rukovodstva/blokirovki-reality-self-steal),
+[документация REALITY](https://github.com/XTLS/REALITY).
+
 Hysteria использует per-user SNI из разрешённого маршрута; `trafficStats` слушает только `127.0.0.1` внутри контейнера и запрашивается host-agent через authenticated loopback. Порт `9090` не публикуется наружу.
 
 ### Собственная зона и советник доменов
@@ -425,7 +459,7 @@ Hysteria использует per-user SNI из разрешённого мар�
 | Система | Политика домена |
 |---|---|
 | site / portal / subscription / VLESS TLS / Hysteria / ocserv | отдельные реальные hostname собственной зоны с DNS и подходящим SAN |
-| Reality xHTTP / Reality TCP | внешний cover предпочтительнее; собственный server/route как target создаёт риск self-loop и блокировки |
+| Reality xHTTP / Reality TCP | внешний cover по умолчанию; self-steal включается явно и использует внутренний nginx:8443 без public-443 loop |
 | Telemt / mtg | service-level camouflage; один согласованный домен на инстанс |
 | AmneziaWG / WireGuard | SNI не используется |
 
@@ -641,7 +675,7 @@ sudo python3 tools/kvnctl.py reconcile
 
 В web-портале то же действие доступно на странице «Сервисы»: у `amneziawg` и `wireguard` нажмите «Применить конфиг». Кнопка повторно рендерит desired state и запускает host sync даже без новых изменений в `users.json`.
 
-OpenConnect: ответ nginx вместо ocserv означает неверный SNI. Медленная работа обычно означает недоступный DTLS-порт `4443/udp`.
+OpenConnect: для общего web SNI используйте экспортированный адрес `:2448`, для отдельного ocserv SNI — `:443`. Старые shared-SNI конфиги на `443` нужно экспортировать заново. `2448/tcp` и DTLS `4443/udp` должны быть открыты также в cloud firewall; недоступный DTLS замедляет подключение.
 
 Прямые порты `2443-2448/tcp` позволяют проверить backend в обход nginx. Если прямое подключение работает, а `443/tcp` нет, проверяйте SNI-карту и логи nginx.
 

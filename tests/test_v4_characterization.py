@@ -159,6 +159,9 @@ class V4CharacterizationTests(unittest.TestCase):
         canonical = (ROOT / "tools/canonical-files.txt").read_text(
             encoding="utf-8"
         ).splitlines()
+        # v4.1.1 добавляет одну opt-in команду; остальные v3 CLI-контракты,
+        # RPC/HTTP и canonical inventory обязаны остаться побайтно прежними.
+        self.assertEqual(cli.pop("sni-routes set-reality-mode"), ["--help", "--restart", "-h"])
         inventories = {
             "cli": cli,
             "rpc_all": sorted(ALLOWED_METHODS),
