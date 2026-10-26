@@ -54,9 +54,43 @@ RUNTIME_PREFIXES = ("clients/", "certs/", "site-certs/", "ocserv/certs/", "hy2/c
 RUNTIME_DATA_PREFIXES = ("portal-data/", "portal-runtime/")
 SAFE_PATH_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
 
+# Bridge v4.1.2 сохраняет исходный inventory v4.1.1, но заранее знает только
+# один следующий inventory. Это не разрешение путей из непроверенного архива.
+LEGACY_V411_SCHEMA_SHA256 = "8afdf0869dd9e771193189ed34b1c52e602aee5831ae212d7b952df94e03f89d"
+FORWARD_VERSION = "v4.2.0"
+V420_WHEEL_REPLACEMENTS = {
+    "portal/wheels/gunicorn-26.0.0-py3-none-any.whl": "portal/wheels/gunicorn-26.2.0-py3-none-any.whl",
+    "portal/wheels/werkzeug-3.1.8-py3-none-any.whl": "portal/wheels/werkzeug-3.1.9-py3-none-any.whl",
+}
+V420_NEW_SOURCE_FILES = tuple(sorted((
+    "tools/kvnlib/core/migration.py",
+    "tools/kvnlib/exports/migration.py",
+    "tools/kvnlib/runtime/migration.py",
+    "portal/root_shell_helper.py",
+    "portal/agent_handlers/migration.py",
+    "portal/control/migration.py",
+    "portal/app/routes/shell_stream.py",
+    "portal/app/routes/migration.py",
+    "portal/app/static/migration.js",
+    "portal/app/templates/migration.html",
+    "portal/app/static/vendor/xterm/SHA256SUMS",
+    "portal/wheels/flask_sock-0.7.0-py3-none-any.whl",
+    "portal/wheels/simple_websocket-1.1.0-py3-none-any.whl",
+    "portal/wheels/wsproto-1.3.2-py3-none-any.whl",
+    "portal/wheels/h11-0.16.0-py3-none-any.whl",
+)))
+
 
 class ArchiveValidationError(ValueError):
     """Архив не соответствует безопасному формату deploy."""
+
+
+def forward_v420_schema(canonical: list[str]) -> list[str] | None:
+    """Точная ограниченная миграция trusted inventory v4.1.1 → v4.2.0."""
+    normalized = ("\n".join(canonical) + "\n").encode("utf-8")
+    if hashlib.sha256(normalized).hexdigest() != LEGACY_V411_SCHEMA_SHA256:
+        return None
+    return [V420_WHEEL_REPLACEMENTS.get(path, path) for path in canonical] + list(V420_NEW_SOURCE_FILES)
 
 
 def _load_canonical_schema() -> list[str]:
@@ -120,6 +154,9 @@ def _parse_manifest(content: bytes) -> list[str]:
             raise ArchiveValidationError("повторяющийся путь в manifest")
         result.append(safe)
     canonical = _load_canonical_schema()
+    forward = forward_v420_schema(canonical)
+    if forward is not None and result == forward:
+        return result
     missing = [relative for relative in canonical if relative not in result]
     extra = [relative for relative in result if relative not in canonical]
     if missing:
@@ -200,10 +237,13 @@ def inspect_archive(path: Path) -> dict[str, int | str]:
             manifest_member = files.get(MANIFEST_NAME)
             if manifest_member is None:
                 raise ArchiveValidationError("в архиве отсутствует обязательный manifest")
+            if manifest_member.size > 256 * 1024:
+                raise ArchiveValidationError("manifest архива слишком большой")
             manifest_handle = archive.extractfile(manifest_member)
             if manifest_handle is None:
                 raise ArchiveValidationError("manifest архива не читается")
-            manifest = _parse_manifest(manifest_handle.read())
+            manifest_content = manifest_handle.read()
+            manifest = _parse_manifest(manifest_content)
             expected = set(manifest) | DEPLOY_ONLY | {MANIFEST_NAME}
             unknown = set(files) - expected
             missing = set(manifest) - set(files)
@@ -215,6 +255,19 @@ def inspect_archive(path: Path) -> dict[str, int | str]:
                 raise ArchiveValidationError(
                     "в архиве отсутствуют файлы из manifest: " + ", ".join(sorted(missing))
                 )
+            schema_member = files.get("tools/canonical-files.txt")
+            if schema_member is None or schema_member.size > 256 * 1024:
+                raise ArchiveValidationError("в архиве отсутствует допустимый канонический список")
+            schema_handle = archive.extractfile(schema_member)
+            if schema_handle is None or schema_handle.read() != manifest_content:
+                raise ArchiveValidationError("manifest не совпадает со встроенным tools/canonical-files.txt")
+            if manifest != _load_canonical_schema():
+                version_member = files.get("VERSION")
+                if version_member is None or version_member.size > 32:
+                    raise ArchiveValidationError("новый inventory требует VERSION v4.2.0")
+                version_handle = archive.extractfile(version_member)
+                if version_handle is None or version_handle.read().strip() != FORWARD_VERSION.encode("ascii"):
+                    raise ArchiveValidationError("новый inventory разрешён только для v4.2.0")
             users_member = files.get("users.json")
             if users_member is None:
                 raise ArchiveValidationError("в архиве отсутствует deploy/users.json")

@@ -62,9 +62,9 @@ class DeployBuildTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def build(self):
+    def build(self, version="v4.1.1"):
         env = os.environ.copy()
-        env.update({"KVN_BUILD_ID": "v4-test-repro", "KVN_VERSION": "v4.1.1"})
+        env.update({"KVN_BUILD_ID": "v4-test-repro", "KVN_VERSION": version})
         if os.name == "nt":
             env["PYTHON3"] = sys.executable
         return subprocess.run(
@@ -111,6 +111,8 @@ class DeployBuildTests(unittest.TestCase):
                 payload = archive.extractfile(f"deploy/{relative}").read()
                 if relative == "portal/Dockerfile":
                     self.assertIn(b"KVN_BUILD_ID=", payload)
+                elif relative == "VERSION":
+                    self.assertEqual(payload, b"v4.1.1\n")
                 else:
                     self.assertEqual((self.project / relative).read_bytes(), payload, relative)
         self.assertFalse((self.project / "deploy").exists())
@@ -158,6 +160,17 @@ class DeployBuildTests(unittest.TestCase):
         self.assertIn("canonical-files.txt", validator)
         self.assertNotIn("canonical=(", updater)
         self.assertNotIn("build_deploy_tree.py sync", builder)
+
+    def test_bridge_version_override_matches_all_embedded_version_sources(self):
+        (self.project / "VERSION").write_text("v4.1.1\n", encoding="utf-8")
+        before = (self.project / "VERSION").read_bytes()
+        result = self.build(version="v4.1.2")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual((self.project / "VERSION").read_bytes(), before)
+        with tarfile.open(self.project / "package.tar.gz", "r:gz") as archive:
+            self.assertEqual(archive.extractfile("deploy/VERSION").read(), b"v4.1.2\n")
+            self.assertIn(b"KVN_VERSION=v4.1.2", archive.extractfile("deploy/portal/Dockerfile").read())
+            self.assertIn(b'VERSION = "v4.1.2"', archive.extractfile("deploy/portal/build_info.py").read())
 
     @unittest.skipUnless(
         os.name != "nt" and hasattr(os, "geteuid") and os.geteuid() == 0,

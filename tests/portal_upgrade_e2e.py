@@ -21,7 +21,8 @@ ROOT = Path(__file__).resolve().parents[1]
 BASELINE_SHA = "a26816589796c3a32e4a9d6777b9993ae3c5ddc745c9d4eea8b5609665b7073b"
 BASELINE_URL = "https://github.com/artemiygaer/kvn-portal/releases/download/v4.0.1/kvn-vpn-release-linux-amd64.tar.gz"
 BASELINES = {"v4.0.1":BASELINE_SHA,
-             "v4.1.0":"801a0deb92fa08ae91fe25ba7355263ffe20e6a45a8f19e81e143f024d0038a7"}
+             "v4.1.0":"801a0deb92fa08ae91fe25ba7355263ffe20e6a45a8f19e81e143f024d0038a7",
+             "v4.1.1":"4b6ea5e16d67d9344fd5cf3644a86b031e20ceee883a76e8d98ce74ca5b38262"}
 NAME = "kvn-portal-upgrade-e2e"
 LOGIN_PASSWORD = "UpgradePortal-Test-2026"
 ROOT_PASSWORD = "UpgradeRoot-Test-2026"
@@ -46,10 +47,13 @@ if command in ('restart','start') and agent:
     Path('/run/kvn-portal').mkdir(exist_ok=True)
     os.chown('/run/kvn-portal',0,12345); os.chmod('/run/kvn-portal',0o750)
     log=open('/test/agent.log','ab')
+    # Настоящий systemd не наследует окружение вызвавшего systemctl updater.
+    # Иначе второй update ошибочно считает себя worker первого удалённого каталога.
+    child_env={key:value for key,value in os.environ.items() if not key.startswith('KVN_UPDATE_')}
     process=subprocess.Popen(['/usr/bin/python3','/project/portal/agent.py','--project-root','/project',
         '--socket','/run/kvn-portal/control.sock','--secret-file','/etc/kvn-portal/agent.secret',
         '--socket-group','kvn-portal','--metrics-db','/var/lib/kvn-portal/metrics.db'],
-        stdout=log,stderr=log,start_new_session=True)
+        stdout=log,stderr=log,start_new_session=True,env=child_env)
     pidfile.write_text(str(process.pid)); sys.exit(0)
 if command in ('enable','disable','daemon-reload','show','status'): sys.exit(0)
 sys.exit(1)
@@ -85,6 +89,7 @@ def main():
     parser.add_argument("--release", type=Path, default=ROOT / "kvn-vpn-release-linux-amd64.tar.gz")
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--baseline-version", choices=tuple(BASELINES), default="v4.0.1")
+    parser.add_argument("--bridge", type=Path, help="Сначала установить совместимый bridge через тот же HTTPS-портал")
     parser.add_argument("--github", action="store_true", help="Скачать опубликованный release через старый портал")
     parser.add_argument("--keep", action="store_true")
     args = parser.parse_args()
@@ -178,6 +183,25 @@ open('/project/.env','w').write('KVN_PORTAL_GID=12345\\nKVN_PORTAL_PORT=8443\\nC
         status,headers,_=request("POST","/gaer/login",data={"csrf_token":csrf(page),"login":"admin","password":LOGIN_PASSWORD})
         if status!=302: raise RuntimeError("Вход в портал не удался")
         return headers["Set-Cookie"].split(";",1)[0]
+    def start_prepared(cookie, version):
+        status,_,page=request("GET","/gaer/settings?group=update",cookie=cookie)
+        if status!=200: raise RuntimeError("Не удалось получить команду запуска")
+        token=re.search(r'name="prepared_id" value="([^"]+)"',page).group(1)
+        log_path=work/'update.log'
+        offset=len(log_path.read_text(errors='replace')) if log_path.exists() else 0
+        status,_,text=request("POST","/gaer/settings/update/start",cookie=cookie,
+                              data={"csrf_token":csrf(page),"prepared_id":token,"root_password":ROOT_PASSWORD,"mode":"full"})
+        if status not in (200,302): raise RuntimeError("Запуск обновления отклонён: "+text)
+        deadline=time.monotonic()+600
+        log=''
+        while time.monotonic()<deadline:
+            log=log_path.read_text(errors='replace')[offset:] if log_path.exists() else ''
+            if 'UPDATE_EXIT=' in log:
+                if 'UPDATE_EXIT=0' not in log: raise RuntimeError(log[-10000:])
+                break
+            time.sleep(1)
+        else: raise RuntimeError("Updater не завершился: "+log[-10000:])
+        return login(version)
     def toggle(cookie,action,service="ocserv"):
         status,_,text=request("GET","/gaer/services",cookie=cookie)
         if status!=200: raise RuntimeError("Список сервисов недоступен")
@@ -235,9 +259,26 @@ open('/project/.env','w').write('KVN_PORTAL_GID=12345\\nKVN_PORTAL_PORT=8443\\nC
         external_links=agent_run("sha256sum","clients/UpgradeUser/links.txt").split()[0]
         external_started=agent_run("docker","inspect","--format","{{.State.StartedAt}}","xray").strip()
         print(f"[OK] Опубликованный {args.baseline_version} запущен; persistent ocserv=false задан allowlisted RPC",flush=True)
+        current_version=args.baseline_version
+        if args.bridge:
+            with tarfile.open(args.bridge) as bridge_archive:
+                bridge_manifest=json.load(bridge_archive.extractfile('release-manifest.json'))
+            if bridge_manifest.get('version')!='v4.1.2':
+                raise RuntimeError('Для этого перехода разрешён bridge только v4.1.2')
+            status,_,page=request("GET","/gaer/settings?group=update",cookie=cookie)
+            status,_,text=request("POST","/gaer/settings/update/prepare",cookie=cookie,
+                                  data={"csrf_token":csrf(page)},upload=args.bridge)
+            if status!=201: raise RuntimeError("Старый портал отклонил bridge: "+text)
+            cookie=start_prepared(cookie,'v4.1.2')
+            current_version='v4.1.2'
+            if agent_run('docker','inspect','--format','{{.State.StartedAt}}','xray').strip()!=external_started:
+                raise RuntimeError('Bridge перезапустил прежний внешний Reality')
+            if agent_run('sha256sum','xray/config.json').split()[0]!=external_config:
+                raise RuntimeError('Bridge изменил внешний Reality config')
+            print('[OK] HTTPS bridge v4.1.2 установлен; внешний Reality не перезапущен и не изменён',flush=True)
         if args.github:
             release=github_check(cookie,False)
-            print(f"[OK] {args.baseline_version} видит новое обновление {target_version} на public GitHub",flush=True)
+            print(f"[OK] {current_version} видит новое обновление {target_version} на public GitHub",flush=True)
             status,_,page=request("GET","/gaer/settings?group=update",cookie=cookie)
             status,_,text=request("POST","/gaer/settings/update/github/prepare",cookie=cookie,
                                   data={"csrf_token":csrf(page),"release_id":release["release_id"],
@@ -249,21 +290,8 @@ open('/project/.env','w').write('KVN_PORTAL_GID=12345\\nKVN_PORTAL_PORT=8443\\nC
                                   data={"csrf_token":csrf(page)},upload=args.release)
         if status!=201: raise RuntimeError("Старый портал отклонил архив: "+text)
         prepared=json.loads(text)
-        print(f"[OK] {args.baseline_version} загрузил и проверил full release; ready",flush=True)
-        status,_,page=request("GET","/gaer/settings?group=update",cookie=cookie)
-        token=re.search(r'name="prepared_id" value="([^"]+)"',page).group(1)
-        status,_,text=request("POST","/gaer/settings/update/start",cookie=cookie,
-                              data={"csrf_token":csrf(page),"prepared_id":token,"root_password":ROOT_PASSWORD,"mode":"full"})
-        if status not in (200,302): raise RuntimeError("Запуск обновления отклонён: "+text)
-        deadline=time.monotonic()+600
-        while time.monotonic()<deadline:
-            log=(work/'update.log').read_text(errors='replace') if (work/'update.log').exists() else ''
-            if 'UPDATE_EXIT=' in log:
-                if 'UPDATE_EXIT=0' not in log: raise RuntimeError(log[-10000:])
-                break
-            time.sleep(1)
-        else: raise RuntimeError("Updater не завершился: "+log[-10000:])
-        cookie=login(target_version)
+        print(f"[OK] {current_version} загрузил и проверил full release; ready",flush=True)
+        cookie=start_prepared(cookie,target_version)
         if agent_run('docker','exec','kvn-portal','printenv','KVN_BUILD_ID').strip()!=target_manifest['build_id']:
             raise RuntimeError('Портал не переключился на целевой build ID')
         print(f"[OK] Updater завершился; портал {target_manifest['build_id']} доступен",flush=True)
@@ -309,7 +337,8 @@ open('/project/.env','w').write('KVN_PORTAL_GID=12345\\nKVN_PORTAL_PORT=8443\\nC
         for service in ("telemt","hysteria","xray"):
             toggle(cookie,"disable",service)
         source="GitHub download" if args.github else "upload"
-        print(f"[OK] PORTAL_UPGRADE_E2E: {args.baseline_version} → {target_manifest['build_id']}, реальные HTTPS {source}/ready/start/Compose, сохранение state/certs, ocserv disable/enable",flush=True)
+        route=f"{args.baseline_version} → v4.1.2" if args.bridge else args.baseline_version
+        print(f"[OK] PORTAL_UPGRADE_E2E: {route} → {target_manifest['build_id']}, реальные HTTPS {source}/ready/start/Compose, сохранение state/certs, ocserv disable/enable",flush=True)
     finally:
         if args.keep:
             print(f"[INFO] Стенд сохранён: {work}, https://127.0.0.1:{port}/gaer/")

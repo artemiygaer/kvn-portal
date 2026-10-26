@@ -296,6 +296,25 @@ class ApplyPlanTests(unittest.TestCase):
         self.assertEqual(len(report["fallbacks"]), 1)
         self.assertEqual(report["warnings"], [])
 
+    @unittest.expectedFailure
+    def test_baseline_xray_structural_delta_must_not_be_reported_as_hot_update(self):
+        """Регрессия фазы 1: users-only API скрывает изменение Reality target."""
+        before = {"users": [], "sni_routes": {"reality-tcp": {"default": "apple.com"}}}
+        after = {"users": [], "sni_routes": {"reality-tcp": {
+            "default": "web.example.test", "reality_mode": "self-steal",
+        }}}
+        plan = build_change_set({"xray/config.json": "old"}, {"xray/config.json": "new"})
+        with (
+            mock.patch("tools.kvnctl.shutil.which", return_value="docker"),
+            mock.patch("tools.kvnctl.subprocess.run") as api,
+            mock.patch("tools.kvnctl._restart_docker_services", return_value=True) as restart,
+        ):
+            report = kvnctl.restart_services(plan, before_state=before, after_state=after)
+        api.assert_not_called()
+        self.assertEqual(report["hot_updated"], [])
+        self.assertEqual(report["restarted"], ["xray"])
+        restart.assert_called_once_with(["xray"])
+
     def test_failed_restart_requires_reconcile(self):
         plan = build_change_set({"xray/config.json": "old"}, {"xray/config.json": "new"})
         with (

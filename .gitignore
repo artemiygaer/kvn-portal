@@ -58,3 +58,12 @@ SHA256SUMS
 
 # Deploy существует только как временный/распакованный build artifact.
 /deploy/
+
+# Только безопасные deploy-шаблоны: production users/DB по-прежнему исключены.
+!packaging/deploy-template/users.json
+!packaging/deploy-template/portal-data/
+packaging/deploy-template/portal-data/*
+!packaging/deploy-template/portal-data/.gitkeep
+!packaging/deploy-template/portal-runtime/
+packaging/deploy-template/portal-runtime/*
+!packaging/deploy-template/portal-runtime/.gitkeep

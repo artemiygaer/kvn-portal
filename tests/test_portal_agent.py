@@ -1319,6 +1319,68 @@ class SystemUserTests(unittest.TestCase):
             }))
 
 
+class RootShellBaselineRegressionTests(unittest.TestCase):
+    """Временные expectedFailure фиксируют дефекты до фаз 3 и 6, не маскируют их."""
+
+    def setUp(self):
+        self.dispatcher = AgentDispatcher(Path("/srv/kvn"), FakeRunner())
+        current = time.monotonic()
+        self.session = RootShellSession("b" * 32, "a" * 64, 123456, -1,
+                                        current, current, threading.Lock())
+        self.params = {"shell_id": self.session.session_id, "session_owner": self.session.owner}
+
+    @unittest.skipUnless(os.name == "posix", "PTY handler проверяется на Linux")
+    @unittest.expectedFailure
+    def test_baseline_utf8_split_between_reads_preserves_character(self):
+        encoded = "Ж".encode("utf-8")
+        output = []
+        with (
+            mock.patch("portal.agent_handlers.dispatcher.select.select",
+                       side_effect=[([-1], [], []), ([], [], []), ([-1], [], []), ([], [], [])]),
+            mock.patch("portal.agent_handlers.dispatcher.os.read", side_effect=[encoded[:1], encoded[1:]]),
+            mock.patch("portal.agent_handlers.dispatcher.os.waitpid", return_value=(0, 0)),
+        ):
+            for _ in range(2):
+                text, alive, _exit = self.dispatcher._read_shell_locked(self.session)
+                self.assertTrue(alive)
+                output.append(text)
+        self.assertEqual("".join(output), "Ж")
+
+    @unittest.expectedFailure
+    def test_baseline_partial_write_sends_the_remaining_bytes(self):
+        with (
+            mock.patch.object(self.dispatcher, "_shell_by_id", return_value=self.session),
+            mock.patch("portal.agent_handlers.dispatcher.os.write", side_effect=[1, 2]) as write,
+        ):
+            result = self.dispatcher._shell_write({**self.params, "data": "abc"})
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["written"], 3)
+        self.assertEqual([call.args[1] for call in write.call_args_list], [b"abc", b"bc"])
+
+    @unittest.expectedFailure
+    def test_baseline_same_dimensions_do_not_repeat_resize_ioctl(self):
+        with (
+            mock.patch.object(self.dispatcher, "_shell_by_id", return_value=self.session),
+            mock.patch.object(self.dispatcher, "_set_shell_size") as resize,
+        ):
+            for _ in range(2):
+                self.dispatcher._shell_resize({**self.params, "rows": 24, "cols": 100})
+        resize.assert_called_once_with(-1, 24, 100)
+
+    @unittest.skipUnless(os.name == "posix", "PTY handler проверяется на Linux")
+    @unittest.expectedFailure
+    def test_baseline_backspace_and_curses_shift_controls_survive_read(self):
+        payload = b"a\b \b\x0eqq\x0f"
+        with (
+            mock.patch("portal.agent_handlers.dispatcher.select.select",
+                       side_effect=[([-1], [], []), ([], [], [])]),
+            mock.patch("portal.agent_handlers.dispatcher.os.read", return_value=payload),
+            mock.patch("portal.agent_handlers.dispatcher.os.waitpid", return_value=(0, 0)),
+        ):
+            text, _alive, _exit = self.dispatcher._read_shell_locked(self.session)
+        self.assertEqual(text, payload.decode("utf-8"))
+
+
 class PortalAgentInstallTests(unittest.TestCase):
     def test_install_script_hardens_unit_and_restarts_active_service(self):
         script = Path("portal/install-host-agent.sh").read_text(encoding="utf-8")

@@ -766,6 +766,12 @@ def verify_security_and_logs() -> None:
 
 
 def main() -> int:
+    if os.name == "posix" and os.geteuid() != 0:
+        raise SystemExit(
+            "Linux deploy E2E запускается от root для проверки ownership. "
+            "Используйте sudo python3 tests/deploy_runtime_e2e.py; "
+            "на Windows — WSL: wsl.exe -d Ubuntu -u root -- bash."
+        )
     if shutil.which("docker") is None:
         # В минимальном контейнере без Docker CLI проверяем офлайн-контракты;
         # полный lifecycle запускается отдельно через Docker Desktop на хосте.

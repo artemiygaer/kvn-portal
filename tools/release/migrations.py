@@ -16,10 +16,24 @@ LEGACY_BOOTSTRAP_FILES = (
 )
 SUPPORTED_ARTIFACTS = ("source", "full")
 SUPPORTED_ENTRYPOINTS = ("cli", "portal")
+PORTAL_COMPATIBILITY_BRIDGE = "v4.1.2"
 
 
 class MigrationError(ValueError):
     """Переход отклонён до изменения установленного проекта."""
+
+
+def portal_upgrade_steps(source_version: str, target_version: str) -> tuple[str, ...]:
+    """Явный путь опубликованного v4.1.1 к новому inventory без SSH-моста."""
+    if source_version == target_version and source_version in {"v4.1.1", "v4.1.2", "v4.2.0"}:
+        return ()
+    if (source_version, target_version) == ("v4.1.1", "v4.1.2"):
+        return (PORTAL_COMPATIBILITY_BRIDGE,)
+    if (source_version, target_version) == ("v4.1.1", "v4.2.0"):
+        return (PORTAL_COMPATIBILITY_BRIDGE, target_version)
+    if (source_version, target_version) == ("v4.1.2", "v4.2.0"):
+        return (target_version,)
+    raise MigrationError("для этой пары версий путь portal upgrade не подтверждён")
 
 
 @dataclass(frozen=True)

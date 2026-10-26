@@ -4,6 +4,7 @@
 /deploy
 /.playwright-cli
 /output
+/relay
 /users.json
 /CLIENT_LINKS.md
 /clients

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import socket
+import shutil
+import subprocess
 import tempfile
 import threading
 import time
@@ -98,6 +100,39 @@ class RuntimeBridgeTests(unittest.TestCase):
             'capability.get("generation")',
         ):
             self.assertIn(marker, source)
+
+    @unittest.skipUnless(os.name == "posix" and shutil.which("bash"), "нужен POSIX Bash")
+    def test_installer_fingerprint_changes_for_release_code_and_schema_only(self):
+        source = (Path(__file__).resolve().parents[1] / "portal/install-host-agent.sh").read_text(encoding="utf-8")
+        snippet = source[source.index("agent_sources=("):source.index("installed_fingerprint=")]
+        snippet += '\nprintf "%s\\n" "$source_fingerprint"\n'
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            files = (
+                "portal/agent.py", "portal/agent_protocol.py", "portal/agent_handlers/shell.py",
+                "portal/control.py", "portal/control/exports.py", "portal/github_updates.py",
+                "portal/metrics.py", "portal/system_user_helper.py", "tools/kvnctl.py",
+                "tools/kvnlib/runtime/runner.py", "tools/deploy_archive.py",
+                "tools/release/full_archive.py", "tools/canonical-files.txt", "VERSION",
+            )
+            for relative in files:
+                target = root / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("fixture\n", encoding="utf-8")
+
+            def fingerprint():
+                return subprocess.check_output(["bash", "-euo", "pipefail", "-c", snippet],
+                                               env={**os.environ, "ROOT_DIR": str(root)}, text=True).strip()
+
+            previous = fingerprint()
+            self.assertEqual(previous, fingerprint())
+            for relative in ("tools/deploy_archive.py", "tools/release/full_archive.py",
+                             "tools/canonical-files.txt", "VERSION", "portal/root_shell_helper.py"):
+                (root / relative).write_text("changed\n", encoding="utf-8")
+                current = fingerprint()
+                self.assertNotEqual(previous, current, relative)
+                self.assertEqual(current, fingerprint())
+                previous = current
 
     def test_portal_compose_mounts_exclude_docker_socket(self):
         compose = (Path(__file__).resolve().parents[1] / "docker-compose.yml").read_text(encoding="utf-8")

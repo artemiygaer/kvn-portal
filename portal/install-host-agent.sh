@@ -95,19 +95,30 @@ if [[ ! -f "$UNIT" ]] || ! cmp -s "$unit_tmp" "$UNIT"; then
     unit_changed=1
 fi
 
+# Fingerprint должен включать и импортированные валидаторы: иначе bridge
+# обновит файлы, но активный agent продолжит проверять архив старым Python-кодом.
+agent_sources=(
+    "$ROOT_DIR/portal/agent.py"
+    "$ROOT_DIR/portal/agent_protocol.py"
+    "$ROOT_DIR/portal/agent_handlers"
+    "$ROOT_DIR/portal/control.py"
+    "$ROOT_DIR/portal/control"
+    "$ROOT_DIR/portal/github_updates.py"
+    "$ROOT_DIR/portal/metrics.py"
+    "$ROOT_DIR/portal/system_user_helper.py"
+    "$ROOT_DIR/tools/kvnctl.py"
+    "$ROOT_DIR/tools/kvnlib"
+    "$ROOT_DIR/tools/deploy_archive.py"
+    "$ROOT_DIR/tools/release"
+    "$ROOT_DIR/tools/canonical-files.txt"
+    "$ROOT_DIR/VERSION"
+)
+if [[ -f "$ROOT_DIR/portal/root_shell_helper.py" ]]; then
+    agent_sources+=("$ROOT_DIR/portal/root_shell_helper.py")
+fi
 source_fingerprint="$({
-    find \
-        "$ROOT_DIR/portal/agent.py" \
-        "$ROOT_DIR/portal/agent_protocol.py" \
-        "$ROOT_DIR/portal/agent_handlers" \
-        "$ROOT_DIR/portal/control.py" \
-        "$ROOT_DIR/portal/control" \
-        "$ROOT_DIR/portal/github_updates.py" \
-        "$ROOT_DIR/portal/metrics.py" \
-        "$ROOT_DIR/portal/system_user_helper.py" \
-        "$ROOT_DIR/tools/kvnctl.py" \
-        "$ROOT_DIR/tools/kvnlib" \
-        -type f -name '*.py' -print0 \
+    find "${agent_sources[@]}" \
+        -type f \( -name '*.py' -o -name 'canonical-files.txt' -o -name VERSION \) -print0 \
         | sort -z \
         | xargs -0 sha256sum
 } | sha256sum | awk '{print $1}')"

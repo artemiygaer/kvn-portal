@@ -117,7 +117,8 @@ def build_synthetic_deploy(path: Path, *, extra_name: str = "") -> int:
         add_tar_file(archive, "deploy/.kvn-canonical-files", manifest)
         for relative in canonical:
             digest = hashlib.sha256(relative.encode("utf-8")).hexdigest().encode("ascii")
-            add_tar_file(archive, f"deploy/{relative}", digest * 8)
+            payload = manifest if relative == "tools/canonical-files.txt" else digest * 8
+            add_tar_file(archive, f"deploy/{relative}", payload)
         template = b'{"server":"YOUR_SERVER_IP","users":[],"portal":{"enabled":false}}\n'
         add_tar_file(archive, "deploy/users.json", template)
         if extra_name:

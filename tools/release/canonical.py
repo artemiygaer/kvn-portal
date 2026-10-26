@@ -77,7 +77,12 @@ def stage(
         if not source.is_file():
             raise SystemExit(f"[ОШИБКА] Не найден исходный файл: {value}")
         target = destination / value
-        if value == "portal/Dockerfile":
+        if value == "VERSION":
+            # VERSION, image ENV и build_info должны совпадать и при bridge build.
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(version + "\n", encoding="utf-8")
+            shutil.copymode(source, target)
+        elif value == "portal/Dockerfile":
             payload = DOCKERFILE_BUILD_ID.sub(
                 f"KVN_BUILD_ID={build_id}".encode("ascii"),
                 source.read_bytes(),

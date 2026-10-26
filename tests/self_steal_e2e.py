@@ -2,6 +2,7 @@
 """Проверяет браузерный HTTPS и настоящий Reality TCP/xHTTP в Docker/WSL."""
 
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -29,6 +30,12 @@ def port():
         return listener.getsockname()[1]
 
 def main():
+    if os.name != "posix" or os.geteuid() != 0:
+        raise SystemExit(
+            "Self-steal E2E требует Linux/root для production ownership UID 65532. "
+            "Запустите sudo python3 tests/self_steal_e2e.py; "
+            "на Windows используйте WSL: wsl.exe -d Ubuntu -u root -- bash."
+        )
     work=Path(tempfile.mkdtemp(prefix="kvn-self-steal-"))
     network=PREFIX+"-network"
     containers=[PREFIX+"-nginx", PREFIX+"-xray", PREFIX+"-client"]
