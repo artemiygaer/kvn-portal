@@ -417,8 +417,11 @@ class PortalUiTests(unittest.TestCase):
         self.assertNotIn("payload.refreshing ? msg.snapshotLoading", script)
         for marker in ["scheduleLogs", "logPaused", 'Accept": "application/json"', "cache: \"no-store\"", "window.setTimeout(refreshLogs, 20000)"]:
             self.assertIn(marker, script)
-        self.assertIn("window.setTimeout(pollShell, data.output ? 80 : 160)", script)
-        self.assertIn("Math.min(1600, 240 + readFailures * 120)", script)
+        shell_script = (self.static / "root-shell.js").read_text(encoding="utf-8")
+        self.assertIn("new WebSocket(url)", shell_script)
+        self.assertIn("Math.min(3000, 200 * retries)", shell_script)
+        self.assertNotIn("pollShell", shell_script)
+        self.assertNotIn("dataset.readEndpoint", shell_script)
         self.assertNotIn("DOMParser", script)
         self.assertNotIn('Accept": "text/html"', script)
 

@@ -21,6 +21,7 @@ except ModuleNotFoundError:  # unittest discover с `-s tests`
     from test_baseline_contracts import fixture_state, fixture_user
 from tools import kvnctl
 from tools.deploy_archive import ArchiveValidationError, inspect_archive
+from tools.deploy_archive import V420_NEW_SOURCE_FILES, V420_WHEEL_REPLACEMENTS
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -160,8 +161,10 @@ class V4CharacterizationTests(unittest.TestCase):
         canonical = (ROOT / "tools/canonical-files.txt").read_text(
             encoding="utf-8"
         ).splitlines()
-        # v4.1.1 добавляет одну opt-in команду; остальные v3 CLI-контракты,
-        # RPC/HTTP и canonical inventory обязаны остаться побайтно прежними.
+        # v4.1.1 добавляет opt-in CLI, v4.2.0 — заранее зафиксированный inventory.
+        # Исключаются только точные новые пути/замены, остальной v3 hash неизменен.
+        reverse = {new: old for old, new in V420_WHEEL_REPLACEMENTS.items()}
+        canonical = [reverse.get(path, path) for path in canonical if path not in V420_NEW_SOURCE_FILES]
         self.assertEqual(cli.pop("sni-routes set-reality-mode"), ["--help", "--restart", "-h"])
         inventories = {
             "cli": cli,

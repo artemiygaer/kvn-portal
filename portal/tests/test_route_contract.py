@@ -28,6 +28,7 @@ EXPECTED = {
     "terminal_shell_write": ("/gaer/terminal/shell/write", {"POST"}),
     "terminal_shell_resize": ("/gaer/terminal/shell/resize", {"POST"}),
     "terminal_shell_close": ("/gaer/terminal/shell/close", {"POST"}),
+    "terminal_shell_stream": ("/gaer/terminal/shell/stream", {"GET"}),
     "root_shell_view": ("/gaer/shell", {"GET"}),
     "users_list": ("/gaer/users", {"GET"}),
     "services_list": ("/gaer/services", {"GET"}),

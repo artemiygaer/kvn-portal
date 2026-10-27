@@ -438,7 +438,7 @@ class PortalUiSourceTests(unittest.TestCase):
             self.assertIn(marker, shell_panel)
         for marker in ["vendor/xterm/xterm.js", "vendor/xterm/addon-fit.js", "shell-wide", "shell-console"]:
             self.assertIn(marker, shell_template)
-        for marker in ["window.Terminal", "window.FitAddon", "xterm.onData", "xterm.onResize", "queueShellData", "shellTerminalMissing", "shellReconnecting"]:
+        for marker in ["window.Terminal", "window.FitAddon", "terminal.onData", "terminal.onResize", "new WebSocket(url)", "shellTerminalMissing", "shellReconnecting"]:
             self.assertIn(marker, script)
         for relative in ["portal/app/static/vendor/xterm/xterm.js", "portal/app/static/vendor/xterm/xterm.css", "portal/app/static/vendor/xterm/addon-fit.js"]:
             self.assertTrue((ROOT / relative).is_file(), relative)

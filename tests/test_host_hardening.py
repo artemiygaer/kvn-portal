@@ -34,7 +34,8 @@ class HostHardeningTests(unittest.TestCase):
         dockerfile = (ROOT / "portal/Dockerfile").read_text(encoding="utf-8")
         for marker in [
             "--workers=${KVN_PORTAL_WORKERS:-1}",
-            "--threads=${KVN_PORTAL_THREADS:-2}",
+            "--threads=${KVN_PORTAL_THREADS:-8}",
+            "--no-control-socket",
             "--timeout=${KVN_PORTAL_TIMEOUT:-1800}",
             "--max-requests=${KVN_PORTAL_MAX_REQUESTS:-600}",
         ]:

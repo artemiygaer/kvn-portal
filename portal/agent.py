@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import signal
 import socketserver
 import sys
 import threading
@@ -33,6 +34,7 @@ from portal.agent_protocol import (
     success_response,
 )
 from portal.metrics import HostMetricsCollector, MetricsSampler, MetricsStore
+from portal.agent_handlers.shell import stop_stale_shell_units
 
 
 # Эти имена сохранены как тестовый/операционный seam старого agent.py.
@@ -138,6 +140,7 @@ def serve(
 
     if os.geteuid() != 0:
         raise SystemExit("Host-agent должен запускаться от root через systemd.")
+    stop_stale_shell_units()
     secret = secret_file.read_text(encoding="utf-8").strip()
     if len(secret) < 32:
         raise SystemExit("Секрет host-agent отсутствует или слишком короткий.")
@@ -161,9 +164,18 @@ def serve(
             server.serve_forever(poll_interval=0.5)
     finally:
         sampler.stop()
+        with dispatcher.root_shell_lock:
+            sessions = list(dispatcher.root_shells.values())
+            dispatcher.root_shells.clear()
+        for session in sessions:
+            session.close()
 
 
 def main() -> int:
+    def stop_agent(_signal, _frame):
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, stop_agent)
     parser = argparse.ArgumentParser(description="KVN VPN host-agent")
     parser.add_argument("--project-root", type=Path, required=True)
     parser.add_argument("--socket", type=Path, default=Path("/run/kvn-portal/control.sock"))

@@ -1,319 +1,269 @@
 (() => {
   "use strict";
+  const root = document.querySelector("[data-root-shell]");
+  if (!root) return;
   const { msg, announce } = window.KVN;
-
-  const rootShell = document.querySelector("[data-root-shell]");
-  if (rootShell) {
-    const openForm = rootShell.querySelector("[data-shell-open-form]");
-    const passwordInput = rootShell.querySelector("[name='root_password']");
-    const terminalFrame = rootShell.querySelector("[data-shell-terminal]");
-    const terminalMount = rootShell.querySelector("[data-shell-xterm]");
-    const fallbackOutput = rootShell.querySelector("[data-shell-output]");
-    const status = rootShell.querySelector("[data-shell-status]");
-    const closeButton = rootShell.querySelector("[data-shell-close]");
-    const controlButtons = Array.from(rootShell.querySelectorAll("[data-shell-control]"));
-    const encoder = new TextEncoder();
-    const terminalTheme = {
-      background: "#0f1419",
-      foreground: "#d8dee9",
-      cursor: "#ffffff",
-      cursorAccent: "#0f1419",
-      selectionBackground: "#4b556380"
-    };
-    let shellId = "";
-    let xterm = null;
-    let fitAddon = null;
-    let pollTimer = null;
-    let resizeTimer = null;
-    let writeTimer = null;
-    let writeBuffer = "";
-    let writeInFlight = false;
-    let resizeInFlight = false;
-    let readFailures = 0;
-
-    const setShellStatus = (text, state = "stale") => {
-      if (!status) return;
-      status.textContent = text;
-      status.className = `status ${state}`;
-    };
-    const setShellEnabled = (enabled) => {
-      if (xterm) xterm.options.disableStdin = !enabled;
-      if (terminalFrame) {
-        terminalFrame.setAttribute("aria-disabled", String(!enabled));
-        terminalFrame.classList.toggle("is-active", enabled);
+  const form = root.querySelector("[data-shell-open-form]");
+  const password = root.querySelector("[name='root_password']");
+  const frame = root.querySelector("[data-shell-terminal]");
+  const status = root.querySelector("[data-shell-status]");
+  const closeButton = root.querySelector("[data-shell-close]");
+  const controls = [...root.querySelectorAll("[data-shell-control]")];
+  const encoder = new TextEncoder();
+  let shellId = "", socket = null, connected = false, stopped = true;
+  let cursor = 0, nextSeq = 1, pending = null, queue = "", queuedBytes = 0;
+  let retryTimer, inputTimer, fitTimer, retries = 0, lastSize = "", rendering = false;
+  const terminal = window.Terminal ? new window.Terminal({
+    convertEol: false, cursorBlink: true, disableStdin: true,
+    fontFamily: "'Cascadia Mono', 'Consolas', 'Liberation Mono', monospace",
+    fontSize: 14, lineHeight: 1.15, scrollback: 5000,
+    theme: { background: "#0f1419", foreground: "#d8dee9", cursor: "#ffffff",
+      selectionBackground: "#4b556380" }
+  }) : null;
+  const fit = window.FitAddon?.FitAddon ? new window.FitAddon.FitAddon() : null;
+  const setStatus = (text, state = "stale") => {
+    status.textContent = text;
+    status.title = text;
+    status.className = `status ${state}`;
+  };
+  const enable = (active) => {
+    if (terminal) terminal.options.disableStdin = !active;
+    frame.setAttribute("aria-disabled", String(!active));
+    frame.classList.toggle("is-active", active);
+    closeButton.disabled = !active;
+    controls.forEach((button) => { button.disabled = !active; });
+    form.hidden = active;
+  };
+  const send = (message) => {
+    if (socket?.readyState !== WebSocket.OPEN) return false;
+    socket.send(JSON.stringify(message));
+    return true;
+  };
+  const fitTerminal = () => {
+    const size = fit?.proposeDimensions();
+    if (!terminal || !size || !Number.isFinite(size.cols) || !Number.isFinite(size.rows)) return;
+    const cols = Math.max(20, Math.min(512, size.cols));
+    const rows = Math.max(5, Math.min(200, size.rows));
+    if (terminal.cols !== cols || terminal.rows !== rows) terminal.resize(cols, rows);
+  };
+  const resize = () => {
+    window.clearTimeout(fitTimer);
+    fitTimer = window.setTimeout(() => {
+      try { fitTerminal(); } catch (_error) { return; }
+      if (!terminal) return;
+      const size = `${terminal.rows}:${terminal.cols}`;
+      if (connected && size !== lastSize) {
+        send({ type: "resize", rows: terminal.rows, cols: terminal.cols });
+        lastSize = size;
       }
-      if (closeButton) closeButton.disabled = !enabled;
-      controlButtons.forEach((button) => { button.disabled = !enabled; });
-      if (openForm) openForm.hidden = enabled;
-    };
-    const writeFallbackOutput = (text) => {
-      if (!fallbackOutput || !text) return;
-      fallbackOutput.hidden = false;
-      fallbackOutput.textContent += text;
-      if (fallbackOutput.textContent.length > 120000) fallbackOutput.textContent = fallbackOutput.textContent.slice(-96000);
-      fallbackOutput.scrollTop = fallbackOutput.scrollHeight;
-    };
-    const appendShellOutput = (text) => {
-      if (!text) return;
-      if (xterm) {
-        xterm.write(text);
-        return;
+    }, 80);
+  };
+  const stop = (text = msg.shellClosed) => {
+    stopped = true;
+    connected = false;
+    shellId = "";
+    window.clearTimeout(retryTimer);
+    window.clearTimeout(inputTimer);
+    pending = null;
+    queue = "";
+    queuedBytes = 0;
+    const old = socket;
+    socket = null;
+    old?.close();
+    enable(false);
+    setStatus(text);
+  };
+  const flush = () => {
+    window.clearTimeout(inputTimer);
+    if (!connected) return;
+    if (!pending && queue) {
+      let length = 0, bytes = 0;
+      for (const char of queue) {
+        const size = encoder.encode(char).length;
+        if (bytes + size > 3500) break;
+        bytes += size;
+        length += char.length;
       }
-      writeFallbackOutput(text);
-    };
-    const clearShellOutput = () => {
-      if (xterm) {
-        xterm.clear();
-        return;
-      }
-      if (fallbackOutput) fallbackOutput.textContent = "";
-    };
-    const focusShell = () => {
-      if (!shellId) return;
-      if (xterm) xterm.focus();
-      else terminalFrame?.focus({ preventScroll: true });
-    };
-    const initTerminal = () => {
-      if (xterm || !terminalMount || !window.Terminal) return;
-      if (fallbackOutput) fallbackOutput.hidden = true;
-      xterm = new window.Terminal({
-        allowTransparency: false,
-        convertEol: false,
-        cursorBlink: true,
-        disableStdin: true,
-        fontFamily: "'Cascadia Mono', 'Consolas', 'Liberation Mono', monospace",
-        fontSize: 14,
-        lineHeight: 1.2,
-        scrollback: 5000,
-        theme: terminalTheme,
-        windowsMode: false
-      });
-      if (window.FitAddon?.FitAddon) {
-        fitAddon = new window.FitAddon.FitAddon();
-        xterm.loadAddon(fitAddon);
-      }
-      xterm.open(terminalMount);
-      xterm.onData(queueShellData);
-      xterm.onResize(() => {
-        if (shellId) resizeShell();
-      });
-      fitTerminal();
-    };
-    const fitTerminal = () => {
-      if (!xterm) return;
-      window.requestAnimationFrame(() => {
-        try {
-          fitAddon?.fit();
-        } catch (_error) {
-          // FitAddon зависит от рассчитанных размеров DOM; следующая попытка на resize исправит это.
-        }
-      });
-    };
-    const shellSize = () => {
-      initTerminal();
-      fitAddon?.fit();
-      if (xterm) return { rows: xterm.rows, cols: xterm.cols };
-      if (!fallbackOutput) return { rows: 24, cols: 100 };
-      const styles = window.getComputedStyle(fallbackOutput);
-      const fontSize = Number.parseFloat(styles.fontSize) || 13;
-      const lineHeight = Number.parseFloat(styles.lineHeight) || fontSize * 1.5;
-      const cols = Math.max(40, Math.min(180, Math.floor(fallbackOutput.clientWidth / Math.max(7, fontSize * 0.62))));
-      const rows = Math.max(12, Math.min(60, Math.floor(fallbackOutput.clientHeight / Math.max(12, lineHeight))));
-      return { rows, cols };
-    };
-    const shellRequest = async (endpoint, payload) => {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        credentials: "same-origin",
-        cache: "no-store",
-        headers: {
-          "Accept": "application/json",
-          "Content-Type": "application/json",
-          "X-CSRF-Token": rootShell.dataset.csrf || ""
-        },
-        body: JSON.stringify(payload)
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.ok === false) {
-        const error = new Error(data.error || msg.shellFailed);
-        error.code = data.code || "agent_error";
-        error.status = response.status;
-        throw error;
-      }
-      return data;
-    };
-    const isTransientShellError = (error) => error?.code === "agent_unavailable" || Number(error?.status) >= 500;
-    const stopShellPolling = () => {
-      window.clearTimeout(pollTimer);
-      pollTimer = null;
-    };
-    const stopShellWriting = () => {
-      window.clearTimeout(writeTimer);
-      writeTimer = null;
-      writeBuffer = "";
-      writeInFlight = false;
-    };
-    const closeShellLocal = (text = msg.shellClosed) => {
-      shellId = "";
-      stopShellPolling();
-      stopShellWriting();
-      setShellEnabled(false);
-      setShellStatus(text, "stale");
-    };
-    const takeShellChunk = () => {
-      let bytes = 0;
-      let index = 0;
-      for (const char of writeBuffer) {
-        const charBytes = encoder.encode(char).length;
-        if (index > 0 && bytes + charBytes > 3500) break;
-        bytes += charBytes;
-        index += char.length;
-      }
-      const chunk = writeBuffer.slice(0, index || 1);
-      writeBuffer = writeBuffer.slice(chunk.length);
-      return chunk;
-    };
-    const flushShellWrite = async () => {
-      window.clearTimeout(writeTimer);
-      writeTimer = null;
-      if (!shellId || writeInFlight || !writeBuffer) return;
-      writeInFlight = true;
-      const chunk = takeShellChunk();
-      try {
-        await shellRequest(rootShell.dataset.writeEndpoint, { shell_id: shellId, data: chunk });
-      } catch (error) {
-        if (isTransientShellError(error) && shellId) {
-          writeBuffer = chunk + writeBuffer;
-          setShellStatus(msg.shellReconnecting, "stale");
-          writeTimer = window.setTimeout(flushShellWrite, 700);
-          return;
-        }
-        setShellStatus(msg.shellFailed, "down");
-        announce(msg.shellSendFailed);
-        closeShellLocal(msg.shellFailed);
-      } finally {
-        writeInFlight = false;
-        if (writeBuffer && !writeTimer) writeTimer = window.setTimeout(flushShellWrite, 8);
+      pending = { type: "input", seq: nextSeq, data: queue.slice(0, length) };
+      queue = queue.slice(length);
+      queuedBytes -= bytes;
+    }
+    if (pending) send(pending);
+  };
+  const input = (data) => {
+    if (stopped || !data) return;
+    const size = encoder.encode(data).length;
+    if (queuedBytes + size > 256 * 1024) {
+      announce("Буфер ввода заполнен. Дождитесь отправки; текст не будет обрезан молча.");
+      return;
+    }
+    queue += data;
+    queuedBytes += size;
+    if (!pending) {
+      window.clearTimeout(inputTimer);
+      inputTimer = window.setTimeout(flush, 4);
+    }
+  };
+  const connect = () => {
+    if (stopped || !shellId) return;
+    if (rendering) { retryTimer = window.setTimeout(connect, 15); return; }
+    const url = new URL(root.dataset.streamEndpoint, window.location.href);
+    // Flask url_for(WebSocket) может дать ws:// за HTTPS reverse proxy.
+    url.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(url);
+    socket = ws;
+    ws.onopen = () => send({ type: "hello", shell_id: shellId, csrf: root.dataset.csrf, cursor });
+    ws.onmessage = (event) => {
+      if (socket !== ws || stopped) return;
+      let message;
+      try { message = JSON.parse(event.data); } catch (_error) { stop(msg.shellFailed); return; }
+      if (message.type === "ready") {
+        connected = true;
+        retries = 0;
+        if (!pending) nextSeq = message.input_seq + 1;
+        setStatus(msg.shellOnline, "ok");
+        lastSize = "";
+        resize();
+        flush();
+      } else if (message.type === "output") {
+        const bytes = Uint8Array.from(atob(message.data), (char) => char.charCodeAt(0));
+        if (message.cursor <= cursor) { send({ type: "ack", cursor }); return; }
+        if (message.cursor - bytes.length !== cursor) { stop("Потеряно состояние вывода. Откройте shell заново."); return; }
+        // ACK только после обработки xterm: ограничиваем очередь и не теряем кадр при reconnect.
+        const id = shellId;
+        rendering = true;
+        terminal.write(bytes, () => {
+          rendering = false;
+          if (shellId !== id || stopped) return;
+          cursor = message.cursor;
+          if (socket === ws) send({ type: "ack", cursor });
+        });
+      } else if (message.type === "input_ack") {
+        if (!pending || pending.seq !== message.seq) { stop(msg.shellFailed); return; }
+        if (message.complete) {
+          nextSeq = pending.seq + 1;
+          pending = null;
+          flush();
+        } else if (message.alive) {
+          inputTimer = window.setTimeout(flush, 40);
+        } else stop(msg.shellClosed);
+      } else if (message.type === "exit") stop(`${msg.shellClosed}${Number.isInteger(message.exit_code) ? ` rc=${message.exit_code}` : ""}`);
+      else if (message.type === "error") {
+        // Agent restart/потеря state: запрещён автоматический новый root shell/replay.
+        stop("Сессия консоли недоступна. Проверьте agent и подключитесь заново.");
       }
     };
-    const queueShellData = (data) => {
-      if (!shellId || !data) return;
-      writeBuffer += data;
-      if (encoder.encode(writeBuffer).length >= 512) {
-        flushShellWrite();
-        return;
-      }
-      window.clearTimeout(writeTimer);
-      writeTimer = window.setTimeout(flushShellWrite, 8);
+    ws.onclose = () => {
+      if (socket !== ws || stopped) return;
+      connected = false;
+      if (++retries > 12) { stop(msg.shellFailed); return; }
+      setStatus(msg.shellReconnecting);
+      retryTimer = window.setTimeout(connect, Math.min(3000, 200 * retries));
     };
-    const pollShell = async () => {
-      if (!shellId) return;
-      if (document.hidden) {
-        stopShellPolling();
-        return;
-      }
-      try {
-        const data = await shellRequest(rootShell.dataset.readEndpoint, { shell_id: shellId });
-        readFailures = 0;
-        appendShellOutput(data.output || "");
-        if (!data.alive) {
-          closeShellLocal(`${msg.shellClosed}${Number.isFinite(data.exit_code) ? ` rc=${data.exit_code}` : ""}`);
-          return;
-        }
-        if (status?.classList.contains("stale")) setShellStatus(msg.shellOnline, "ok");
-        pollTimer = window.setTimeout(pollShell, data.output ? 80 : 160);
-        return;
-      } catch (error) {
-        readFailures += 1;
-        if (isTransientShellError(error) && readFailures <= 40) {
-          setShellStatus(msg.shellReconnecting, "stale");
-          pollTimer = window.setTimeout(pollShell, Math.min(1600, 240 + readFailures * 120));
-          return;
-        }
-        announce(error.message || msg.shellFailed);
-        closeShellLocal(msg.shellFailed);
-        return;
-      }
-    };
-    const resizeShell = async () => {
-      if (!shellId || resizeInFlight) return;
-      fitTerminal();
-      resizeInFlight = true;
-      try {
-        await shellRequest(rootShell.dataset.resizeEndpoint, { shell_id: shellId, ...shellSize() });
-      } catch (_error) {
-        // Resize не критичен: следующая команда всё равно выполнится.
-      } finally {
-        resizeInFlight = false;
-      }
-    };
-    initTerminal();
-    if (!xterm) writeFallbackOutput(msg.shellTerminalMissing);
-    openForm?.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const rootPassword = passwordInput?.value || "";
-      if (!rootPassword) {
-        announce(msg.shellPasswordRequired);
-        return;
-      }
-      setShellStatus(msg.shellConnecting, "stale");
-      try {
-        initTerminal();
-        if (!xterm) {
-          setShellStatus(msg.shellFailed, "down");
-          writeFallbackOutput(`\n${msg.shellTerminalMissing}\n`);
-          announce(msg.shellTerminalMissing);
-          return;
-        }
-        const data = await shellRequest(rootShell.dataset.openEndpoint, { root_password: rootPassword, ...shellSize() });
-        if (passwordInput) passwordInput.value = "";
-        shellId = data.shell_id || "";
-        readFailures = 0;
-        clearShellOutput();
-        appendShellOutput(data.output || "");
-        setShellEnabled(Boolean(shellId));
-        setShellStatus(msg.shellOnline, "ok");
-        focusShell();
-        stopShellPolling();
-        pollShell();
-      } catch (error) {
-        if (passwordInput) passwordInput.value = "";
-        setShellStatus(msg.shellFailed, "down");
-        announce(error.message);
+    ws.onerror = () => ws.close();
+  };
+  if (terminal) {
+    if (fit) terminal.loadAddon(fit);
+    terminal.open(root.querySelector("[data-shell-xterm]"));
+    terminal.onData(input);
+    // onResize не вызывает fit(): нет рекурсивного resize/SIGWINCH.
+    terminal.onResize(({ rows, cols }) => {
+      const size = `${rows}:${cols}`;
+      if (connected && lastSize !== size) {
+        send({ type: "resize", rows, cols });
+        lastSize = size;
       }
     });
-    terminalFrame?.addEventListener("click", focusShell);
-    controlButtons.forEach((button) => {
-      button.addEventListener("click", async () => {
-        if (!shellId) return;
-        const control = button.dataset.shellControl === "interrupt" ? "\u0003" : "\u0004";
-        queueShellData(control);
-        focusShell();
-      });
+    terminal.attachCustomKeyEventHandler((event) => {
+      if (event.ctrlKey && event.shiftKey && ["C", "V"].includes(event.key.toUpperCase())) return false;
+      return true;
     });
-    closeButton?.addEventListener("click", async () => {
-      if (!shellId) return;
-      const id = shellId;
-      closeShellLocal(msg.shellClosed);
-      try {
-        await shellRequest(rootShell.dataset.closeEndpoint, { shell_id: id });
-      } catch (_error) {
-        // Закрытие уже выполнено локально; agent уберёт просроченную сессию сам.
-      }
-    });
-    window.addEventListener("resize", () => {
-      window.clearTimeout(resizeTimer);
-      resizeTimer = window.setTimeout(resizeShell, 400);
-    });
-    document.addEventListener("visibilitychange", () => {
-      if (document.hidden) stopShellPolling();
-      else if (shellId && !pollTimer) {
-        fitTerminal();
-        pollShell();
-      }
-    });
-    setShellEnabled(false);
-    setShellStatus(msg.shellOffline, "stale");
+    new ResizeObserver(resize).observe(frame);
+    document.fonts?.ready.then(resize);
+    resize();
+  } else {
+    const fallback = root.querySelector("[data-shell-output]");
+    fallback.hidden = false;
+    fallback.textContent = msg.shellTerminalMissing;
   }
-
+  const request = async (endpoint, payload) => {
+    const response = await fetch(endpoint, {
+      method: "POST", credentials: "same-origin", cache: "no-store",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": root.dataset.csrf },
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || msg.shellFailed);
+    return result;
+  };
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!terminal || !password.value || !stopped) return;
+    const button = form.querySelector("button");
+    button.disabled = true;
+    setStatus(msg.shellConnecting);
+    try {
+      fitTerminal();
+      const result = await request(root.dataset.openEndpoint,
+        { root_password: password.value, rows: terminal.rows, cols: terminal.cols, stream: true });
+      shellId = result.shell_id;
+      cursor = 0;
+      nextSeq = 1;
+      stopped = false;
+      terminal.reset(); // Только новый shell, никогда кадр/reconnect/resize.
+      enable(true);
+      terminal.write(result.output || "", connect);
+      terminal.focus();
+    } catch (error) { setStatus(msg.shellFailed, "down"); announce(error.message); }
+    finally { password.value = ""; button.disabled = false; }
+  });
+  closeButton.addEventListener("click", async () => {
+    const id = shellId;
+    stop();
+    if (id) {
+      try { await request(root.dataset.closeEndpoint, { shell_id: id }); }
+      catch (_error) { announce("Закрытие не подтверждено; agent завершит сессию по таймауту."); }
+    }
+  });
+  controls.forEach((button) => button.addEventListener("click", () => {
+    input(button.dataset.shellControl === "interrupt" ? "\x03" : "\x04");
+    terminal?.focus();
+  }));
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(terminal?.getSelection() || ""); }
+    catch (_error) { announce(msg.copyFailed); }
+  };
+  const paste = async () => {
+    try {
+      if (!stopped) {
+        terminal?.paste(await navigator.clipboard.readText());
+        terminal?.focus();
+      }
+    }
+    catch (_error) { announce("Разрешите доступ к буферу или используйте Ctrl+Shift+V."); }
+  };
+  root.querySelector("[data-shell-copy]").addEventListener("click", copy);
+  root.querySelector("[data-shell-paste]").addEventListener("click", paste);
+  root.addEventListener("keydown", (event) => {
+    if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "c") { event.preventDefault(); copy(); }
+    if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "v") { event.preventDefault(); paste(); }
+  });
+  root.querySelectorAll("[data-shell-font]").forEach((button) => button.addEventListener("click", () => {
+    if (!terminal) return;
+    const delta = Number(button.dataset.shellFont);
+    terminal.options.fontSize = delta ? Math.min(24, Math.max(10, terminal.options.fontSize + delta)) : 14;
+    resize();
+    if (!stopped) terminal.focus();
+  }));
+  root.querySelector("[data-shell-fullscreen]").addEventListener("click", async () => {
+    try { if (document.fullscreenElement) await document.exitFullscreen(); else await root.requestFullscreen(); }
+    catch (_error) { announce("Полноэкранный режим недоступен в этом браузере."); }
+    resize();
+    if (!stopped) terminal?.focus();
+  });
+  window.addEventListener("pagehide", () => { stopped = true; socket?.close(); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) resize(); });
+  frame.addEventListener("click", () => { if (!stopped) terminal?.focus(); });
+  enable(false);
+  setStatus(msg.shellOffline);
 })();

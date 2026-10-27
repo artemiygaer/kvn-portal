@@ -30,7 +30,7 @@ RUN mkdir -p /data \
 FROM base AS runtime
 USER 10001:10001
 EXPOSE 8080
-CMD ["sh", "-c", "exec gunicorn --bind=0.0.0.0:8080 --workers=${KVN_PORTAL_WORKERS:-1} --threads=${KVN_PORTAL_THREADS:-2} --timeout=${KVN_PORTAL_TIMEOUT:-1800} --keep-alive=${KVN_PORTAL_KEEPALIVE:-5} --max-requests=${KVN_PORTAL_MAX_REQUESTS:-600} --max-requests-jitter=${KVN_PORTAL_MAX_REQUESTS_JITTER:-60} --access-logfile=- --error-logfile=- 'app:create_app()'"]
+CMD ["sh", "-c", "exec gunicorn --config=python:app.routes.shell_stream --no-control-socket --bind=0.0.0.0:8080 --workers=${KVN_PORTAL_WORKERS:-1} --threads=${KVN_PORTAL_THREADS:-8} --timeout=${KVN_PORTAL_TIMEOUT:-1800} --keep-alive=${KVN_PORTAL_KEEPALIVE:-5} --max-requests=${KVN_PORTAL_MAX_REQUESTS:-600} --max-requests-jitter=${KVN_PORTAL_MAX_REQUESTS_JITTER:-60} --access-logfile=- --error-logfile=- 'app:create_app()'"]
 
 FROM base AS test
 COPY tests ./tests

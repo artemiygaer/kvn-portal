@@ -55,6 +55,7 @@ release-manifest.json
 publication-manifest.json
 SHA256SUMS
 !portal/wheels/SHA256SUMS
+!portal/app/static/vendor/xterm/SHA256SUMS
 
 # Deploy существует только как временный/распакованный build artifact.
 /deploy/

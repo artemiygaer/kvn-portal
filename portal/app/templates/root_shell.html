@@ -2,6 +2,14 @@
 {% block title %}{{ t('root_shell_nav') }} — KVN VPN{% endblock %}
 {% block main_class %} shell-wide shell-console{% endblock %}
 {% block vendor_head %}
+  <style>
+    .root-shell-panel:fullscreen { padding:1rem;background:var(--surface);display:flex;flex-direction:column;overflow:auto; }
+    .root-shell-panel:fullscreen > .section-heading,
+    .root-shell-panel:fullscreen > .root-shell-warning,
+    .root-shell-panel:fullscreen > .root-shell-keyboard-hint { display:none; }
+    .root-shell-panel:fullscreen .root-shell-terminal { flex:1;min-height:0; }
+    .root-shell-panel:fullscreen .root-shell-xterm { height:100%; }
+  </style>
   <link rel="stylesheet" href="{{ public_url('static', filename='vendor/xterm/xterm.css') }}">
   <script src="{{ public_url('static', filename='vendor/xterm/xterm.js') }}" defer></script>
   <script src="{{ public_url('static', filename='vendor/xterm/addon-fit.js') }}" defer></script>

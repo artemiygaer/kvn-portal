@@ -1330,7 +1330,6 @@ class RootShellBaselineRegressionTests(unittest.TestCase):
         self.params = {"shell_id": self.session.session_id, "session_owner": self.session.owner}
 
     @unittest.skipUnless(os.name == "posix", "PTY handler проверяется на Linux")
-    @unittest.expectedFailure
     def test_baseline_utf8_split_between_reads_preserves_character(self):
         encoded = "Ж".encode("utf-8")
         output = []
@@ -1346,7 +1345,6 @@ class RootShellBaselineRegressionTests(unittest.TestCase):
                 output.append(text)
         self.assertEqual("".join(output), "Ж")
 
-    @unittest.expectedFailure
     def test_baseline_partial_write_sends_the_remaining_bytes(self):
         with (
             mock.patch.object(self.dispatcher, "_shell_by_id", return_value=self.session),
@@ -1357,7 +1355,6 @@ class RootShellBaselineRegressionTests(unittest.TestCase):
         self.assertEqual(result["written"], 3)
         self.assertEqual([call.args[1] for call in write.call_args_list], [b"abc", b"bc"])
 
-    @unittest.expectedFailure
     def test_baseline_same_dimensions_do_not_repeat_resize_ioctl(self):
         with (
             mock.patch.object(self.dispatcher, "_shell_by_id", return_value=self.session),
@@ -1368,7 +1365,6 @@ class RootShellBaselineRegressionTests(unittest.TestCase):
         resize.assert_called_once_with(-1, 24, 100)
 
     @unittest.skipUnless(os.name == "posix", "PTY handler проверяется на Linux")
-    @unittest.expectedFailure
     def test_baseline_backspace_and_curses_shift_controls_survive_read(self):
         payload = b"a\b \b\x0eqq\x0f"
         with (

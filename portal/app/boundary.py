@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import re
 from functools import wraps
 from pathlib import Path
 
@@ -276,10 +277,12 @@ class PortalBoundary:
 
     @staticmethod
     def security_headers(response):
+        ws_origin = (f" wss://{request.host}" if re.fullmatch(
+            r"[A-Za-z0-9.-]+(?::[0-9]{1,5})?", request.host) else "")
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; base-uri 'none'; frame-ancestors 'none'; "
             "form-action 'self'; object-src 'none'; script-src 'self'; "
-            "style-src 'self' 'unsafe-inline'"
+            f"style-src 'self' 'unsafe-inline'; connect-src 'self'{ws_origin}"
         )
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-Content-Type-Options"] = "nosniff"

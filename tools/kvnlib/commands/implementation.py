@@ -3294,11 +3294,12 @@ def portal_proxy_locations(state: dict, *, custom_gateway: bool = False) -> str:
             client_max_body_size 2g;
             limit_req zone=portal burst=20 nodelay;
             proxy_http_version 1.1;
-            proxy_set_header Host $host;
+            proxy_set_header Host $http_host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-Proto https;
             proxy_set_header X-KVN-Proxy-Secret {secret};
-            proxy_set_header Connection "";
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
             proxy_connect_timeout 3s;
             proxy_read_timeout 30m;
             proxy_send_timeout 30m;

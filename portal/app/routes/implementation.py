@@ -1249,6 +1249,7 @@ def build_views(
             {
                 "root_password": payload.get("root_password", ""),
                 "session_owner": shell_session_owner(),
+                "stream": payload.get("stream", False),
                 "rows": rows,
                 "cols": cols,
             },

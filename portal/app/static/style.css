@@ -231,20 +231,17 @@ button:active, .button:active { transform:translateY(1px);}
 .root-shell-connect { grid-template-columns:minmax(0, 1fr) auto;align-items:end;gap:var(--space-3);margin-bottom:var(--space-3);}
 .root-shell-connect button { min-width:10rem;}
 .root-shell-toolbar { display:flex;flex-wrap:wrap;gap:var(--space-2);margin-bottom:var(--space-3);}
-.root-shell-toolbar button { min-width:6.75rem;}
+.root-shell-toolbar button { min-width:0;flex:0 0 auto;}
+.root-shell-panel .section-heading > .status { width:17rem;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;}
 .root-shell-terminal { position:relative;min-width:0;padding:var(--space-2);background:#0f1419;border:1px solid #3a4653;border-radius:var(--radius-sm);overflow:hidden;}
-.root-shell-terminal:focus-visible { outline:none;}
-.root-shell-terminal.is-active { cursor:text;}
 .root-shell-terminal:focus-within, .root-shell-terminal:focus-visible { border-color:var(--focus);box-shadow:0 0 0 3px color-mix(in srgb, var(--focus) 28%, transparent);}
 .root-shell-xterm { width:100%;height:clamp(22rem, 52vh, 38rem);}
 .root-shell-xterm .xterm { height:100%;padding:0;}
-.root-shell-xterm .xterm-screen { background:#0f1419;}
 .root-shell-xterm .xterm-viewport { background:#0f1419 !important;scrollbar-color:#53606d #0f1419;}
-.root-shell-output { width:100%;height:clamp(22rem, 52vh, 38rem);overflow:auto;padding:var(--space-4);color:#d8dee9;background:#0f1419;border:0;font-size:0.88rem;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere;}
 .root-shell-keyboard-hint { margin:var(--space-2) 0 0;font-size:0.85rem;}
 .shell-console .root-shell-panel { flex:1;display:flex;flex-direction:column;margin-bottom:0;}
 .shell-console .root-shell-terminal { flex:1;min-height:30rem;}
-.shell-console .root-shell-xterm, .shell-console .root-shell-output { height:clamp(30rem, calc(100vh - 24rem), 72rem);}
+.shell-console .root-shell-xterm { height:clamp(30rem, calc(100vh - 24rem), 72rem);}
 .settings-grid { display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));gap:var(--space-5);}
 .action-tile { padding:var(--space-3);background:var(--surface-soft);border:1px solid var(--border);border-radius:var(--radius-sm);}
 .action-tile small { color:var(--muted);line-height:1.35;}
@@ -473,10 +470,10 @@ section[id] { scroll-margin-top:4.5rem;}
   .terminal-command { grid-template-columns:1fr;}
   .terminal-command button { width:100%;}
   .root-shell-connect { grid-template-columns:1fr;}
-  .root-shell-toolbar { display:grid;grid-template-columns:repeat(3, minmax(0, 1fr));}
-  .root-shell-toolbar button, .root-shell-connect button { width:100%;min-width:0;}
-  .root-shell-xterm, .root-shell-output, .shell-console .root-shell-xterm, .shell-console .root-shell-output { height:min(62vh, 30rem);}
-  .root-shell-output { font-size:0.78rem;}
+  .root-shell-toolbar { display:flex;flex-wrap:wrap;}
+  .root-shell-toolbar button { width:auto;min-width:0;}
+  .root-shell-connect button { width:100%;min-width:0;}
+  .root-shell-xterm, .shell-console .root-shell-xterm { height:min(62vh, 30rem);}
   .chart-kpis { grid-template-columns:1fr;}
   .update-actions { align-items:stretch;flex-direction:column;}
   .update-actions button { width:100%;}

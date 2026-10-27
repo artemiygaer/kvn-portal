@@ -30,6 +30,11 @@ from tools.release.deploy_archive import ArchiveValidationError
 from tools.kvnlib.services import DOCKER_SERVICE_ORDER, HOST_SERVICE_ORDER, OPERATOR_SERVICE_ORDER
 from tools.release.full_archive import ReleaseValidationError
 from portal.github_updates import GitHubReleaseSource, GitHubUpdateError
+from portal.agent_handlers.shell import (
+    ROOT_SHELL_ABSOLUTE_SECONDS,
+    ROOT_SHELL_IDLE_SECONDS,
+    RootShellSession,
+)
 
 try:
     import errno
@@ -100,8 +105,6 @@ CONTAINER_NAMES = {
     "portal": "kvn-portal",
 }
 ROOT_SHELL_MAX_SESSIONS = 2
-ROOT_SHELL_IDLE_SECONDS = 15 * 60
-ROOT_SHELL_ABSOLUTE_SECONDS = 60 * 60
 ROOT_SHELL_MAX_WRITE_BYTES = 4096
 ROOT_SHELL_MAX_READ_BYTES = 96 * 1024
 ROOT_SHELL_AUTH_FAILURES = 5
@@ -115,7 +118,7 @@ USER_ACTIVITY_RECENT_SECONDS = 180
 
 
 def _trim_shell_text(value: str, max_chars: int = ROOT_SHELL_MAX_READ_BYTES) -> str:
-    value = "".join(ch for ch in value if ch in "\n\r\t\x1b" or ord(ch) >= 32)
+    # PTY — raw VT-поток: Backspace/SI/SO и остальные C0 нужны MC/HTOP.
     if len(value) > max_chars:
         return value[:max_chars] + "\n<вывод shell обрезан>"
     return value
@@ -158,69 +161,6 @@ class MaintenanceCommand:
             "description": self.description,
             "requires_confirmation": self.requires_confirmation,
         }
-
-
-@dataclass
-class RootShellSession:
-    session_id: str
-    owner: str
-    pid: int
-    fd: int
-    created_at: float
-    last_seen: float
-    lock: threading.Lock
-    unit: str = ""
-    closed: bool = False
-    exit_code: int | None = None
-
-    def to_public(self) -> dict[str, Any]:
-        return {
-            "shell_id": self.session_id,
-            "alive": not self.closed,
-            "created_at": int(self.created_at),
-            "last_seen": int(self.last_seen),
-            "exit_code": self.exit_code,
-        }
-
-    def mark_seen(self) -> None:
-        self.last_seen = time.monotonic()
-
-    def expired(self, now_value: float) -> bool:
-        return (
-            self.closed
-            or now_value - self.last_seen > ROOT_SHELL_IDLE_SECONDS
-            or now_value - self.created_at > ROOT_SHELL_ABSOLUTE_SECONDS
-        )
-
-    def close(self) -> None:
-        if self.closed:
-            return
-        self.closed = True
-        if self.unit and Path("/usr/bin/systemctl").is_file():
-            for argv in (
-                ["systemctl", "kill", "--signal=SIGHUP", self.unit],
-                ["systemctl", "stop", self.unit],
-            ):
-                try:
-                    subprocess.run(argv, check=False, capture_output=True, timeout=3)
-                except (OSError, subprocess.TimeoutExpired):
-                    pass
-        try:
-            os.kill(self.pid, getattr(signal, "SIGHUP", signal.SIGTERM))
-        except OSError:
-            pass
-        try:
-            waited_pid, status = os.waitpid(self.pid, os.WNOHANG)
-            if waited_pid == self.pid:
-                self.exit_code = os.waitstatus_to_exitcode(status)
-        except ChildProcessError:
-            pass
-        except OSError:
-            pass
-        try:
-            os.close(self.fd)
-        except OSError:
-            pass
 
 
 class CommandRunner:
@@ -781,19 +721,25 @@ class AgentDispatcher:
 
     @staticmethod
     def _password_auth_pty(argv: list[str], password: str, *, timeout: float = 10.0) -> bool:
-        if not hasattr(os, "forkpty") or select is None:
+        if not hasattr(os, "openpty") or select is None:
             raise ProtocolError("root_password_unavailable", "PTY для проверки пароля недоступен.")
-        pid, fd = os.forkpty()
-        if pid == 0:  # pragma: no cover - дочерний процесс
-            try:
-                os.environ.clear()
-                os.environ.update({"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"})
-                os.execvpe(argv[0], argv, os.environ)
-            except Exception:
-                os._exit(127)
+        mode = "auth-systemd" if argv[0].endswith("systemd-run") else "auth-su"
+        fd, slave = os.openpty()
+        try:
+            process = subprocess.Popen(
+                [sys.executable, str(PROJECT_SOURCE_ROOT / "portal/root_shell_helper.py"),
+                 mode, "--tty-fd", str(slave)], pass_fds=(slave,),
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        except OSError:
+            os.close(fd)
+            return False
+        finally:
+            os.close(slave)
         try:
             deadline = time.monotonic() + timeout
             sent = False
+            prompt = b""
             while time.monotonic() < deadline:
                 try:
                     ready, _write, _error = select.select([fd], [], [], 0.2)
@@ -801,28 +747,24 @@ class AgentDispatcher:
                     ready = []
                 if ready:
                     try:
-                        os.read(fd, 4096)
+                        prompt = (prompt + os.read(fd, 4096))[-128:]
                     except OSError:
                         pass
-                if not sent:
+                # PAM может очистить pre-typed input при выключении ECHO.
+                # Ждём приглашение, не сохраняем и не журналируем вывод/пароль.
+                if not sent and b"password" in prompt.lower():
                     try:
                         os.write(fd, (password + "\n").encode("utf-8"))
                     except OSError:
                         pass
                     sent = True
-                waited, status = os.waitpid(pid, os.WNOHANG)
-                if waited == pid:
-                    return os.waitstatus_to_exitcode(status) == 0
-            try:
-                os.kill(pid, signal.SIGKILL)
-            except OSError:
-                pass
-            try:
-                os.waitpid(pid, 0)
-            except OSError:
-                pass
+                if process.poll() is not None:
+                    return process.returncode == 0
             return False
         finally:
+            if process.poll() is None:
+                process.kill()
+            process.wait(timeout=2)
             try:
                 os.close(fd)
             except OSError:
@@ -848,51 +790,13 @@ class AgentDispatcher:
         return self._password_auth_pty(argv, password, timeout=12.0)
 
     def _verify_root_password_with_su(self, password: str) -> bool | None:
-        if not hasattr(os, "forkpty") or pwd is None or select is None:
+        if not hasattr(os, "openpty") or pwd is None or select is None:
             return None
         try:
-            nobody = pwd.getpwnam("nobody")
+            pwd.getpwnam("nobody")
         except KeyError:
             return None
-        pid, fd = os.forkpty()
-        if pid == 0:  # pragma: no cover - дочерний процесс
-            try:
-                os.setgid(nobody.pw_gid)
-                os.setuid(nobody.pw_uid)
-                os.environ.clear()
-                os.environ.update({"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"})
-                os.execl("/bin/su", "su", "-", "root", "-c", "/bin/true")
-            except Exception:
-                os._exit(127)
-        try:
-            deadline = time.monotonic() + 6
-            sent = False
-            while time.monotonic() < deadline:
-                ready, _write, _error = select.select([fd], [], [], 0.2)
-                if ready:
-                    try:
-                        os.read(fd, 4096)
-                    except OSError:
-                        pass
-                if not sent:
-                    try:
-                        os.write(fd, (password + "\n").encode("utf-8"))
-                    except OSError:
-                        pass
-                    sent = True
-                waited, status = os.waitpid(pid, os.WNOHANG)
-                if waited == pid:
-                    return os.waitstatus_to_exitcode(status) == 0
-            try:
-                os.kill(pid, signal.SIGKILL)
-            except OSError:
-                pass
-            return False
-        finally:
-            try:
-                os.close(fd)
-            except OSError:
-                pass
+        return self._password_auth_pty(["/bin/su"], password, timeout=6.0)
 
     def _verify_root_password(self, password: str) -> bool:
         if not isinstance(password, str) or not password or len(password) > 256 or "\x00" in password or "\n" in password:
@@ -929,53 +833,35 @@ class AgentDispatcher:
             pass
 
     def _spawn_root_shell(self, owner: str, rows: int, cols: int) -> RootShellSession:
-        if not hasattr(os, "forkpty") or fcntl is None:
+        if not hasattr(os, "openpty") or fcntl is None:
             raise ProtocolError("capability_unavailable", "Root shell доступен только на Linux с PTY.")
-        shell_path = "/bin/bash" if Path("/bin/bash").is_file() else "/bin/sh"
         shell_id = uuid.uuid4().hex
-        unit = f"kvn-portal-root-shell-{shell_id[:12]}" if Path("/usr/bin/systemd-run").is_file() else ""
-        pid, fd = os.forkpty()
-        if pid == 0:  # pragma: no cover - дочерний процесс
-            try:
-                os.chdir(self.project_root)
-                env = {
-                    "TERM": "xterm-256color",
-                    "LANG": "C.UTF-8",
-                    "LC_ALL": "C.UTF-8",
-                    "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-                    "HOME": "/root",
-                    "USER": "root",
-                    "LOGNAME": "root",
-                    "SHELL": shell_path,
-                    "KVN_PORTAL_SHELL": "1",
-                }
-                shell_argv = [shell_path, "-l"] if shell_path.endswith("bash") else [shell_path]
-                if unit:
-                    runner_argv = [
-                        "/usr/bin/systemd-run",
-                        "--quiet",
-                        "--collect",
-                        "--wait",
-                        "--pty",
-                        f"--unit={unit}",
-                        f"--property=WorkingDirectory={self.project_root}",
-                        "--setenv=TERM=xterm-256color",
-                        "--setenv=LANG=C.UTF-8",
-                        "--setenv=LC_ALL=C.UTF-8",
-                        "--setenv=KVN_PORTAL_SHELL=1",
-                        *shell_argv,
-                    ]
-                    os.execvpe(runner_argv[0], runner_argv, env)
-                os.execvpe(shell_path, shell_argv, env)
-            except Exception:
-                os._exit(127)
+        systemd = Path("/usr/bin/systemd-run").is_file() and Path("/run/systemd/system").is_dir()
+        unit = f"kvn-portal-root-shell-{shell_id[:12]}" if systemd else ""
+        fd, slave = os.openpty()
+        self._set_shell_size(slave, rows, cols)
+        try:
+            process = subprocess.Popen(
+                [sys.executable, str(PROJECT_SOURCE_ROOT / "portal/root_shell_helper.py"),
+                 "shell", "--tty-fd", str(slave), "--directory", str(self.project_root),
+                 "--unit", unit], pass_fds=(slave,),
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        except OSError as exc:
+            os.close(fd)
+            raise ProtocolError("capability_unavailable", "Не удалось запустить PTY.") from exc
+        finally:
+            os.close(slave)
         flags = fcntl.fcntl(fd, fcntl.F_GETFL)
         fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
         self._set_shell_size(fd, rows, cols)
         current = time.monotonic()
-        return RootShellSession(shell_id, owner, pid, fd, current, current, threading.Lock(), unit=unit)
+        return RootShellSession(shell_id, owner, process.pid, fd, current, current, threading.Lock(),
+                                unit=unit, rows=rows, cols=cols, process=process)
 
     def _read_shell_locked(self, session: RootShellSession) -> tuple[str, bool, int | None]:
+        if session.reader is not None:
+            raise ProtocolError("stream_active", "Для консоли уже используется потоковое соединение.")
         if session.closed:
             return "", False, session.exit_code
         chunks: list[bytes] = []
@@ -1015,16 +901,19 @@ class AgentDispatcher:
                 os.close(session.fd)
             except OSError:
                 pass
+            session.fd = -1
         session.mark_seen()
-        text = b"".join(chunks).decode("utf-8", errors="replace")
+        text = session.decoder.decode(b"".join(chunks), final=session.closed)
         return _trim_shell_text(text), not session.closed, session.exit_code
 
     def _shell_open(self, params: dict) -> dict[str, Any]:
-        if set(params) - {"root_password", "session_owner", "rows", "cols"}:
+        if set(params) - {"root_password", "session_owner", "rows", "cols", "stream"}:
             raise ProtocolError("invalid_params", "Неизвестные параметры shell.")
+        if type(params.get("stream", False)) is not bool:
+            raise ProtocolError("invalid_params", "Некорректный режим потока shell.")
         owner = self._shell_owner(params)
-        rows = self._shell_dimension(params, "rows", 24, 10, 80)
-        cols = self._shell_dimension(params, "cols", 100, 40, 240)
+        rows = self._shell_dimension(params, "rows", 24, 5, 200)
+        cols = self._shell_dimension(params, "cols", 100, 20, 512)
         self._ensure_root_shell_reaper()
         self._cleanup_root_shells()
         self._shell_auth_allowed(owner)
@@ -1034,14 +923,20 @@ class AgentDispatcher:
         self._clear_shell_auth_failures(owner)
         with self.root_shell_lock:
             for shell_id, session in list(self.root_shells.items()):
-                if session.owner == owner:
+                if session.owner == owner or session.closed:
                     self.root_shells.pop(shell_id).close()
             if len(self.root_shells) >= ROOT_SHELL_MAX_SESSIONS:
                 raise ProtocolError("too_many_sessions", "Достигнут лимит активных root shell-сессий.")
             session = self._spawn_root_shell(owner, rows, cols)
             self.root_shells[session.session_id] = session
         with session.lock:
-            output, alive, exit_code = self._read_shell_locked(session)
+            if params.get("stream", False):
+                # Новый transport получает весь raw output, включая неполный UTF-8
+                # startup fragment; legacy decoder не должен потреблять его первым.
+                session.start_stream(uuid.uuid4().hex)
+                output, alive, exit_code = "", not session.closed, session.exit_code
+            else:
+                output, alive, exit_code = self._read_shell_locked(session)
         return {
             "ok": True,
             **session.to_public(),
@@ -1056,15 +951,26 @@ class AgentDispatcher:
         }
 
     def _shell_read(self, params: dict) -> dict[str, Any]:
-        if set(params) - {"shell_id", "session_owner"}:
+        if set(params) - {"shell_id", "session_owner", "stream_id", "attach", "cursor", "wait_ms"}:
             raise ProtocolError("invalid_params", "Неизвестные параметры чтения shell.")
         session = self._shell_by_id(params)
+        if "stream_id" in params:
+            stream_id = params["stream_id"]
+            cursor, wait_ms = params.get("cursor", 0), params.get("wait_ms", 0)
+            if (not isinstance(stream_id, str) or not re.fullmatch(r"[0-9a-f]{32}", stream_id)
+                    or type(cursor) is not int or cursor < 0 or type(wait_ms) is not int
+                    or not 0 <= wait_ms <= 1000 or type(params.get("attach", False)) is not bool):
+                raise ProtocolError("invalid_params", "Некорректные параметры потока консоли.")
+            if params.get("attach", False):
+                with session.condition:
+                    session.start_stream(stream_id)
+            return session.read_stream(stream_id, cursor, wait_ms)
         with session.lock:
             output, alive, exit_code = self._read_shell_locked(session)
         return {"ok": True, "shell_id": session.session_id, "output": output, "alive": alive, "exit_code": exit_code}
 
     def _shell_write(self, params: dict) -> dict[str, Any]:
-        if set(params) - {"shell_id", "session_owner", "data"}:
+        if set(params) - {"shell_id", "session_owner", "data", "stream_id", "seq"}:
             raise ProtocolError("invalid_params", "Неизвестные параметры записи shell.")
         data = params.get("data")
         if not isinstance(data, str):
@@ -1074,25 +980,31 @@ class AgentDispatcher:
             raise ProtocolError("request_too_large", "Слишком большой ввод shell.")
         session = self._shell_by_id(params)
         with session.lock:
+            if "seq" in params or "stream_id" in params:
+                seq = params.get("seq")
+                if type(seq) is not int or not 1 <= seq <= 2**53 - 1:
+                    raise ProtocolError("invalid_params", "Некорректный номер ввода.")
+                result = session.ordered_write(params.get("stream_id", ""), seq, encoded)
+                session.mark_seen()
+                return {**result, "shell_id": session.session_id}
+            if session.reader is not None:
+                raise ProtocolError("stream_active", "Для консоли уже используется потоковое соединение.")
             if session.closed:
                 return {"ok": False, "shell_id": session.session_id, "alive": False, "written": 0}
-            try:
-                written = os.write(session.fd, encoded)
-            except OSError as exc:
-                if exc.errno in {errno.EIO if errno is not None else 5, errno.EBADF if errno is not None else 9}:
-                    session.closed = True
-                written = 0
+            written = session.write_bytes(encoded)
             session.mark_seen()
         return {"ok": written == len(encoded), "shell_id": session.session_id, "alive": not session.closed, "written": written}
 
     def _shell_resize(self, params: dict) -> dict[str, Any]:
         if set(params) - {"shell_id", "session_owner", "rows", "cols"}:
             raise ProtocolError("invalid_params", "Неизвестные параметры resize shell.")
-        rows = self._shell_dimension(params, "rows", 24, 10, 80)
-        cols = self._shell_dimension(params, "cols", 100, 40, 240)
+        rows = self._shell_dimension(params, "rows", 24, 5, 200)
+        cols = self._shell_dimension(params, "cols", 100, 20, 512)
         session = self._shell_by_id(params)
         with session.lock:
-            self._set_shell_size(session.fd, rows, cols)
+            if (session.rows, session.cols) != (rows, cols):
+                self._set_shell_size(session.fd, rows, cols)
+                session.rows, session.cols = rows, cols
             session.mark_seen()
         return {"ok": True, "shell_id": session.session_id, "alive": not session.closed, "rows": rows, "cols": cols}
 
@@ -1100,10 +1012,9 @@ class AgentDispatcher:
         if set(params) - {"shell_id", "session_owner"}:
             raise ProtocolError("invalid_params", "Неизвестные параметры закрытия shell.")
         session = self._shell_by_id(params)
-        with session.lock:
-            session.close()
         with self.root_shell_lock:
             self.root_shells.pop(session.session_id, None)
+        session.close()
         return {"ok": True, "shell_id": session.session_id, "alive": False, "exit_code": session.exit_code}
 
     @staticmethod

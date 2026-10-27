@@ -1,5 +1,6 @@
 <section class="panel root-shell-panel"
          data-root-shell
+         data-stream-endpoint="{{ public_url('terminal_shell_stream') }}"
          data-open-endpoint="{{ public_url('terminal_shell_open') }}"
          data-read-endpoint="{{ public_url('terminal_shell_read') }}"
          data-write-endpoint="{{ public_url('terminal_shell_write') }}"
@@ -25,6 +26,12 @@
   <div class="root-shell-toolbar">
     <button type="button" class="secondary compact" data-shell-control="interrupt" disabled>Ctrl+C</button>
     <button type="button" class="secondary compact" data-shell-control="eof" disabled>Ctrl+D</button>
+    <button type="button" class="secondary compact" data-shell-copy>Копировать</button>
+    <button type="button" class="secondary compact" data-shell-paste>Вставить</button>
+    <button type="button" class="secondary compact" data-shell-font="-1" aria-label="Уменьшить шрифт">A−</button>
+    <button type="button" class="secondary compact" data-shell-font="0" aria-label="Сбросить размер шрифта">100%</button>
+    <button type="button" class="secondary compact" data-shell-font="1" aria-label="Увеличить шрифт">A+</button>
+    <button type="button" class="secondary compact" data-shell-fullscreen>На весь экран</button>
     <button type="button" class="danger compact" data-shell-close disabled>{{ t('root_disconnect') }}</button>
   </div>
   <div class="root-shell-terminal"
@@ -35,7 +42,7 @@
        aria-describedby="root-shell-keyboard-hint"
        aria-disabled="true">
     <div class="root-shell-xterm" data-shell-xterm></div>
-    <pre class="root-shell-output" data-shell-output hidden></pre>
+    <pre class="terminal-output root-shell-output" data-shell-output hidden></pre>
   </div>
   <p class="muted root-shell-keyboard-hint" id="root-shell-keyboard-hint">{{ t('root_shell_keyboard_hint') }}</p>
 </section>
