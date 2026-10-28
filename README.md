@@ -539,6 +539,15 @@ sudo ls -lh /backup/kvn-vpn-backup-*.tar
 
 Backup-архив содержит runtime-секреты: папку проекта, пользовательские ключи, токены, сертификаты, portal DB и Docker images, нужные для переноса. Не кладите `kvn-vpn-backup-*.tar` в deploy-архив, `nginx/web/`, публичные ссылки, issue, чат или git.
 
+При сбое переноса VPN-пользователей предыдущий `users.json` сохраняется отдельно в `/var/lib/kvn-portal/migration-backups/` с доступом только для root. Для восстановления укажите имя нужной копии:
+
+```bash
+sudo ls -lt /var/lib/kvn-portal/migration-backups/
+sudo python3 tools/kvnctl.py migration restore-backup migration-XXXXXXXX.json
+```
+
+Подставьте фактическое имя файла. Команда создаёт ещё одну копию перед заменой и запускает `reconcile`. Если применение не удалось, проверьте сервисы и повторите `sudo python3 tools/kvnctl.py reconcile`. Эти копии содержат секреты: не публикуйте и не передавайте их через открытые каналы.
+
 Восстановление на другом Debian-сервере:
 
 ```bash

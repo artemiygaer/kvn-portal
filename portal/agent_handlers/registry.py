@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import MappingProxyType
 
 from ..agent_protocol import ALLOWED_METHODS, MUTATION_METHODS, ProtocolError
-from . import backup, dashboard, protocols, services, shell, updates, users
+from . import backup, dashboard, migration, protocols, services, shell, updates, users
 from .contract import HandlerSpec
 
 
@@ -18,6 +18,7 @@ def build_handler_registry(dispatcher) -> MappingProxyType[str, HandlerSpec]:
         protocols.handlers(dispatcher),
         updates.handlers(dispatcher),
         backup.handlers(dispatcher),
+        migration.handlers(dispatcher),
         shell.handlers(dispatcher),
     ):
         overlap = set(merged) & set(source)

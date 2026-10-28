@@ -166,20 +166,27 @@ class V4CharacterizationTests(unittest.TestCase):
         reverse = {new: old for old, new in V420_WHEEL_REPLACEMENTS.items()}
         canonical = [reverse.get(path, path) for path in canonical if path not in V420_NEW_SOURCE_FILES]
         self.assertEqual(cli.pop("sni-routes set-reality-mode"), ["--help", "--restart", "-h"])
+        self.assertEqual(cli.pop("migration"), ["--help", "-h"])
+        self.assertEqual(cli.pop("migration restore-backup"), ["--help", "-h"])
+        migration_rpc = {"migration.export", "migration.preview", "migration.commit"}
+        self.assertTrue(migration_rpc.issubset(MUTATION_METHODS))
+        self.assertFalse(migration_rpc & READ_ONLY_METHODS)
+        old_rpc_all = ALLOWED_METHODS - migration_rpc
+        old_rpc_mutations = MUTATION_METHODS - migration_rpc
         inventories = {
             "cli": cli,
-            "rpc_all": sorted(ALLOWED_METHODS),
+            "rpc_all": sorted(old_rpc_all),
             "rpc_read_only": sorted(READ_ONLY_METHODS),
-            "rpc_mutations": sorted(MUTATION_METHODS),
+            "rpc_mutations": sorted(old_rpc_mutations),
             "http_routes": routes,
             "canonical_files": canonical,
         }
         counts = {
             "cli_paths": len(cli),
             "cli_options": sum(len(options) for options in cli.values()),
-            "rpc_all": len(ALLOWED_METHODS),
+            "rpc_all": len(old_rpc_all),
             "rpc_read_only": len(READ_ONLY_METHODS),
-            "rpc_mutations": len(MUTATION_METHODS),
+            "rpc_mutations": len(old_rpc_mutations),
             "http_routes": len(routes),
             "canonical_files": len(canonical),
         }

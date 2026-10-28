@@ -7446,6 +7446,30 @@ def cmd_reconcile(_args: argparse.Namespace) -> None:
     ok(f"reconcile завершён: {report['outcome']}")
 
 
+def cmd_migration_restore_backup(args: argparse.Namespace) -> None:
+    """Восстанавливает локальный backup переноса и повторно применяет state."""
+    from ..core.state import state_revision
+    from ..core.errors import StateError
+    from ..runtime.migration import MigrationCryptoError, restore_migration_backup
+
+    if not hasattr(os, "geteuid") or os.geteuid() != 0:
+        raise SystemExit("Восстановление резервной копии доступно только root.")
+    backup_dir = Path("/var/lib/kvn-portal/migration-backups")
+    revision = state_revision(STATE_STORE.load())
+    try:
+        result = restore_migration_backup(
+            STATE_STORE, backup_dir=backup_dir, name=args.name, revision=revision,
+            validate=lambda state: validate_state_inputs(copy.deepcopy(state)),
+        )
+    except (MigrationCryptoError, StateError, OSError, ValueError, SystemExit) as exc:
+        raise SystemExit("Резервная копия не восстановлена: проверьте имя, права и состояние сервера.") from exc
+    try:
+        cmd_reconcile(args)
+    except (Exception, SystemExit) as exc:
+        raise SystemExit("Резервная копия восстановлена, но применение не завершено. Выполните reconcile и проверьте сервисы.") from exc
+    ok(f"Восстановление migration backup завершено; изменение: {'да' if result.changed else 'нет'}")
+
+
 def cmd_service_plan(args: argparse.Namespace) -> None:
     """Печатает единый эффективный lifecycle-план без изменения state."""
     plan = effective_service_plan(load_state())
@@ -8714,6 +8738,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     reconcile = sub.add_parser("reconcile", help="Повторно применить текущее desired state")
     reconcile.set_defaults(func=cmd_reconcile)
+
+    migration = sub.add_parser("migration", help="Защищённый перенос VPN-пользователей")
+    migration_sub = migration.add_subparsers(dest="migration_action", required=True)
+    migration_restore = migration_sub.add_parser("restore-backup", help="Восстановить локальную резервную копию переноса")
+    migration_restore.add_argument("name", help="Имя файла migration-XXXXXXXX.json")
+    migration_restore.set_defaults(func=cmd_migration_restore_backup)
 
     service_plan = sub.add_parser("service-plan", help="Показать эффективный план запуска сервисов")
     service_plan.add_argument("--format", choices=("json", "lines"), default="json")

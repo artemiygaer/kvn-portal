@@ -49,6 +49,9 @@ READ_ONLY_METHODS = frozenset({
     "system.users",
 })
 MUTATION_METHODS = frozenset({
+    "migration.export",
+    "migration.preview",
+    "migration.commit",
     "service.action",
     "state.apply",
     "state.reconcile",

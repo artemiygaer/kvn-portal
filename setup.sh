@@ -209,6 +209,23 @@ ensure_python3() {
     ok "Python3 установлен"
 }
 
+ensure_gnupg() {
+    if ! command -v gpg >/dev/null 2>&1; then
+        info "Устанавливаю GnuPG для защищённого переноса пользователей..."
+        apt-get update -qq
+        apt-get install -y -qq gnupg
+    fi
+    local options flag
+    options="$(gpg --dump-options 2>/dev/null)" || { err "Не удалось проверить возможности GnuPG"; exit 1; }
+    for flag in --passphrase-fd --pinentry-mode --max-output --force-mdc --no-symkey-cache; do
+        if ! grep -Fxq -- "$flag" <<< "$options"; then
+            err "Установленный GnuPG не поддерживает безопасный перенос: отсутствует $flag"
+            exit 1
+        fi
+    done
+    ok "GnuPG поддерживает защищённый перенос VPN"
+}
+
 ensure_qrencode() {
     if command -v qrencode >/dev/null 2>&1; then
         ok "qrencode: установлен"
@@ -328,6 +345,7 @@ else
 fi
 ensure_compose
 ensure_python3
+ensure_gnupg
 ensure_qrencode
 ensure_certbot
 ensure_wireguard_tools

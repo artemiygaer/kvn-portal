@@ -212,10 +212,15 @@ portal/app/templates/user_detail.html
 portal/app/templates/user_form.html
 portal/app/templates/user_result.html
 portal/app/templates/users.html
+portal/agent_handlers/migration.py
 portal/app/routes/shell_stream.py
 portal/app/static/vendor/xterm/SHA256SUMS
+portal/control/migration.py
 portal/root_shell_helper.py
 portal/wheels/flask_sock-0.7.0-py3-none-any.whl
 portal/wheels/h11-0.16.0-py3-none-any.whl
 portal/wheels/simple_websocket-1.1.0-py3-none-any.whl
 portal/wheels/wsproto-1.3.2-py3-none-any.whl
+tools/kvnlib/core/migration.py
+tools/kvnlib/exports/migration.py
+tools/kvnlib/runtime/migration.py
