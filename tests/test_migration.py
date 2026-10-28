@@ -1,9 +1,12 @@
 """Локальные тесты переноса; все данные синтетические и не содержат production."""
 
 import base64
+import contextlib
+import io
 import os
 import copy
 import json
+import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -59,6 +62,35 @@ class MigrationSchemaTests(unittest.TestCase):
         self.assertEqual(_apply_outcome({"outcome": "applied", "failed": ["xray"]}), ("degraded", True))
         self.assertEqual(_apply_outcome({"outcome": "applied", "reconcile_required": True}), ("degraded", True))
         self.assertEqual(_apply_outcome(None), ("degraded", True))
+
+    def test_legacy_apply_reports_failed_docker_restart_as_degraded(self):
+        from tools import kvnctl
+
+        state = {"users": [], "services": {"amneziawg": {"enabled": False}, "wireguard": {"enabled": False}}}
+        with mock.patch.object(kvnctl.shutil, "which", return_value="/usr/bin/docker"), \
+             mock.patch.object(kvnctl, "_restart_docker_services", return_value=False):
+            report = kvnctl.restart_services(True, before_state=state, after_state=state)
+        self.assertEqual(report["outcome"], "failed")
+        self.assertTrue(report["reconcile_required"])
+        self.assertIn("xray", report["failed"])
+        self.assertEqual(_apply_outcome(report), ("degraded", True))
+
+    @unittest.skipUnless(os.name == "posix" and shutil.which("docker"), "Docker CLI доступен в Linux")
+    def test_actual_docker_connection_failure_is_reported_without_touching_real_daemon(self):
+        from tools import kvnctl
+
+        disabled = {name: {"enabled": False} for name in ("nginx", "hysteria", "telemt", "mtg", "ocserv", "amneziawg", "wireguard")}
+        state = {"users": [], "services": disabled}
+        with tempfile.TemporaryDirectory(prefix="kvn-migration-failure-") as temporary:
+            root = Path(temporary)
+            (root / "docker-compose.yml").write_text("services:\n  xray:\n    image: fixture.invalid/xray\n", encoding="utf-8")
+            absent_socket = "unix://" + str(root / "nonexistent.sock")
+            with mock.patch.object(kvnctl, "ROOT", root), mock.patch.dict(os.environ, {"DOCKER_HOST": absent_socket}), \
+                 mock.patch.object(kvnctl, "warn"):
+                report = kvnctl.restart_services(True, before_state=state, after_state=state)
+        self.assertEqual(report["outcome"], "failed")
+        self.assertEqual(report["failed"], ["xray"])
+        self.assertTrue(report["reconcile_required"])
 
     def test_exact_allowlist_roundtrip_excludes_portal_and_update_secrets(self):
         data = build_migration(self.state)
@@ -374,10 +406,15 @@ class MigrationCryptoTests(unittest.TestCase):
                 client = AgentClient(socket_path, "synthetic-agent-token", timeout=30)
                 with self.assertRaises(AgentClientError):
                     client.call("migration.export", {**credentials, "root_password": "wrong"})
-                result = client.call("migration.export", credentials)
+                log = io.StringIO()
+                with contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
+                    result = client.call("migration.export", credentials)
                 self.assertTrue(result["ok"])
                 self.assertNotIn(credentials["passphrase"], json.dumps(result))
                 self.assertNotIn(source.state["reality"]["privateKey"], json.dumps(result))
+                for secret in (credentials["passphrase"], credentials["root_password"],
+                               source.state["reality"]["privateKey"], source.state["amneziawg"]["v3"]["header_protection_key"]):
+                    self.assertNotIn(secret, log.getvalue())
                 self.assertTrue((project / "portal-data" / "migration" / (result["archive_id"] + ".kvn")).is_file())
             finally:
                 server.shutdown()

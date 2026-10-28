@@ -6638,8 +6638,12 @@ def restart_services(
             service for service in ["xray", "hysteria", "telemt", "nginx", "mtg", "ocserv"]
             if service in enabled_services
         ]
-        if _restart_docker_services(docker_services):
-            report["restarted"].extend(docker_services)
+        if docker_services:
+            if _restart_docker_services(docker_services):
+                report["restarted"].extend(docker_services)
+            else:
+                report["failed"].extend(docker_services)
+                report["warnings"].append("Не удалось перезапустить Docker-сервисы; требуется reconcile.")
         if "amneziawg" in enabled_services:
             _record_amneziawg_apply(report, after_state)
         if "wireguard" in enabled_services:
