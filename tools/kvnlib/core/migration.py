@@ -40,6 +40,10 @@ class MigrationValidationError(ValueError):
     """Ошибка без вывода содержимого архива или секретных значений."""
 
 
+class MigrationConflictError(MigrationValidationError):
+    """Целевое состояние несовместимо с архивом без безопасного слияния."""
+
+
 def _object(value: object, allowed: frozenset, label: str) -> dict:
     if not isinstance(value, dict) or any(not isinstance(k, str) or k not in allowed for k in value):
         raise MigrationValidationError(f"Недопустимая структура или поле: {label}.")
@@ -201,7 +205,7 @@ def plan_migration(target: dict, envelope: dict, mode: str) -> dict:
     if mode not in {"restore", "merge"}:
         raise MigrationValidationError("Неизвестный режим переноса.")
     if mode == "restore" and target.get("users", []):
-        raise MigrationValidationError("Полное восстановление доступно только на пустой VPN-цели.")
+        raise MigrationConflictError("Полное восстановление доступно только на пустой VPN-цели.")
     result = copy.deepcopy(target)
     if mode == "restore":
         # Runtime-учётные данные, endpoint, сертификаты и настройки портала не переносятся.
@@ -218,7 +222,10 @@ def plan_migration(target: dict, envelope: dict, mode: str) -> dict:
     # Повторная проверка уже объединённого набора выявляет конфликты с целевыми пользователями.
     candidate = {"format": FORMAT, "version": FORMAT_VERSION, "source_server": str(result.get("server", "")),
                  "users": result["users"], "protocols": {name: result[name] for name in (*SECTION_FIELDS, "sni_routes") if name in result}}
-    validate_migration(candidate)
+    try:
+        validate_migration(candidate)
+    except MigrationValidationError as exc:
+        raise MigrationConflictError("Пользователи или настройки архива конфликтуют с целевым сервером.") from exc
     for system, default in (("amneziawg", "10.66.66.0/24"), ("wireguard", "10.88.88.0/24")):
         config = result.get(system, {})
         try:
@@ -231,7 +238,7 @@ def plan_migration(target: dict, envelope: dict, mode: str) -> dict:
             if peer.get("address"):
                 address = ipaddress.ip_interface(peer["address"]).ip
                 if address not in network or address == server_ip or address in {network.network_address, network.broadcast_address}:
-                    raise MigrationValidationError("Адрес VPN peer несовместим с сетью целевого сервера.")
+                    raise MigrationConflictError("Адрес VPN peer несовместим с сетью целевого сервера.")
     return result
 
 

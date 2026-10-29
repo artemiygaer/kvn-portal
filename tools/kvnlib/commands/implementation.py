@@ -7474,6 +7474,90 @@ def cmd_migration_restore_backup(args: argparse.Namespace) -> None:
     ok(f"Восстановление migration backup завершено; изменение: {'да' if result.changed else 'нет'}")
 
 
+def _migration_path(value: str) -> Path:
+    path = Path(value)
+    if not path.is_absolute() or path.suffix.lower() != ".kvn" or path.parent.resolve() != path.parent:
+        raise ValueError("Укажите абсолютный путь .kvn без символьных ссылок в каталоге.")
+    return path
+
+
+def _migration_read(path: Path) -> bytes:
+    import stat
+    from ..runtime.migration import MAX_ENCRYPTED_BYTES
+
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+    with os.fdopen(fd, "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or not 0 < info.st_size <= MAX_ENCRYPTED_BYTES:
+            raise ValueError("Некорректный файл переноса.")
+        data = stream.read(MAX_ENCRYPTED_BYTES + 1)
+        if len(data) > MAX_ENCRYPTED_BYTES:
+            raise ValueError("Файл переноса слишком велик.")
+        return data
+
+
+def _migration_validate(state: dict) -> None:
+    from ..exports.migration import build_migration
+
+    before = build_migration(state)
+    prepared = copy.deepcopy(state)
+    prepare_state(prepared)
+    if build_migration(prepared) != before:
+        raise ValueError("Подготовка изменила VPN identity; перенос остановлен.")
+
+
+def cmd_migration_transfer(args: argparse.Namespace) -> None:
+    """Экспорт, просмотр и импорт через тот же проверяемый план, что у портала."""
+    from ..core.migration import MigrationConflictError, parse_migration, plan_migration, validate_identity_complete
+    from ..core.state import state_revision
+    from ..exports.migration import build_migration
+    from ..runtime.migration import commit_migration, decrypt_migration, encrypt_migration
+
+    if not hasattr(os, "geteuid") or os.geteuid() != 0:
+        raise SystemExit("Перенос доступен только root.")
+    try:
+        path = _migration_path(args.archive)
+        phrase = getpass.getpass("Фраза шифрования: ")
+        if args.migration_action == "export":
+            if phrase != getpass.getpass("Повторите фразу шифрования: "):
+                raise ValueError("Фразы не совпадают.")
+            data = encrypt_migration(build_migration(STATE_STORE.load(), args.user), phrase)
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+            try:
+                with os.fdopen(fd, "wb") as output:
+                    output.write(data)
+                    output.flush()
+                    os.fsync(output.fileno())
+            except BaseException:
+                path.unlink(missing_ok=True)
+                raise
+            ok("Зашифрованный архив создан. Передайте фразу отдельно от файла.")
+            return
+        envelope = parse_migration(decrypt_migration(_migration_read(path), phrase))
+        validate_identity_complete(envelope)
+        state = STATE_STORE.load()
+        revision = state_revision(state)
+        planned = plan_migration(state, envelope, args.mode)
+        _migration_validate(planned)
+        print(f"Пользователей к добавлению: {len(envelope['users'])}; режим: {args.mode}; адрес отличается: {'да' if envelope['source_server'] != state.get('server', '') else 'нет'}.")
+        if args.migration_action == "preview":
+            return
+        if input("Применить перенос? Введите ДА: ").strip() != "ДА":
+            print("Перенос отменён.")
+            return
+        commit_migration(STATE_STORE, envelope, mode=args.mode, revision=revision,
+                         backup_dir=Path("/var/lib/kvn-portal/migration-backups"), validate=_migration_validate)
+    except MigrationConflictError as exc:
+        raise SystemExit("Конфликт с пользователями или настройками целевого сервера; состояние не изменено.") from exc
+    except (Exception, SystemExit) as exc:
+        raise SystemExit("Перенос не выполнен: проверьте архив, пароль, права и совместимость пользователей.") from exc
+    try:
+        cmd_reconcile(args)
+    except (Exception, SystemExit) as exc:
+        raise SystemExit("Данные сохранены, но применение не завершено. Выполните reconcile и проверьте сервисы.") from exc
+    ok("Перенос применён.")
+
+
 def cmd_service_plan(args: argparse.Namespace) -> None:
     """Печатает единый эффективный lifecycle-план без изменения state."""
     plan = effective_service_plan(load_state())
@@ -8745,6 +8829,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     migration = sub.add_parser("migration", help="Защищённый перенос VPN-пользователей")
     migration_sub = migration.add_subparsers(dest="migration_action", required=True)
+    migration_export = migration_sub.add_parser("export", help="Экспортировать зашифрованный архив")
+    migration_export.add_argument("archive", help="Новый абсолютный путь к файлу .kvn")
+    migration_export.add_argument("--user", action="append", help="Имя переносимого пользователя; повторите для нескольких")
+    migration_export.set_defaults(func=cmd_migration_transfer)
+    for action, help_text in (("preview", "Проверить архив без изменения состояния"), ("import", "Импортировать проверенный архив")):
+        transfer = migration_sub.add_parser(action, help=help_text)
+        transfer.add_argument("archive", help="Абсолютный путь к файлу .kvn")
+        transfer.add_argument("--mode", choices=("merge", "restore"), default="merge")
+        transfer.set_defaults(func=cmd_migration_transfer)
     migration_restore = migration_sub.add_parser("restore-backup", help="Восстановить локальную резервную копию переноса")
     migration_restore.add_argument("name", help="Имя файла migration-XXXXXXXX.json")
     migration_restore.set_defaults(func=cmd_migration_restore_backup)

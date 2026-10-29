@@ -148,6 +148,18 @@ def serve(
     socket_path.unlink(missing_ok=True)
     metrics = MetricsStore(metrics_db)
     dispatcher = AgentDispatcher(project_root, metrics=metrics)
+    from portal.agent_handlers.migration import cleanup_expired_archives
+    cleanup_stop = threading.Event()
+
+    def clean_migration_archives() -> None:
+        while not cleanup_stop.is_set():
+            try:
+                cleanup_expired_archives(project_root)
+            except OSError:
+                pass
+            cleanup_stop.wait(300)
+
+    cleanup_thread = threading.Thread(target=clean_migration_archives, name="kvn-migration-cleanup", daemon=True)
     sampler = MetricsSampler(
         metrics,
         HostMetricsCollector(project_root),
@@ -156,6 +168,7 @@ def serve(
     application = AgentApplication(secret, dispatcher)
     application.dispatcher.reconcile_services()
     sampler.start()
+    cleanup_thread.start()
     try:
         with ThreadingUnixServer(socket_path, application) as server:
             group_id = system_group.getgrnam(socket_group).gr_gid
@@ -163,6 +176,8 @@ def serve(
             os.chmod(socket_path, 0o660)
             server.serve_forever(poll_interval=0.5)
     finally:
+        cleanup_stop.set()
+        cleanup_thread.join(timeout=2)
         sampler.stop()
         with dispatcher.root_shell_lock:
             sessions = list(dispatcher.root_shells.values())

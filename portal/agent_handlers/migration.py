@@ -8,18 +8,67 @@ import json
 import os
 import re
 import stat
+import time
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover — production развёрнут на Linux
+    fcntl = None
 
 from portal.agent_protocol import ProtocolError
 from portal.control.migration import MigrationPreviewError, MigrationPreviews
 from tools.kvnlib.core.errors import StateRevisionConflict
-from tools.kvnlib.core.migration import MigrationValidationError
+from tools.kvnlib.core.migration import MigrationConflictError, MigrationValidationError
 from tools.kvnlib.exports.migration import build_migration
 from tools.kvnlib.runtime.migration import MAX_ENCRYPTED_BYTES, MigrationCryptoError, commit_migration, decrypt_migration, encrypt_migration
 
 from .contract import HandlerSpec
 
 _ID = re.compile(r"^[0-9a-f]{32}$")
+
+
+def cleanup_expired_archives(project_root: Path, *, now: float | None = None) -> int:
+    """Удаляет только собственные просроченные ciphertext-файлы без перехода по ссылкам."""
+    if fcntl is None:
+        return 0
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        parent = os.open(Path(project_root) / "portal-data", flags)
+    except OSError:
+        return 0
+    try:
+        parent_info = os.fstat(parent)
+        try:
+            directory = os.open("migration", flags, dir_fd=parent)
+        except OSError:
+            return 0
+        try:
+            info = os.fstat(directory)
+            if info.st_uid != parent_info.st_uid or stat.S_IMODE(info.st_mode) != 0o700:
+                return 0
+            try:
+                fcntl.flock(directory, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return 0
+            cutoff = (time.time() if now is None else now) - 3600
+            removed = 0
+            for name in os.listdir(directory):
+                if not re.fullmatch(r"[0-9a-f]{32}\.kvn", name):
+                    continue
+                try:
+                    item = os.stat(name, dir_fd=directory, follow_symlinks=False)
+                    if (stat.S_ISREG(item.st_mode) and item.st_uid == info.st_uid and item.st_nlink == 1
+                            and stat.S_IMODE(item.st_mode) == 0o600 and item.st_mtime < cutoff):
+                        os.unlink(name, dir_fd=directory)
+                        removed += 1
+                except FileNotFoundError:
+                    continue
+            return removed
+        finally:
+            os.close(directory)
+    finally:
+        os.close(parent)
 
 
 def _apply_outcome(report: object) -> tuple[str, bool]:
@@ -124,9 +173,27 @@ class MigrationHandler:
         self._auth(params)
         try:
             state = self.dispatcher._control().kvnctl.STATE_STORE.load()
-            ciphertext = encrypt_migration(build_migration(state), params.get("passphrase", ""))
+            ciphertext = encrypt_migration(build_migration(state, params.get("selected_users")), params.get("passphrase", ""))
             directory, info = self._directory()
             try:
+                if fcntl is None:
+                    raise ProtocolError("migration_storage_denied", "Блокировки файлов переноса недоступны.")
+                try:
+                    fcntl.flock(directory, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError as exc:
+                    raise ProtocolError("migration_storage_busy", "Другая операция с файлом переноса уже выполняется.") from exc
+                cutoff = time.time() - 3600
+                for entry in os.listdir(directory):
+                    if not re.fullmatch(r"[0-9a-f]{32}\.kvn", entry):
+                        continue
+                    try:
+                        item = os.stat(entry, dir_fd=directory, follow_symlinks=False)
+                        if stat.S_ISREG(item.st_mode) and item.st_uid == info.st_uid and item.st_nlink == 1 and item.st_mtime < cutoff:
+                            os.unlink(entry, dir_fd=directory)
+                    except FileNotFoundError:
+                        continue
+                if sum(1 for entry in os.listdir(directory) if re.fullmatch(r"[0-9a-f]{32}\.kvn", entry)) >= 8:
+                    raise ProtocolError("migration_storage_full", "Достигнут лимит файлов переноса.")
                 import secrets
                 identifier = secrets.token_hex(16)
                 fd = os.open(identifier + ".kvn", os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600, dir_fd=directory)
@@ -136,6 +203,9 @@ class MigrationHandler:
                         output.write(ciphertext)
                         output.flush()
                         os.fsync(output.fileno())
+                except Exception:
+                    os.unlink(identifier + ".kvn", dir_fd=directory)
+                    raise
                 finally:
                     os.close(fd)
             finally:
@@ -152,6 +222,8 @@ class MigrationHandler:
             result = self.previews.preview(self.dispatcher._control().kvnctl.STATE_STORE, owner=owner,
                                            encrypted=encrypted, plaintext=plaintext, mode=params.get("mode"), validate=self._validate)
             return {"ok": True, **result}
+        except MigrationConflictError as exc:
+            raise ProtocolError("migration_conflict", "Архив конфликтует с целевым сервером; состояние не изменено.") from exc
         except (MigrationValidationError, MigrationCryptoError, MigrationPreviewError, OSError) as exc:
             raise ProtocolError("migration_preview_failed", "Архив не прошёл проверку или несовместим с целевым сервером.") from exc
 
@@ -179,11 +251,20 @@ class MigrationHandler:
         return {"ok": not degraded, "changed": result.changed, "revision": result.after_revision,
                 "outcome": outcome, "reconcile_required": degraded}
 
+    def cancel(self, params: dict) -> dict:
+        owner = self.dispatcher._shell_owner(params)
+        try:
+            self.previews.cancel(identifier=params.get("preview_id"), owner=owner)
+        except MigrationPreviewError as exc:
+            raise ProtocolError("migration_cancel_failed", "Просмотр недоступен или уже истёк.") from exc
+        return {"ok": True}
+
 
 def handlers(dispatcher):
     handler = MigrationHandler(dispatcher)
     return {
-        "migration.export": HandlerSpec(handler.export, True, frozenset({"session_owner", "root_password", "passphrase"})),
+        "migration.export": HandlerSpec(handler.export, True, frozenset({"session_owner", "root_password", "passphrase", "selected_users"})),
         "migration.preview": HandlerSpec(handler.preview, True, frozenset({"session_owner", "root_password", "passphrase", "archive_id", "mode"})),
         "migration.commit": HandlerSpec(handler.commit, True, frozenset({"session_owner", "root_password", "archive_id", "preview_id"})),
+        "migration.cancel": HandlerSpec(handler.cancel, True, frozenset({"session_owner", "preview_id"})),
     }

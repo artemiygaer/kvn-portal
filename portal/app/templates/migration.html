@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Перенос пользователей — KVN VPN{% endblock %}
+{% block page_scripts %}<script src="{{ public_url('static', filename='migration.js') }}" defer></script>{% endblock %}
+{% block content %}
+<header class="topbar"><div><span class="eyebrow">KVN VPN</span><h1>Перенос пользователей</h1></div><a class="button secondary" href="{{ public_url('users_list') }}">К пользователям</a></header>
+<p>Архив содержит VPN-ключи и защищается отдельной фразой. Не отправляйте пароль вместе с файлом. Учётные записи портала и сертификаты не переносятся.</p>
+<section class="panel" data-migration data-csrf="{{ csrf_token }}" data-base="{{ public_url('migration_view') }}">
+  <h2>Экспорт для переноса</h2>
+  <form data-migration-export>
+    <label>Пользователи<select name="selection"><option value="all">Все</option><option value="selected">Выбранные</option></select></label>
+    <fieldset data-migration-selection hidden><legend>Выбранные пользователи</legend>{% for name in users %}<label><input type="checkbox" name="users" value="{{ name }}"> {{ name }}</label>{% else %}<p>Пользователей пока нет.</p>{% endfor %}</fieldset>
+    <label>Фраза шифрования<input type="password" name="passphrase" minlength="12" maxlength="256" autocomplete="new-password" required></label>
+    <label>Повторите фразу<input type="password" name="confirmation" minlength="12" maxlength="256" autocomplete="new-password" required></label>
+    <label>Пароль root<input type="password" name="root_password" autocomplete="current-password" required></label>
+    <button type="submit">Создать зашифрованный архив</button>
+  </form>
+  <h2>Импорт</h2>
+  <p>Новый IP может потребовать повторного экспорта клиентских профилей или переноса DNS. Сертификат TLS на новом сервере нужно проверить отдельно.</p>
+  <form data-migration-import>
+    <label>Файл переноса<input type="file" name="archive" accept=".kvn" required></label>
+    <label>Режим<select name="mode"><option value="merge">Добавить пользователей</option><option value="restore">Полное восстановление</option></select></label>
+    <p>Добавление сохраняет ключи целевого сервера. Полное восстановление переносит VPN-ключи и доступно только на сервере без VPN-пользователей.</p>
+    <label>Фраза шифрования<input type="password" name="passphrase" minlength="12" maxlength="256" autocomplete="off" required></label>
+    <label>Пароль root<input type="password" name="root_password" autocomplete="current-password" required></label>
+    <button type="submit">Загрузить и проверить</button>
+    <progress data-migration-progress max="100" value="0" hidden aria-label="Загрузка архива"></progress>
+    <button type="button" class="secondary" data-migration-stop hidden>Остановить загрузку</button>
+  </form>
+  <div data-migration-preview hidden></div>
+  <div data-migration-apply hidden>
+    <label>Повторно введите пароль root для применения<input type="password" data-migration-root autocomplete="current-password"></label>
+    <button type="button" data-migration-commit>Применить перенос</button>
+    <button type="button" class="secondary" data-migration-cancel>Отменить перенос</button>
+  </div>
+  <p role="status" aria-live="polite" data-migration-status></p>
+</section>
+{% endblock %}

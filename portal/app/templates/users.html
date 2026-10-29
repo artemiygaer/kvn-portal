@@ -4,7 +4,7 @@
 {% block page_scripts %}<script src="{{ public_url('static', filename='users.js') }}" defer></script><script src="{{ public_url('static', filename='user-export.js') }}" defer></script>{% endblock %}
 {% block main_class %}{% if view == 'matrix' %} shell-wide{% endif %}{% endblock %}
 {% block content %}
-<header class="topbar"><div><span class="eyebrow">{{ 'Управление' if g.lang == 'ru' else 'Management' }}</span><h1>{{ t('users') }}</h1></div><a class="button" href="{{ public_url('user_create') }}">{{ 'Добавить' if g.lang == 'ru' else 'Add' }}</a></header>
+<header class="topbar"><div><span class="eyebrow">{{ 'Управление' if g.lang == 'ru' else 'Management' }}</span><h1>{{ t('users') }}</h1></div><div class="actions"><a class="button secondary" href="{{ public_url('migration_view') }}">Перенос пользователей</a><a class="button" href="{{ public_url('user_create') }}">{{ 'Добавить' if g.lang == 'ru' else 'Add' }}</a></div></header>
 
 <nav class="view-switch" aria-label="{{ 'Режим отображения' if g.lang == 'ru' else 'View mode' }}">
   <a class="button {{ 'secondary' if view != 'cards' else '' }}" href="{{ public_url('users_list', view='cards', q=request.args.get('q',''), system=request.args.get('system',''), enabled=request.args.get('enabled','')) }}"{% if view == 'cards' %} aria-current="page"{% endif %}>{{ 'Карточки' if g.lang == 'ru' else 'Cards' }}</a>

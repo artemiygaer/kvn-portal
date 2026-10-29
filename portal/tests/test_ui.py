@@ -1,8 +1,10 @@
 import json
+import hashlib
 import re
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from app import create_app
 from agent_client import AgentClientError
@@ -359,9 +361,95 @@ class PortalUiTests(unittest.TestCase):
         self.assertIn("Host-agent временно недоступен".encode(), page.data)
         self.assertIn(b'data-network-zone="ingress"', page.data)
 
+    def test_migration_http_requires_session_csrf_and_hides_secrets(self):
+        directory = Path(self.tmp.name) / "migration"
+        self.app.config["MIGRATION_DIR"] = directory
+        self.assertEqual(self.client.get("/gaer/migration", headers=self.headers).status_code, 302)
+        self.assertEqual(self.login().status_code, 302)
+
+        def fake_call(method, params, timeout=None):
+            if method == "state.users":
+                return {"users": [{"name": "SyntheticUser"}]}
+            if method == "migration.preview":
+                return {"ok": True, "preview_id": "b" * 32, "mode": "restore", "user_count": 1,
+                        "add_count": 1, "skip_count": 0, "conflict_count": 0,
+                        "endpoint_changed": True, "warnings": ["synthetic-sensitive-key"]}
+            if method == "migration.commit":
+                return {"ok": False, "changed": True, "revision": "a" * 64,
+                        "outcome": "degraded", "reconcile_required": True}
+            if method == "migration.cancel":
+                return {"ok": True}
+            if method == "migration.export":
+                self.assertEqual(params["selected_users"], ["SyntheticUser"])
+                directory.mkdir(mode=0o700, exist_ok=True)
+                archive = directory / (("d" * 32) + ".kvn")
+                archive.write_bytes(b"synthetic-encrypted-export")
+                archive.chmod(0o600)
+                return {"ok": True, "archive_id": "d" * 32, "size": archive.stat().st_size,
+                        "sha256": hashlib.sha256(archive.read_bytes()).hexdigest()}
+            raise AssertionError(method)
+
+        with mock.patch.object(self.agent, "call", side_effect=fake_call):
+            page = self.client.get("/gaer/migration", headers=self.headers)
+            self.assertEqual(page.status_code, 200)
+            match = re.search(rb'data-csrf="([^"]+)"', page.data)
+            self.assertIsNotNone(match)
+            csrf = match.group(1).decode()
+            denied = self.client.post("/gaer/migration/upload", data=b"ciphertext", headers={**self.headers, "Content-Type": "application/octet-stream"})
+            self.assertEqual(denied.status_code, 403)
+            headers = {**self.headers, "X-CSRF-Token": csrf}
+            oversized = self.client.post("/gaer/migration/export", data=b" " * 32769, headers={**headers, "Content-Type": "application/json"})
+            self.assertEqual(oversized.status_code, 400)
+            uploaded = self.client.post("/gaer/migration/upload", data=b"ciphertext", headers={**headers, "Content-Type": "application/octet-stream"})
+            self.assertEqual(uploaded.status_code, 200)
+            ticket = uploaded.get_json()["ticket"]
+            self.assertEqual(len(list(directory.glob("*.kvn"))), 1)
+            other = self.app.test_client()
+            login_page = other.get("/gaer/login", headers=self.headers)
+            login = other.post("/gaer/login", headers=self.headers, data={"login": "admin", "password": "VisualPassword-2026", "csrf_token": self.csrf(login_page)})
+            self.assertEqual(login.status_code, 302)
+            other_page = other.get("/gaer/migration", headers=self.headers)
+            other_csrf = re.search(rb'data-csrf="([^"]+)"', other_page.data).group(1).decode()
+            exported = self.client.post("/gaer/migration/export", json={"passphrase": "synthetic-phrase", "passphrase_confirmation": "synthetic-phrase", "root_password": "synthetic-root", "selected_users": ["SyntheticUser"]}, headers=headers)
+            self.assertEqual(exported.status_code, 200)
+            download = "/gaer/migration/download/" + exported.get_json()["ticket"]
+            self.assertEqual(other.get(download, headers=self.headers).status_code, 404)
+            self.assertEqual(self.app.test_client().get(download, headers=self.headers).status_code, 302)
+            response = self.client.get(download, headers=self.headers)
+            self.assertEqual(response.data, b"synthetic-encrypted-export")
+            response.close()
+            self.app.config["NOW_PROVIDER"] = lambda: 1_800_000_601
+            self.assertEqual(self.client.get(download, headers=self.headers).status_code, 404)
+            self.app.config["NOW_PROVIDER"] = lambda: 1_800_000_000
+            cross_session = other.post("/gaer/migration/preview", json={"ticket": ticket, "mode": "restore"}, headers={**self.headers, "X-CSRF-Token": other_csrf})
+            self.assertEqual(cross_session.status_code, 400)
+            checked = self.client.post("/gaer/migration/preview", json={"ticket": ticket, "mode": "restore", "root_password": "synthetic-root", "passphrase": "synthetic-phrase"}, headers=headers)
+            self.assertEqual(checked.status_code, 200)
+            self.assertNotIn(b"synthetic-sensitive-key", checked.data)
+            from app.agent_facade import AgentClientError as MigrationAgentError
+            with mock.patch.object(self.agent, "call", side_effect=MigrationAgentError("secret must not escape", code="migration_conflict")):
+                conflict = self.client.post("/gaer/migration/preview", json={"ticket": ticket, "mode": "merge"}, headers=headers)
+            self.assertEqual(conflict.status_code, 400)
+            self.assertIn("Конфликт", conflict.get_json()["message"])
+            self.assertNotIn(b"secret must not escape", conflict.data)
+            wrong_mode = self.client.post("/gaer/migration/preview", json={"ticket": ticket, "mode": "merge"}, headers=headers)
+            self.assertEqual(wrong_mode.status_code, 400)
+            applied = self.client.post("/gaer/migration/commit", json={"ticket": ticket, "preview_id": "b" * 32, "root_password": "synthetic-root"}, headers=headers)
+            self.assertEqual(applied.status_code, 409)
+            self.assertIn("Данные сохранены", applied.get_json()["message"])
+            self.assertNotIn(b"synthetic-root", applied.data)
+            self.assertEqual(self.client.get("/gaer/migration/download/" + ticket, headers=self.headers).status_code, 404)
+            cross_cancel = other.post("/gaer/migration/cancel", json={"ticket": ticket, "preview_id": "b" * 32}, headers={**self.headers, "X-CSRF-Token": other_csrf})
+            self.assertEqual(cross_cancel.status_code, 400)
+            cancelled = self.client.post("/gaer/migration/cancel", json={"ticket": ticket, "preview_id": "b" * 32}, headers=headers)
+            self.assertEqual(cancelled.status_code, 200)
+            self.assertEqual(len(list(directory.glob("*.kvn"))), 1)  # Остаётся только архив экспорта.
+
     def test_assets_are_local_and_below_budget(self):
         assets = [self.static / "style.css", *sorted(self.static.glob("*.js"))]
-        self.assertLessEqual(sum(item.stat().st_size for item in assets), 106 * 1024)
+        legacy_assets = [item for item in assets if item.name != "migration.js"]
+        self.assertLessEqual(sum(item.stat().st_size for item in legacy_assets), 106 * 1024)
+        self.assertLessEqual((self.static / "migration.js").stat().st_size, 8 * 1024)
         base = (self.static / "base.js").stat().st_size
         export = (self.static / "user-export.js").stat().st_size
         self.assertLessEqual(

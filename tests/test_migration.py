@@ -19,8 +19,9 @@ from unittest import mock
 from portal.agent import AgentApplication, ThreadingUnixServer
 from portal.agent_client import AgentClient, AgentClientError
 from portal.agent_protocol import ProtocolError
+from portal.app.routes.migration import MAX_ARCHIVE_BYTES, issue_ticket, verify_ticket, save_upload, open_archive
 from portal.agent_handlers.dispatcher import AgentDispatcher
-from portal.agent_handlers.migration import MigrationHandler, _apply_outcome
+from portal.agent_handlers.migration import MigrationHandler, _apply_outcome, cleanup_expired_archives
 from portal.control.migration import MigrationPreviewError, MigrationPreviews
 from tests.test_baseline_contracts import fixture_state, fixture_user
 from tools.kvnlib.core.errors import StateRevisionConflict
@@ -63,6 +64,91 @@ class MigrationSchemaTests(unittest.TestCase):
         self.assertEqual(_apply_outcome({"outcome": "applied", "reconcile_required": True}), ("degraded", True))
         self.assertEqual(_apply_outcome(None), ("degraded", True))
 
+    def test_file_ticket_binds_session_purpose_and_expiry(self):
+        owner = "a" * 64
+        file_id = "b" * 32
+        ticket = issue_ticket("synthetic-proxy-secret", owner, file_id, "download", now=1000)
+        self.assertEqual(verify_ticket("synthetic-proxy-secret", owner, ticket, "download", now=1100), file_id)
+        for other_owner, purpose, timestamp in (("c" * 64, "download", 1100),
+                                                 (owner, "upload", 1100),
+                                                 (owner, "download", 1600)):
+            with self.subTest(purpose=purpose, timestamp=timestamp), self.assertRaises(ValueError):
+                verify_ticket("synthetic-proxy-secret", other_owner, ticket, purpose, now=timestamp)
+        with self.assertRaises(ValueError):
+            verify_ticket("synthetic-proxy-secret", owner, ticket[:-1] + "x", "download", now=1100)
+
+    @unittest.skipUnless(os.name == "posix", "Безопасные файловые дескрипторы требуют Linux")
+    def test_staged_upload_is_bounded_and_rejects_symlink(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary) / "migration"
+            identifier, size = save_upload(directory, io.BytesIO(b"synthetic-ciphertext"))
+            self.assertEqual(size, len(b"synthetic-ciphertext"))
+            with open_archive(directory, identifier) as stream:
+                self.assertEqual(stream.read(), b"synthetic-ciphertext")
+            with self.assertRaises(ValueError):
+                save_upload(directory, io.BytesIO(b"x" * (MAX_ARCHIVE_BYTES + 1)))
+            self.assertEqual(len(list(directory.iterdir())), 1)
+            alias = "c" * 32
+            (directory / (alias + ".kvn")).symlink_to(directory / (identifier + ".kvn"))
+            with self.assertRaises(OSError):
+                open_archive(directory, alias)
+
+    @unittest.skipUnless(os.name == "posix", "Блокировки каталогов доступны в Linux")
+    def test_staged_upload_serializes_writers_and_cleans_only_expired_files(self):
+        import fcntl
+        import time
+
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary) / "migration"
+            first, _ = save_upload(directory, io.BytesIO(b"old-ciphertext"))
+            old = directory / (first + ".kvn")
+            os.utime(old, (time.time() - 4000, time.time() - 4000))
+            unrelated = directory / "keep.txt"
+            unrelated.write_text("synthetic", encoding="utf-8")
+            fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                with self.assertRaises(ValueError):
+                    save_upload(directory, io.BytesIO(b"concurrent"))
+            finally:
+                os.close(fd)
+            current, _ = save_upload(directory, io.BytesIO(b"new-ciphertext"))
+            self.assertFalse(old.exists())
+            self.assertTrue(unrelated.exists())
+            self.assertTrue((directory / (current + ".kvn")).is_file())
+
+    @unittest.skipUnless(os.name == "posix", "Очистка работает только в Linux")
+    def test_agent_cleanup_removes_only_expired_private_archives(self):
+        import fcntl
+        import time
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            parent = root / "portal-data"
+            parent.mkdir(mode=0o700)
+            directory = parent / "migration"
+            old_id, _ = save_upload(directory, io.BytesIO(b"old"))
+            new_id, _ = save_upload(directory, io.BytesIO(b"new"))
+            old = directory / (old_id + ".kvn")
+            newer = directory / (new_id + ".kvn")
+            os.utime(old, (time.time() - 4000, time.time() - 4000))
+            link = directory / (("c" * 32) + ".kvn")
+            link.symlink_to(old)
+            outsider = directory / "keep.txt"
+            outsider.write_text("keep", encoding="utf-8")
+            fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                self.assertEqual(cleanup_expired_archives(root), 0)
+                self.assertTrue(old.exists())
+            finally:
+                os.close(fd)
+            self.assertEqual(cleanup_expired_archives(root), 1)
+            self.assertFalse(old.exists())
+            self.assertTrue(newer.exists())
+            self.assertTrue(link.is_symlink())
+            self.assertTrue(outsider.exists())
+
     def test_legacy_apply_reports_failed_docker_restart_as_degraded(self):
         from tools import kvnctl
 
@@ -100,6 +186,25 @@ class MigrationSchemaTests(unittest.TestCase):
         self.assertEqual(archive["protocols"]["amneziawg"]["v3"]["header_protection_key"], self.state["amneziawg"]["v3"]["header_protection_key"])
         self.assertNotIn(b"synthetic-portal-secret", data)
         self.assertNotIn(b"synthetic-github-secret", data)
+
+    def test_selected_export_excludes_other_users_and_extra_telemt_accounts(self):
+        second = copy.deepcopy(self.state["users"][0])
+        second["name"] = "SecondFixture"
+        second["uuid"] = "00000000-0000-4000-8000-000000000002"
+        second["sub_token"] = "123456789abcdef0123456789abcdef0"
+        for system, address in (("amneziawg", "10.66.66.3/32"), ("wireguard", "10.67.67.3/32")):
+            second[system]["public_key"] = base64.b64encode(b"b" * 32).decode()
+            second[system]["address"] = address
+        self.state["users"].append(second)
+        self.state["telemt"] = {"extra_users": {"OtherFixture": "0" * 32}}
+        before = copy.deepcopy(self.state)
+        result = parse_migration(build_migration(self.state, ["secondfixture"]))
+        self.assertEqual(result["users"], [second])
+        self.assertNotIn("extra_users", result["protocols"]["telemt"])
+        self.assertEqual(self.state, before)
+        for selection in ([], ["missing"], ["SecondFixture", "secondfixture"]):
+            with self.subTest(selection=selection), self.assertRaises(MigrationValidationError):
+                build_migration(self.state, selection)
 
     def test_reject_duplicate_json_version_unknown_fields_and_conflicts(self):
         data = build_migration(self.state)
@@ -200,6 +305,7 @@ class MigrationSchemaTests(unittest.TestCase):
             candidate = plan_migration(target, envelope, "restore")
             dispatcher = SimpleNamespace(_control=lambda: SimpleNamespace(kvnctl=kvnctl))
             MigrationHandler(dispatcher)._validate(candidate)
+            kvnctl._migration_validate(candidate)
         self.assertEqual(candidate["users"], self.state["users"])
         self.assertEqual(candidate["reality"], self.state["reality"])
         self.assertEqual(candidate["wireguard"]["private_key"], self.state["wireguard"]["private_key"])
@@ -338,10 +444,17 @@ class MigrationSchemaTests(unittest.TestCase):
                 previews.commit(**{**options, "owner": "session-b"})
             with self.assertRaises(MigrationPreviewError):
                 previews.commit(**{**options, "encrypted": b"changed"})
+            with self.assertRaises(MigrationPreviewError):
+                previews.cancel(identifier=preview["preview_id"], owner="session-b")
             self.assertTrue(previews.commit(**options).changed)
             with self.assertRaises(MigrationPreviewError):
                 previews.commit(**options)
             path.write_text(json.dumps(target), encoding="utf-8")
+            expiring = previews.preview(store, owner="session-a", encrypted=b"encrypted-b", plaintext=plaintext,
+                                        mode="restore", validate=lambda _: None)
+            previews.cancel(identifier=expiring["preview_id"], owner="session-a")
+            with self.assertRaises(MigrationPreviewError):
+                previews.cancel(identifier=expiring["preview_id"], owner="session-a")
             expiring = previews.preview(store, owner="session-a", encrypted=b"encrypted-b", plaintext=plaintext,
                                         mode="restore", validate=lambda _: None)
             fake_clock[0] += 31
@@ -382,6 +495,57 @@ class MigrationSchemaTests(unittest.TestCase):
                 kvnctl.cmd_migration_restore_backup(SimpleNamespace(name=backup.name))
             reconcile.assert_called_once()
             self.assertEqual(store.load(), original)
+    @unittest.skipUnless(os.name == "posix" and shutil.which("gpg"), "Нужен Linux и GnuPG")
+    def test_cli_export_preview_import_uses_shared_plan(self):
+        from tools import kvnctl
+
+        self.state["wireguard"]["network"] = "10.67.67.0/24"
+        with tempfile.TemporaryDirectory(prefix="kvn-cli-migration-") as temporary:
+            root = Path(temporary)
+            source_path = root / "source.json"
+            target_path = root / "target.json"
+            archive = root / "transfer.kvn"
+            backup = root / "backups"
+            source_path.write_text(json.dumps(self.state), encoding="utf-8")
+            target = copy.deepcopy(self.state)
+            target["users"] = []
+            target["server"] = "target.example.test"
+            target_path.write_text(json.dumps(target), encoding="utf-8")
+            source, destination = JsonStateStore(source_path), JsonStateStore(target_path)
+            phrase = "synthetic-test-phrase"
+            def local_commit(*args, **kwargs):
+                kwargs["backup_dir"] = backup
+                return commit_migration(*args, **kwargs)
+            with mock.patch.object(kvnctl.os, "geteuid", return_value=0), \
+                 mock.patch.object(kvnctl, "STATE_STORE", source), \
+                 mock.patch.object(kvnctl.getpass, "getpass", side_effect=[phrase, phrase]), \
+                 mock.patch.object(kvnctl, "ok"):
+                kvnctl.cmd_migration_transfer(SimpleNamespace(migration_action="export", archive=str(archive), user=None))
+            self.assertEqual(archive.stat().st_mode & 0o777, 0o600)
+            expected = plan_migration(target, parse_migration(decrypt_migration(archive.read_bytes(), phrase)), "restore")
+            with mock.patch.object(kvnctl, "STATE_STORE", destination), \
+                 mock.patch.object(kvnctl, "_migration_validate"), \
+                 mock.patch.object(kvnctl.getpass, "getpass", return_value=phrase), \
+                 mock.patch("tools.kvnlib.runtime.migration.commit_migration", side_effect=local_commit), \
+                 mock.patch("builtins.input", return_value="ДА"), mock.patch.object(kvnctl, "cmd_reconcile"), \
+                 mock.patch.object(kvnctl, "ok"), contextlib.redirect_stdout(io.StringIO()):
+                args = SimpleNamespace(migration_action="preview", archive=str(archive), mode="restore")
+                kvnctl.cmd_migration_transfer(args)
+                self.assertEqual(destination.load(), target)
+                args.migration_action = "import"
+                kvnctl.cmd_migration_transfer(args)
+            self.assertEqual(destination.load(), expected)
+            with mock.patch.object(kvnctl, "STATE_STORE", destination), \
+                 mock.patch.object(kvnctl.getpass, "getpass", return_value="incorrect-synthetic-phrase"):
+                with self.assertRaises(SystemExit):
+                    kvnctl.cmd_migration_transfer(SimpleNamespace(migration_action="preview", archive=str(archive), mode="restore"))
+            self.assertEqual(destination.load(), expected)
+            link = root / "link.kvn"
+            link.symlink_to(archive)
+            with self.assertRaises(OSError):
+                kvnctl._migration_read(link)
+
+
 @unittest.skipUnless(os.name == "posix", "GnuPG/passphrase-fd требует Linux")
 class MigrationCryptoTests(unittest.TestCase):
     def test_export_over_real_unix_socket_requires_agent_and_root_auth(self):
@@ -415,7 +579,22 @@ class MigrationCryptoTests(unittest.TestCase):
                 for secret in (credentials["passphrase"], credentials["root_password"],
                                source.state["reality"]["privateKey"], source.state["amneziawg"]["v3"]["header_protection_key"]):
                     self.assertNotIn(secret, log.getvalue())
-                self.assertTrue((project / "portal-data" / "migration" / (result["archive_id"] + ".kvn")).is_file())
+                directory = project / "portal-data" / "migration"
+                self.assertTrue((directory / (result["archive_id"] + ".kvn")).is_file())
+                import fcntl
+                lock_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+                try:
+                    fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    with self.assertRaises(AgentClientError) as blocked:
+                        client.call("migration.export", credentials)
+                    self.assertEqual(blocked.exception.code, "migration_storage_busy")
+                finally:
+                    os.close(lock_fd)
+                for number in range(7):
+                    (directory / (f"{number:032x}" + ".kvn")).write_bytes(b"ciphertext")
+                with self.assertRaises(AgentClientError) as full:
+                    client.call("migration.export", credentials)
+                self.assertEqual(full.exception.code, "migration_storage_full")
             finally:
                 server.shutdown()
                 server.server_close()
@@ -443,6 +622,16 @@ class MigrationCryptoTests(unittest.TestCase):
             encrypt_migration(b"x" * (MAX_PLAINTEXT_BYTES + 1), "only-a-synthetic-passphrase")
         with self.assertRaises(MigrationCryptoError):
             decrypt_migration(b"x" * (MAX_ENCRYPTED_BYTES + 1), "only-a-synthetic-passphrase")
+
+    def test_client_zip_and_project_backup_are_not_migration_archives(self):
+        import zipfile
+
+        content = io.BytesIO()
+        with zipfile.ZipFile(content, "w") as archive:
+            archive.writestr("wireguard.conf", "synthetic client configuration")
+        for archive in (content.getvalue(), b"synthetic project backup"):
+            with self.subTest(kind=archive[:2]), self.assertRaises(MigrationCryptoError):
+                decrypt_migration(archive, "only-a-synthetic-passphrase")
 
     def test_compressed_decompression_bomb_is_rejected(self):
         with tempfile.TemporaryDirectory() as home:
@@ -532,6 +721,13 @@ class MigrationCryptoTests(unittest.TestCase):
                 rendered = (project / system / filename).read_text(encoding="utf-8")
                 self.assertIn(imported[system]["private_key"], rendered)
                 self.assertIn(imported["users"][0][system]["public_key"], rendered)
+                client = (project / "clients" / imported["users"][0]["name"] / (system + ".conf")).read_text(encoding="utf-8")
+                self.assertIn(imported["users"][0][system]["private_key"], client)
+                self.assertIn(imported[system]["public_key"], client)
+                self.assertIn("target.example.test", client)
+            links = (project / "clients" / imported["users"][0]["name"] / "links.txt").read_text(encoding="utf-8")
+            self.assertIn(imported["users"][0]["uuid"], links)
+            self.assertIn("target.example.test", links)
             if os.environ.get("KVN_MIGRATION_WG_E2E") == "1":
                 script = ('set -e; ip link add wg0 type wireguard; '
                           'wg syncconf wg0 <(wg-quick strip "$1"); '
@@ -613,7 +809,14 @@ class MigrationCryptoTests(unittest.TestCase):
             self.assertTrue(committed["data"]["reconcile_required"])
             self.assertFalse(replay["ok"])
             self.assertEqual(len(list((root / "backups").iterdir())), 1)
-            self.assertEqual(json.loads((root / "target" / "users.json").read_text())["users"], source.state["users"])
+            expected = plan_migration(target, parse_migration(decrypt_migration(encrypted, password)), "restore")
+            self.assertEqual(json.loads((root / "target" / "users.json").read_text()), expected)
+            for mode in ("restore", "merge"):
+                conflict = call(applications[1], "migration.preview", {**credentials, "archive_id": archive_id,
+                                                                        "passphrase": password, "mode": mode})
+                self.assertFalse(conflict["ok"])
+                self.assertEqual(conflict["error"]["code"], "migration_conflict")
+                self.assertEqual(json.loads((root / "target" / "users.json").read_text())["users"], source.state["users"])
             backup_name = next((root / "backups").iterdir()).name
             store = applications[1].dispatcher._control().kvnctl.STATE_STORE
             recovery = restore_migration_backup(store, backup_dir=root / "backups", name=backup_name,

@@ -84,7 +84,16 @@ class PortalRouteContractTests(unittest.TestCase):
                 rule.rule,
                 set(rule.methods) - {"HEAD", "OPTIONS"},
             )
-        self.assertEqual(actual, EXPECTED)
+        new_routes = {
+            "migration_view": ("/gaer/migration", {"GET"}),
+            "migration_upload": ("/gaer/migration/upload", {"POST"}),
+            "migration_export": ("/gaer/migration/export", {"POST"}),
+            "migration_download": ("/gaer/migration/download/<ticket>", {"GET"}),
+            "migration_preview": ("/gaer/migration/preview", {"POST"}),
+            "migration_commit": ("/gaer/migration/commit", {"POST"}),
+            "migration_cancel": ("/gaer/migration/cancel", {"POST"}),
+        }
+        self.assertEqual(actual, {**EXPECTED, **new_routes})
         self.assertEqual(
             set(app.blueprints),
             {"auth", "users", "services", "diagnostics", "settings", "updates"},

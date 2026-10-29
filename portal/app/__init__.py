@@ -480,6 +480,8 @@ def create_app(test_config: dict | None = None) -> Flask:
     register_blueprints(app)
     from .routes.shell_stream import register_shell_stream
     register_shell_stream(app, boundary, storage, agent_facade)
+    from .routes.migration import register_migration_routes
+    register_migration_routes(app, boundary, storage, agent_facade)
     app.register_error_handler(404, app.extensions["kvn_portal_views"]["not_found"])
     app.register_error_handler(500, app.extensions["kvn_portal_views"]["internal_error"])
     return app

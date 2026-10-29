@@ -67,6 +67,7 @@ class MigrationPreviews:
         return {
             "preview_id": identifier, "sha256": digest, "revision": revision,
             "mode": mode, "user_count": len(envelope["users"]),
+            "add_count": len(envelope["users"]), "skip_count": 0, "conflict_count": 0,
             "endpoint_changed": envelope["source_server"] != state.get("server", ""),
             "expires_in": int(self.ttl),
             "warnings": [
@@ -89,3 +90,13 @@ class MigrationPreviews:
             entry["timer"].cancel()
         return commit(store, entry["envelope"], mode=entry["mode"], revision=entry["revision"],
                       backup_dir=backup_dir, validate=validate)
+
+    def cancel(self, *, identifier: str, owner: str) -> None:
+        """Удаляет расшифрованный просмотр только для его владельца."""
+        with self._lock:
+            self._purge()
+            entry = self._entries.get(identifier) if isinstance(identifier, str) else None
+            if entry is None or not isinstance(owner, str) or not hmac.compare_digest(entry["owner"], owner):
+                raise MigrationPreviewError("Просмотр недоступен или уже истёк.")
+            del self._entries[identifier]
+            entry["timer"].cancel()

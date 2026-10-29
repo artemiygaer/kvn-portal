@@ -52,6 +52,7 @@ MUTATION_METHODS = frozenset({
     "migration.export",
     "migration.preview",
     "migration.commit",
+    "migration.cancel",
     "service.action",
     "state.apply",
     "state.reconcile",

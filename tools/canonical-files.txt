@@ -213,8 +213,11 @@ portal/app/templates/user_form.html
 portal/app/templates/user_result.html
 portal/app/templates/users.html
 portal/agent_handlers/migration.py
+portal/app/routes/migration.py
 portal/app/routes/shell_stream.py
+portal/app/static/migration.js
 portal/app/static/vendor/xterm/SHA256SUMS
+portal/app/templates/migration.html
 portal/control/migration.py
 portal/root_shell_helper.py
 portal/wheels/flask_sock-0.7.0-py3-none-any.whl
