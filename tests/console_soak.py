@@ -110,9 +110,21 @@ def main():
             report["seconds"] = round(time.monotonic() - started, 3)
             report["ok"] = waiting is None and report["echoes"] > 0
             assert report["ok"]
+            # Сравниваем завершённые соединения, а не случайный момент внутри
+            # Unix RPC: он временно открывает клиентский и серверный fd.
+            ws.close()
+            ws = None
+            deadline = time.monotonic() + 5
+            first = report["samples"][0]
+            while time.monotonic() < deadline:
+                settled = {"threads": threading.active_count(), "fds": len(os.listdir("/proc/self/fd"))}
+                if settled["threads"] <= first["threads"] and settled["fds"] <= first["fds"]:
+                    break
+                time.sleep(0.1)
+            report["after_disconnect"] = settled
             first, last = report["samples"][0], report["samples"][-1]
-            assert last["threads"] <= first["threads"] + 2, "Рост числа потоков"
-            assert last["fds"] <= first["fds"] + 2, "Рост числа дескрипторов"
+            assert settled["threads"] <= first["threads"], "Потоки остались после отключения"
+            assert settled["fds"] <= first["fds"], "Дескрипторы остались после отключения"
             assert last["rss_peak_kib"] < 192 * 1024, "Превышен бюджет тестового процесса"
         except BaseException:
             report["ok"] = False
