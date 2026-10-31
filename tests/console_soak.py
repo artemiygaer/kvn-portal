@@ -11,11 +11,13 @@ import tempfile
 import threading
 import time
 
-from simple_websocket import Client
+from simple_websocket import Client, ConnectionClosed
 from werkzeug.serving import make_server, WSGIRequestHandler
 
 from portal.agent import AgentApplication, AgentDispatcher, ThreadingUnixServer
 from portal.agent_client import AgentClient
+from portal.agent_handlers.shell import ROOT_SHELL_IDLE_SECONDS
+from portal.agent_handlers import shell as shell_module
 from portal.app import create_app
 from portal.app.security import token_hash
 
@@ -29,9 +31,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seconds", type=int, default=1800)
     parser.add_argument("--report", type=Path, required=True)
+    parser.add_argument("--fixture-idle-seconds", type=int, default=0,
+                        help="Укороченный timeout только в процессе тестовой fixture")
     args = parser.parse_args()
     if os.geteuid() != 0 or not 10 <= args.seconds <= 3600:
         raise SystemExit("Нужен WSL/root и длительность 10–3600 секунд.")
+    idle_limit = ROOT_SHELL_IDLE_SECONDS
+    if args.fixture_idle_seconds:
+        if not 1 <= args.fixture_idle_seconds < args.seconds // 2:
+            raise SystemExit("Некорректный тестовый timeout.")
+        idle_limit = args.fixture_idle_seconds
+        shell_module.ROOT_SHELL_IDLE_SECONDS = idle_limit
     report = {"surface": "WS→Unix RPC→реальный PTY, synthetic session; не проверка PAM/production",
               "samples": [], "reconnects": 0, "echoes": 0}
     with tempfile.TemporaryDirectory(prefix="kvn-console-soak-") as temporary:
@@ -71,7 +81,7 @@ def main():
             ws, seq = connect()
             while time.monotonic() - started < args.seconds:
                 elapsed = time.monotonic() - started
-                if ready_for_input and elapsed < args.seconds / 2 and elapsed - last_echo >= 5 and waiting is None:
+                if ready_for_input and elapsed < args.seconds / 2 and elapsed - last_echo >= min(5, idle_limit / 2) and waiting is None:
                     seq += 1
                     waiting = f"KVN_SOAK_{seq}_Ж".encode()
                     # Разделённые аргументы исключают ложное совпадение с terminal echo.
@@ -82,6 +92,13 @@ def main():
                 raw = ws.receive(timeout=0.5)
                 if raw is not None:
                     message = json.loads(raw)
+                    if message["type"] == "error":
+                        idle = time.monotonic() - shell.last_seen
+                        if elapsed >= args.seconds / 2 and idle >= idle_limit and shell.closed:
+                            report["expected_idle_expiry"] = True
+                            while time.monotonic() - started < args.seconds:
+                                time.sleep(0.2)
+                            break
                     assert message["type"] in {"output", "input_ack"}, message["type"]
                     if message["type"] == "output":
                         output = (output + base64.b64decode(message["data"]))[-8192:]
@@ -112,7 +129,10 @@ def main():
             assert report["ok"]
             # Сравниваем завершённые соединения, а не случайный момент внутри
             # Unix RPC: он временно открывает клиентский и серверный fd.
-            ws.close()
+            try:
+                ws.close()
+            except ConnectionClosed:
+                pass
             ws = None
             deadline = time.monotonic() + 5
             first = report["samples"][0]
@@ -131,7 +151,10 @@ def main():
             raise
         finally:
             if ws is not None:
-                ws.close()
+                try:
+                    ws.close()
+                except ConnectionClosed:
+                    pass
             shell.close()
             server.shutdown()
             server.server_close()
