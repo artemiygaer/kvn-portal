@@ -287,6 +287,10 @@ class PortalSettingsTests(unittest.TestCase):
             content_type="multipart/form-data",
             headers={**self.headers, "Accept": "application/json"},
         )
+        # Werkzeug создаёт отдельный временный WSGI input для multipart >500KB.
+        # В тестовом клиенте его владельцем является fixture, не HTTP-сервер.
+        self.addCleanup(response.request.input_stream.close)
+        self.addCleanup(response.close)
         self.assertEqual(response.status_code, 201)
         _method, params = self.agent.calls[-1]
         self.assertRegex(

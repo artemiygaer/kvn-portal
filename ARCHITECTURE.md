@@ -44,6 +44,8 @@ setup/update/GitHub ----------> release
 | Изменить бизнес-операцию портала | control | один файл `portal/control/*.py` | `tests/test_control_services_architecture.py`, тематический portal-тест |
 | Добавить RPC host-agent | agent | один handler, `registry.py`, `agent_protocol.py` | `tests/test_agent_handlers_architecture.py`, `tests/test_portal_agent.py` |
 | Исправить Unix socket/reconnect | agent bridge | `portal/agent.py`, `agent_client.py`, `install-host-agent.sh` | `tests/test_runtime_bridge.py` |
+| Изменить интерактивную консоль/PTY | shell | `portal/agent_handlers/shell.py`, `portal/root_shell_helper.py`, `portal/app/routes/shell_stream.py`, `portal/app/static/root-shell.js` | `tests/test_shell_stream.py`, `tests/test_shell_security.py` |
+| Изменить зашифрованный перенос пользователей | migration | `tools/kvnlib/exports/migration.py`, `tools/kvnlib/runtime/migration.py`, `portal/agent_handlers/migration.py` | `tests/test_migration.py` |
 | Добавить HTTP route или форму | routes | один blueprint, `routes/implementation.py`, один template | `tests/test_portal_routes_architecture.py`, `portal/tests/test_*.py` |
 | Исправить dashboard/SWR | routes + agent | `portal/app/cache.py`, dashboard handler и JS | `tests/test_observability.py`, `portal/tests/test_observability.py` |
 | Изменить deploy allowlist | release | `tools/deploy_archive.py`, `tools/canonical-files.txt` | `tests/test_deploy.py`, `tests/test_upgrade_contracts.py` |

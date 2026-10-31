@@ -1,304 +1,94 @@
-# Промт для передачи KVN VPN v4.1.1 новому ИИ-агенту
+# Передача KVN VPN v4.2.0 новому ИИ-агенту
 
-Ты продолжаешь разработку проекта KVN VPN v4.1.1. Работай автономно до проверенного
-результата, но не расширяй задачу за пределы запроса пользователя. Отвечай
-по-русски, коротко и по делу. Комментарии, документацию и сообщения интерфейса
-пиши на русском.
+Работай по-русски, коротко и по делу. Комментарии и документация — на русском.
+Проект — модульный VPN-стек для Debian 12/13. Разработка на Windows,
+Linux/root-проверки — WSL и изолированный Docker.
 
-## Начало работы на Windows
+## Начало
 
-Не используй жёстко заданный путь или букву диска. Корень проекта — каталог,
-в котором одновременно находятся `AGENTS.md`, `docker-compose.yml`, `setup.sh`,
-`portal/` и `tools/`.
+Не привязывайся к пути или диску. Найди корень workspace по `AGENTS.md`,
+`VERSION`, `docker-compose.yml`, `setup.sh`, каталогам `portal/` и `tools/`.
+Прочитай `AGENTS.md`, task-routing в `ARCHITECTURE.md` и ближайший вложенный
+`AGENTS.md`. Подробности: `README.md`, `DEPLOY.md`, `CONTAINER_SECURITY.md`,
+`PORTAL_UPDATE_NOTES.md`.
 
-1. Определи корень из текущего workspace и перейди в него.
-2. Если корень нельзя определить однозначно, только тогда попроси пользователя
-   указать каталог проекта.
-3. Полностью прочитай `AGENTS.md`. Затем открой относящиеся к задаче разделы
-   `README.md`, `DEPLOY.md`, `PROJECT_AUDIT.md`, `MTPROTO.md`,
-   `CONTAINER_SECURITY.md` и `PORTAL_UPDATE_NOTES.md`.
-4. Выполни `git status --short`, `git remote -v` и `git log -3 --oneline`.
-   Существующие изменения принадлежат пользователю: не удаляй и не откатывай их.
-5. На Windows используй PowerShell. Для shell-скриптов используй Git Bash,
-   для Linux/root-проверок — WSL, для контейнеров — Docker Desktop.
-6. Не полагайся на наличие команды `python3` в Windows. Найди доступный Python
-   через `Get-Command python` или `py -3`; включи UTF-8:
+Проверь git status и commits. Чужие изменения не откатывай. `relay/` вне
+задачи: не читай, не обходи, не включай в git/release. При продолжении текущего
+supergoal прочитай STATE.md и PROTOCOL.md в
+`.supergoal/kvn-console-migration-optimization-Rxc6l0/`.
 
-```powershell
-$env:PYTHONIOENCODING = 'utf-8'
-$ProjectRoot = (Resolve-Path .).Path
-$PythonCommand = Get-Command python.exe -ErrorAction SilentlyContinue
-$PythonArgs = @()
-if ($PythonCommand) {
-    $Python = $PythonCommand.Source
-} else {
-    $Python = (Get-Command py.exe -ErrorAction Stop).Source
-    $PythonArgs = @('-3')
-}
+## Архитектура и инварианты
+
+- `users.json` — source of truth; generated/runtime не редактировать вручную.
+- Не публиковать users, keys, certs, clients, `.env`, DB, migration/backup,
+  agent secret и socket. Docker socket у web-контейнера запрещён.
+- Root-действия — только host-agent, allowlisted Unix RPC и portal session.
+- Консоль: xterm → WebSocket → Unix RPC → PTY. ANSI/C0 не фильтровать;
+  повтор ACK не дублирует ввод. MC/HTOP остаются интерактивными.
+- Перенос VPN-пользователей зашифрован GnuPG. Merge сохраняет identity цели;
+  restore переносит VPN identity только в пустую цель. OS/SSH/portal credentials
+  и TLS-сертификаты не переносятся. Конфликты отклоняются целиком.
+- Отключённые сервисы не поднимаются после reconcile/update, конфиги сохраняются.
+  Nginx/portal/agent нельзя отключить из портала.
+- Self-steal включается явно. Update не меняет действующий Reality mode/SNI/keys.
+- Опубликованные tags/assets не перемещать и не перезаписывать.
+
+## Полный gate
+
+Вычисляй WSL-путь из фактического workspace через `wslpath`. Linux E2E —
+Ubuntu/root: обычный пользователь не воспроизводит deployment ownership.
+Не заходи автоматически на production. Не используй глобальный Docker prune.
+
+Минимальный gate выбирается по task-routing; перед выпуском:
+
+```bash
+python3 -m unittest discover -s tests -v
+python3 -m compileall -q portal tools
+python3 tools/architecture_check.py
+python3 tools/docs_check.py
+python3 tools/source_safety.py --mode worktree
+docker compose -f docker-compose.yml config --quiet
+docker build --target test -t kvn-portal:test portal
+python3 tests/deploy_runtime_e2e.py
+python3 tests/self_steal_e2e.py
 ```
 
-WSL-путь всегда вычисляй из текущего Windows-пути:
-
-```powershell
-$PortableRoot = $ProjectRoot.Replace('\', '/')
-$WslRoot = (wsl.exe wslpath -a -u $PortableRoot).Trim()
-wsl.exe -u root bash -lc "cd '$WslRoot' && python3 -m unittest discover -s tests -v"
-```
-
-Не запускай интерактивные команды в видимом отдельном окне. Не проси повторного
-разрешения на обычные проверки, сборку и изменения внутри проекта.
-
-## Архитектура и назначение
-
-KVN VPN v4.1.1 — модульный мультипротокольный VPN-стек для Debian 12/13.
-
-Перед задачей открой [ARCHITECTURE.md](ARCHITECTURE.md), выбери строку task-routing и прочитай ближайший module-level `AGENTS.md`. Это минимальный контекст; не загружай legacy implementation целиком без необходимости. После изменения запусти `python3 tools/architecture_check.py`.
-
-- Compose: nginx SNI-router, portal, portal-gateway, Xray, Hysteria2, Telemt,
-  mtg FakeTLS и ocserv.
-- Host-службы Debian: `kvn-amneziawg.service`, `kvn-wireguard.service`,
-  `kvn-portal-agent.service`.
-- `users.json` — единственный source of truth.
-- Web-портал работает непривилегированным контейнером без Docker socket.
-- Привилегированные операции разрешены только через versioned allowlisted RPC
-  host-agent по Unix socket.
-- Setup, update, portal apply и reconcile используют единый effective service
-  plan. Отключённый сервис не должен самопроизвольно запускаться.
-- Peer-only изменения AWG/WG применяются через `syncconf`; structural delta —
-  через controlled restart.
-- Full release позволяет слабому Debian-серверу применить обновление через
-  `--no-build --pull never`.
-
-Поддерживаемые `systems`: `tls`, `reality-xhttp`, `reality-tcp`, `hysteria`,
-`telemt`, `mtg`, `amneziawg`, `wireguard`, `ocserv`.
-
-## Неприкосновенные границы
-
-- Сначала изучай код вокруг задачи, затем меняй его минимально необходимым
-  способом.
-- Не редактируй вручную generated/runtime-файлы, перечисленные в `AGENTS.md`.
-- Не включай в git, deploy, логи и ответы: production `users.json`, `clients/`,
-  приватные ключи, сертификаты, `.env`, БД/WAL/SHM, sockets, agent secret,
-  GitHub token, backup и содержимое пользовательских конфигураций.
-- Не монтируй Docker socket в портал.
-- Не передавай root/GitHub/Telegram credentials через браузер, argv, git,
-  документацию или чат.
-- `/backup` содержит runtime-секреты и Docker images.
-- Предпочитай hot update/reload. Restart выполняй только при технической
-  необходимости.
-- Не удаляй пользовательский runtime. Разрешено удалять только проверенные кеши,
-  временные тестовые каталоги и сборочные артефакты.
-- Не используй `git reset --hard`, принудительное переписывание чужих изменений
-  или перемещение опубликованного release tag.
-
-## Реализованный функционал
-
-- Portal разделён на совместимые Flask Blueprints и page-specific JS.
-- Есть light profile, lazy inline-логи сервисов, история нагрузки и безопасная
-  активность пользователей.
-- Кнопка «Экспорт» создаёт allowlisted ZIP в памяти и `send.txt` для ручной
-  отправки через Telegram. Прямого Telegram API и bot token нет.
-- Domain/public-IP policy применяется ко всем клиентским endpoint.
-- `public-ip` меняет endpoint, но не SNI, Reality `serverName` и certificate
-  identity. HTTPS subscription по IP требует direct route и точный IP SAN.
-- Legacy `/<token>`, отдельные HAPP/Karing endpoints и Karing Clash-профиль
-  standard WireGuard сохранены.
-- Standard WireGuard работает на `wg0:51821`; AmneziaWG — только на
-  `awg0:51820`. Эти профили нельзя подменять друг другом.
-- AmneziaWG 3.1 включается явно; legacy остаётся default. HeaderProtectionKey
-  хранится только в root-only state, а после перехода все AWG-конфиги надо
-  экспортировать и импортировать заново.
-- Dashboard показывает активные SSH-сессии через allowlisted `loginctl` с
-  fallback `who --ips` и возвращает только user/IP/TTY/login time, включая root.
-- Settings разделены на `portal|protocols|access|update`; открытая группа вызывает
-  только свои RPC и подключает только свой JavaScript.
-- В группе «Доступ» создаются обычные Linux-пользователи SSH без
-  `sudo`/`adm`/`wheel`; пароль идёт helper через stdin и нигде не хранится.
-- GitHub-источник обновлений зафиксирован как `artemiygaer/kvn-portal`.
-  Поток обновления: check → download/verify → ready → отдельный start с
-  повторной root-аутентификацией.
-- Ручная загрузка и GitHub Release используют один archive validator и updater.
-- Deploy строится только из `tools/canonical-files.txt`.
-
-## Статус на момент передачи
-
-Микро-релиз v4.1.1: общий web/ocserv SNI использует
-сайт на 443 и OpenConnect на 2448. Self-steal включается явно в отдельном редакторе
-режимов Reality, выбирает внутренний target nginx:8443, xver=0; ключи не меняются.
-Без `sni_routes.<system>.reality_mode` действует внешний режим: update не меняет
-target/dest/xver существующих конфигов. TCP/xHTTP проверены
-настоящим Xray-клиентом, Linux/root suite — 438 tests OK. `tests/self_steal_e2e.py`
-не меняет production; опубликованный v4.1.0 остаётся неизменным. Основные архивы
-относятся к v4.1.1. Каталог `output/micro-self-steal/` содержит предыдущую локальную
-пробную сборку; её не публиковать вместо актуального release.
-
-Релиз v4.1.1 от 12.10.2026; baseline обновления — опубликованный v4.1.0:
-
-- 438 тестов проекта прошли в Linux/WSL от root; suite: OK без пропусков;
-- suite портала: 106 tests локально и в Docker test image, OK (skipped=1);
-- deploy runtime E2E прошёл в IP-режиме без DNS;
-- `tests/portal_upgrade_e2e.py` проверил настоящий HTTPS upload/ready/start,
-  старый agent/updater, новый Compose и сохранение state/certs/disabled ocserv,
-  прежнего внешнего Reality config и клиентских ссылок
-  в отдельном Docker daemon. Systemd заменён узким тестовым shim; настоящий
-  Debian systemd/AWG kernel lifecycle локально не проверяется;
-- nginx -t прошёл с SNI длиной 253 байта; новые Telemt/Hysteria/Xray запущены;
-- Bash syntax, Compose config, compileall, docs checker и source safety прошли;
-- чистая установка AWG 3.1 проверяет реальные возможности официальных
-  `amneziawg-tools v3.0.20260805` и не требует отсутствующий `RandomTrailers`;
-- встроенный Python-блок генерации `.env` в `setup.sh` компилируется тестом и
-  содержит явный `import json`;
-- full release: `linux/amd64`, семь runtime images, build ID
-  `20261012-v4.1.1-release1`, version `v4.1.1`;
-- inspector v4.0.1 принимает source/full archives без bootstrap; три
-  transport alias восстанавливаются только после image-ID verify. Версии могут
-  обновляться дальше, но repository и синтаксис tag ограничены allowlist.
-
-Актуальные SHA-256 deploy/full release находятся рядом с артефактами в
-`SHA256SUMS` и дублируются в `publication-manifest.json`. Не переносите SHA
-в этот canonical файл: он сам входит в deploy и создал бы самоссылочный hash.
-
-Workflow `.github/workflows/release.yml` запускается только вручную, создаёт
-проверяемый draft и публикует его после проверки всех четырёх assets.
-
-Этот файл мог быть изменён после последней сборки. Поэтому не публикуй лежащие
-рядом архивы, пока не проверишь, что их embedded source совпадает с текущим
-canonical deploy через `tools/publication_manifest.py`. При несовпадении собери
-новые артефакты с новым build ID и новым version tag.
+Отдельно suite в `portal/`. Safe.directory и исключение `relay/` для WSL/git
+задавай только в окружении процесса; образец и repo-state helper — в PROTOCOL.md.
 
 ## Release и публикация
 
-Публичный набор Release должен содержать только:
+С v4.1.1 сначала устанавливается отдельный bridge v4.1.2, затем v4.2.0.
+Инструкция — `PORTAL_UPDATE_NOTES.md`. Не предлагай вручную копировать tools.
+Обычный update сохраняет runtime. Full release: семь Linux/amd64 images,
+source deploy и manifest. Старые transport refs нужны inspector; реальные
+aliases восстанавливаются только после image-ID verify. В containerd descriptor
+ID не равен config digest: используй штатный verifier.
+Полный offline update применяет Compose с `--no-build --pull never`.
+
+Публичный Release содержит ровно четыре файла:
 
 - `kvn-vpn-release-linux-amd64.tar.gz`;
 - `kvn-vpn-deploy.tar.gz`;
 - `publication-manifest.json`;
 - `SHA256SUMS`.
 
-Публичный репозиторий работает без token:
+Проверь embedded source против canonical tree. SHA бери из manifest/checksums,
+не вписывай сюда: этот файл сам входит в deploy. Тестовые архивы
+`output/phase6-e2e` и `output/phase7-e2e` не публиковать.
 
-```bash
-sudo python3 tools/kvnctl.py updates configure \
-  --enable true --channel stable --asset-preference release --clear-token
-sudo python3 tools/kvnctl.py updates status
-```
+GitHub фиксирован: `artemiygaer/kvn-portal`. Публичному repo token не нужен.
+Private token при необходимости вводится только через `updates configure
+--set-token` на сервере, хранится root-only и не выводится.
 
-Если репозиторий снова станет private, token создаётся только на Debian-сервере:
+## Статус и доказательства
 
-```bash
-sudo python3 tools/kvnctl.py updates configure \
-  --enable true --channel stable --asset-preference release --set-token
-sudo python3 tools/kvnctl.py updates status
-```
+Исходники относятся к v4.2.0. В проверке подготовки 507 тестов проекта прошли
+(один пропуск); Docker suite портала — 110 тестов (один пропуск). Это не
+заменяет новый gate после изменений. Результаты, commits и события аудита —
+в STATE.md плана, точные архивы и SHA — в publication-manifest.json.
+Фактическое состояние публикации проверяй по GitHub API/assets и portal
+check/download/ready/start/up_to_date, а не по наличию локального архива.
 
-Token вводится через `getpass`, хранится в `/etc/kvn-portal/github.token` с
-root-only правами и не выводится.
-
-Перед созданием нового Release:
-
-1. Проверь чистоту source через `tools/source_safety.py`.
-2. Убедись, что commit отправлен в `main`.
-3. Не перемещай tag уже опубликованного immutable Release.
-4. Собери full release и отдельный deploy из одного source state/build ID.
-5. Проверь совпадение source и точный состав assets.
-6. Создай draft, загрузи все четыре файла, сверь их и только затем публикуй.
-7. После публикации проверь latest Release API и portal `release.check`.
-
-## Обновление Debian-сервера
-
-Команды ниже выполняются из фактического корня установленного проекта, каким бы
-он ни был:
-
-```bash
-sudo ./tools/project-backup.sh
-sudo ./update.sh ./kvn-vpn-release-linux-amd64.tar.gz
-sudo python3 tools/kvnctl.py amneziawg verify
-sudo python3 tools/kvnctl.py wireguard verify
-sudo docker compose -f docker-compose.yml ps
-```
-
-Для портала v3.1.3, который отклоняет v4 до запуска updater:
-
-```bash
-curl -fL https://raw.githubusercontent.com/artemiygaer/kvn-portal/main/tools/bootstrap-v4.sh \
-  -o /root/bootstrap-v4.sh
-sudo bash /root/bootstrap-v4.sh --sha256 <SHA256_ИЗ_SHA256SUMS> \
-  ./kvn-vpn-release-linux-amd64.tar.gz "$PWD"
-```
-
-Не распаковывай шаблонный `deploy/users.json` поверх production.
-
-## Полный gate на Windows
-
-Используй найденные пути к Python и Git Bash, не копируй чужие абсолютные пути:
-
-```powershell
-$env:PYTHONIOENCODING = 'utf-8'
-$PythonCommand = Get-Command python.exe -ErrorAction SilentlyContinue
-$PythonArgs = @()
-if ($PythonCommand) {
-    $Python = $PythonCommand.Source
-} else {
-    $Python = (Get-Command py.exe -ErrorAction Stop).Source
-    $PythonArgs = @('-3')
-}
-& $Python @PythonArgs -m py_compile tools\kvnctl.py
-& $Python @PythonArgs -m compileall -q portal tools
-& $Python @PythonArgs tools\docs_check.py
-& $Python @PythonArgs tools\source_safety.py --mode worktree
-# Полный suite — в WSL: host-agent использует Unix-модули pwd/ownership.
-
-$GitExe = (Get-Command git.exe -ErrorAction Stop).Source
-$GitRoot = Split-Path (Split-Path $GitExe -Parent) -Parent
-$Bash = Join-Path $GitRoot 'bin\bash.exe'
-if (-not (Test-Path -LiteralPath $Bash)) {
-    throw 'Git Bash не найден'
-}
-& $Bash -n setup.sh update.sh tools/*.sh amneziawg/*.sh wireguard/*.sh ocserv/*.sh portal/*.sh
-
-docker compose -f docker-compose.yml config --quiet
-docker build --target test -t kvn-portal:test portal
-& $Python @PythonArgs tools\kvnctl.py render
-& $Python @PythonArgs tests\deploy_runtime_e2e.py
-```
-
-Linux/root suite:
-
-```powershell
-$ProjectRoot = (Resolve-Path .).Path
-$PortableRoot = $ProjectRoot.Replace('\', '/')
-$WslRoot = (wsl.exe wslpath -a -u $PortableRoot).Trim()
-wsl.exe -u root bash -lc "cd '$WslRoot' && GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='$WslRoot' PYTHONIOENCODING=utf-8 python3 -m unittest discover -s tests -v"
-```
-
-Сборка выполняется только после проверок и только когда действительно нужны
-новые артефакты:
-
-```powershell
-& $Bash -c 'bash tools/build-deploy.sh'
-$env:KVN_BUILD_ID = 'YYYYMMDD-releaseN'
-& $Bash -c 'bash tools/build-release.sh'
-```
-
-Не записывай промежуточные SHA в документацию. Финальные SHA сообщай только
-после последней сборки и повторной проверки manifest.
-
-## Ограничения локальной проверки
-
-На Windows нельзя считать проверенными Debian systemd units, Unix socket
-ownership, host/cloud firewall, Certbot HTTP-01/IP profile и доступность у
-конкретного мобильного оператора. Проверяй их на Debian-сервере. Успешная
-server-side SNI-диагностика не гарантирует доступность у другого оператора РФ.
-
-## Формат завершения следующей задачи
-
-В ответе кратко укажи:
-
-- что изменено;
-- какие проверки фактически выполнены и их результат;
-- какие проверки возможны только на Debian;
-- какие файлы/commit/tag/Release созданы;
-- точную следующую команду пользователя только при реальной внешней блокировке.
-
-Не объявляй работу завершённой, если обязательные проверки не пройдены или
-Release/серверное применение только предполагаются.
+Debian kernel/AWG/firewall/Certbot проверяются отдельно. Docker systemd shim
+не доказывает работу production systemd.
