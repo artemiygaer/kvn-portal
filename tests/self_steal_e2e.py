@@ -15,7 +15,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 DOMAIN = "self-steal.example.test"
 PREFIX = "kvn-self-steal-e2e"
-XRAY = "ghcr.io/xtls/xray-core:26.3.27"
+XRAY = "ghcr.io/xtls/xray-core:26.10.29"
 
 def run(*args, cwd=ROOT, input=None, timeout=120):
     result = subprocess.run(args, cwd=cwd, input=input, text=True, capture_output=True, timeout=timeout)
@@ -97,7 +97,7 @@ kvnctl.save_state(state)
                 "-v",f"{project/'nginx/nginx.conf'}:/etc/nginx/nginx.conf:ro",
                 "-v",f"{project/'site-certs'}:/etc/nginx/certs:ro",
                 "-v",f"{project/'nginx/site'}:/var/www/site:ro",
-                "-v",f"{project/'nginx/web'}:/var/www/sub:ro","nginx:1.31.6-alpine")
+                "-v",f"{project/'nginx/web'}:/var/www/sub:ro","nginx:1.31.8-alpine")
             run("docker","exec",containers[0],"nginx","-t")
             time.sleep(1)
             try:
@@ -174,7 +174,7 @@ kvnctl.save_state(after)
                 cover.write_text('events {}\nhttp { server { listen 443 ssl; ssl_certificate /certs/server.crt; ssl_certificate_key /certs/server.key; location / { return 200 "external-cover-proof"; } } }\n')
                 run('docker', 'run', '-d', '--name', containers[3], '--network', network,
                     '--network-alias', 'cover.example.test', '-v', f'{cover}:/etc/nginx/nginx.conf:ro',
-                    '-v', f"{project/'site-certs'}:/certs:ro", 'nginx:1.31.6-alpine')
+                    '-v', f"{project/'site-certs'}:/certs:ro", 'nginx:1.31.8-alpine')
                 script = '''import copy,json,subprocess,sys
 from tools import kvnctl
 params=json.load(sys.stdin)

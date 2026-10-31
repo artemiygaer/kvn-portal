@@ -744,7 +744,7 @@ class MigrationCryptoTests(unittest.TestCase):
                 argv = ["docker", "run", "-d", "--name", name, "--network", "none",
                         "--mount", f"type=bind,src={project / 'xray/config.json'},dst=/etc/xray/config.json,readonly",
                         "--mount", f"type=bind,src={project / 'certs'},dst=/etc/xray/certs,readonly",
-                        "ghcr.io/xtls/xray-core:26.3.27", "run", "-c", "/etc/xray/config.json"]
+                        "ghcr.io/xtls/xray-core:26.10.29", "run", "-c", "/etc/xray/config.json"]
                 try:
                     started = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
                     self.assertEqual(started.returncode, 0, "Не удалось запустить изолированный тестовый Xray.")

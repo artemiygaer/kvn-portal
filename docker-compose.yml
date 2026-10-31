@@ -47,7 +47,7 @@ services:
 
   portal-gateway:
     profiles: ["portal-custom"]
-    image: nginx:1.31.6-alpine
+    image: nginx:1.31.8-alpine
     container_name: kvn-portal-gateway
     restart: unless-stopped
     stop_grace_period: 10s
@@ -79,7 +79,7 @@ services:
     logging: *default-logging
 
   nginx:
-    image: nginx:1.31.6-alpine
+    image: nginx:1.31.8-alpine
     container_name: nginx-front
     restart: unless-stopped
     stop_grace_period: 10s
@@ -124,7 +124,7 @@ services:
           - "${KVN_MTG_CAMOUFLAGE_HOST:-mtg-decoy.invalid}"
 
   telemt:
-    image: ghcr.io/telemt/telemt:3.5.14
+    image: ghcr.io/telemt/telemt:3.5.15
     container_name: telemt-proxy
     restart: unless-stopped
     stop_grace_period: 15s
@@ -256,7 +256,7 @@ services:
       - /tmp:rw,noexec,nosuid,nodev,size=16m
 
   xray:
-    image: ghcr.io/xtls/xray-core:26.3.27
+    image: ghcr.io/xtls/xray-core:26.10.29
     container_name: xray
     restart: unless-stopped
     stop_grace_period: 15s

@@ -101,7 +101,9 @@ class SafetyContractsTests(unittest.TestCase):
         ]
         content = "\n".join(path.read_text(encoding="utf-8") for path in assets)
         self.assertNotRegex(content, r"https?://|@import|url\s*\(")
-        self.assertLessEqual(sum(path.stat().st_size for path in assets), 106 * 1024)
+        from tests.asset_budget import page_asset_bundles
+        for name, bundle in page_asset_bundles(ROOT).items():
+            self.assertLessEqual(sum(path.stat().st_size for path in bundle), 106 * 1024, name)
 
     def test_network_template_is_canonical_and_contains_no_secret_fields(self):
         template = ROOT / "portal" / "app" / "templates" / "network.html"

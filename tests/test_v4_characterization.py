@@ -168,15 +168,21 @@ class V4CharacterizationTests(unittest.TestCase):
         self.assertEqual(cli.pop("sni-routes set-reality-mode"), ["--help", "--restart", "-h"])
         self.assertEqual(cli.pop("migration"), ["--help", "-h"])
         self.assertEqual(cli.pop("migration restore-backup"), ["--help", "-h"])
-        migration_rpc = {"migration.export", "migration.preview", "migration.commit"}
+        self.assertEqual(cli.pop("migration export"), ["--help", "--user", "-h"])
+        self.assertEqual(cli.pop("migration import"), ["--help", "--mode", "-h"])
+        self.assertEqual(cli.pop("migration preview"), ["--help", "--mode", "-h"])
+        self.assertEqual(cli.pop("service-set"), ["--help", "-h"])
+        migration_rpc = {"migration.export", "migration.preview", "migration.commit", "migration.cancel"}
         self.assertTrue(migration_rpc.issubset(MUTATION_METHODS))
         self.assertFalse(migration_rpc & READ_ONLY_METHODS)
-        old_rpc_all = ALLOWED_METHODS - migration_rpc
+        self.assertIn("service.statuses", READ_ONLY_METHODS)
+        old_rpc_all = ALLOWED_METHODS - migration_rpc - {"service.statuses"}
         old_rpc_mutations = MUTATION_METHODS - migration_rpc
+        old_read_only = READ_ONLY_METHODS - {"service.statuses"}
         inventories = {
             "cli": cli,
             "rpc_all": sorted(old_rpc_all),
-            "rpc_read_only": sorted(READ_ONLY_METHODS),
+            "rpc_read_only": sorted(old_read_only),
             "rpc_mutations": sorted(old_rpc_mutations),
             "http_routes": routes,
             "canonical_files": canonical,
@@ -185,7 +191,7 @@ class V4CharacterizationTests(unittest.TestCase):
             "cli_paths": len(cli),
             "cli_options": sum(len(options) for options in cli.values()),
             "rpc_all": len(old_rpc_all),
-            "rpc_read_only": len(READ_ONLY_METHODS),
+            "rpc_read_only": len(old_read_only),
             "rpc_mutations": len(old_rpc_mutations),
             "http_routes": len(routes),
             "canonical_files": len(canonical),

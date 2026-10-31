@@ -28,10 +28,10 @@ class RuntimeImageContractsTests(unittest.TestCase):
     def test_runtime_images_are_pinned_without_floating_tags(self):
         compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
         for image in [
-            "ghcr.io/telemt/telemt:3.5.14",
+            "ghcr.io/telemt/telemt:3.5.15",
             "nineseconds/mtg:2.2.8",
             "tobyxdd/hysteria:v2.13.0",
-            "ghcr.io/xtls/xray-core:26.3.27",
+            "ghcr.io/xtls/xray-core:26.10.29",
         ]:
             self.assertIn(image, compose)
         self.assertNotRegex(compose, r"image:\s*[^\s]+:(?:latest|stable)\b")

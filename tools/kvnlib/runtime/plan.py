@@ -23,13 +23,13 @@ _PRIORITY = {
 
 SERVICE_CAPABILITIES = {
     "nginx": {
-        "version": "nginx:1.31.6-alpine",
+        "version": "nginx:1.31.8-alpine",
         "preferred": "reload",
         "evidence": "nginx HUP: https://nginx.org/en/docs/control.html",
         "fallback": "restart",
     },
     "xray": {
-        "version": "ghcr.io/xtls/xray-core:26.3.27",
+        "version": "ghcr.io/xtls/xray-core:26.10.29",
         "preferred": "hot-update-users",
         "evidence": "HandlerService/StatsService: https://xtls.github.io/en/config/api.html",
         "fallback": "restart",
@@ -41,7 +41,7 @@ SERVICE_CAPABILITIES = {
         "fallback": "restart",
     },
     "telemt": {
-        "version": "ghcr.io/telemt/telemt:3.5.14",
+        "version": "ghcr.io/telemt/telemt:3.5.15",
         "preferred": "hot-update",
         "evidence": "config watcher/SIGHUP и Control API в официальном репозитории telemt/telemt",
         "fallback": "restart",

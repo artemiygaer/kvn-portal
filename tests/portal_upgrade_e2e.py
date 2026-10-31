@@ -258,6 +258,7 @@ open('/project/.env','w').write('KVN_PORTAL_GID=12345\\nKVN_PORTAL_PORT=8443\\nC
         external_config=agent_run("sha256sum","xray/config.json").split()[0]
         external_links=agent_run("sha256sum","clients/UpgradeUser/links.txt").split()[0]
         external_started=agent_run("docker","inspect","--format","{{.State.StartedAt}}","xray").strip()
+        external_image=agent_run("docker","inspect","--format","{{.Image}}","xray").strip()
         print(f"[OK] Опубликованный {args.baseline_version} запущен; persistent ocserv=false задан allowlisted RPC",flush=True)
         current_version=args.baseline_version
         if args.bridge:
@@ -313,9 +314,21 @@ open('/project/.env','w').write('KVN_PORTAL_GID=12345\\nKVN_PORTAL_PORT=8443\\nC
         for service in ('ocserv', 'telemt', 'hysteria', 'mtg'):
             if service in running.splitlines(): raise RuntimeError(f"Отключённый {service} запущен")
         if 'xray' not in running.splitlines(): raise RuntimeError("Прежний внешний Reality не запущен")
-        if agent_run("docker","inspect","--format","{{.State.StartedAt}}","xray").strip()!=external_started:
-            raise RuntimeError("Обновление перезапустило прежний внешний Reality")
-        print("[OK] Внешний Reality остался запущен, config и клиентские ссылки не изменились",flush=True)
+        expected_image=next(item['id'] for item in target_manifest['images']['items']
+                            if item['ref']=='ghcr.io/xtls/xray-core:26.3.27')
+        actual_image=agent_run("docker","inspect","--format","{{.Image}}","xray").strip()
+        runtime_ref=target_manifest.get('transport_aliases',{}).get('ghcr.io/xtls/xray-core:26.3.27','ghcr.io/xtls/xray-core:26.3.27')
+        runtime_image=agent_run("docker","image","inspect","--format","{{.Id}}",runtime_ref).strip()
+        saved_config=agent_run("python3","-c",
+            "import sys; from tools.release.full_archive import _saved_image_config_ids; print(_saved_image_config_ids([sys.argv[1]])[sys.argv[1]])",
+            runtime_ref).strip()
+        if actual_image != runtime_image or saved_config != expected_image:
+            raise RuntimeError("Xray не переключился на проверенный образ релиза")
+        restarted=agent_run("docker","inspect","--format","{{.State.StartedAt}}","xray").strip()!=external_started
+        if restarted != (actual_image != external_image):
+            raise RuntimeError("Перезапуск Xray не соответствует смене бинарного образа")
+        print("[OK] Внешний Reality работает; image ID проверен, config и клиентские ссылки сохранены"
+              + ("; бинарник обновлён с пересозданием" if restarted else "; без перезапуска"), flush=True)
         status,_,page=request("GET","/gaer/settings?group=protocols",cookie=cookie)
         status,_,text=request("POST","/gaer/settings",cookie=cookie,data={"csrf_token":csrf(page),
             "action":"reality_mode","system":"reality-tcp","mode":"external","sni":"apple.com",

@@ -35,9 +35,10 @@ EXPECTED_IMAGE_REFS = (
 # Транспортные теги остаются совместимыми с inspector v4.0.1. Бинарники и их
 # настоящие runtime-теги описаны явно; updater восстанавливает теги до Compose.
 TRANSPORT_ALIASES = {
-    "nginx:1.31.1-alpine": "nginx:1.31.6-alpine",
-    "ghcr.io/telemt/telemt:3.4.24": "ghcr.io/telemt/telemt:3.5.14",
+    "nginx:1.31.1-alpine": "nginx:1.31.8-alpine",
+    "ghcr.io/telemt/telemt:3.4.24": "ghcr.io/telemt/telemt:3.5.15",
     "tobyxdd/hysteria:v2.10.0": "tobyxdd/hysteria:v2.13.0",
+    "ghcr.io/xtls/xray-core:26.3.27": "ghcr.io/xtls/xray-core:26.10.29",
 }
 # Версии могут меняться в следующих релизах без обновления старого inspector.
 # Репозитории и синтаксис pinned tags остаются жёстко ограниченными.

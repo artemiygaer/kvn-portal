@@ -156,7 +156,10 @@ class BaselineContractsTests(unittest.TestCase):
         }
 
         self.assertEqual(sorted(route_names), FIXTURE["portal_route_endpoints"])
-        self.assertEqual(sorted(ALLOWED_METHODS), FIXTURE["rpc_methods"])
+        # Старый контракт сохраняется; расширения v4.2.0 перечислены явно.
+        extensions = {"migration.export", "migration.preview", "migration.commit",
+                      "migration.cancel", "service.statuses"}
+        self.assertEqual(set(ALLOWED_METHODS), set(FIXTURE["rpc_methods"]) | extensions)
         serialized = json.dumps(FIXTURE, ensure_ascii=False).lower()
         for forbidden in ("private_key", "preshared", "root_password", "content_base64"):
             self.assertNotIn(forbidden, serialized)
@@ -173,7 +176,7 @@ class BaselineContractsTests(unittest.TestCase):
         subparsers = next(
             action for action in parser._actions if isinstance(action, argparse._SubParsersAction)
         )
-        self.assertEqual(sorted(subparsers.choices), FIXTURE["cli_commands"])
+        self.assertEqual(set(subparsers.choices), set(FIXTURE["cli_commands"]) | {"migration", "service-set"})
 
         ignored = {
             line.strip()

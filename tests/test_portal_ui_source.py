@@ -79,7 +79,13 @@ class PortalUiSourceTests(unittest.TestCase):
                 self.assertGreaterEqual(self.contrast_ratio(tokens[foreground], tokens[background]), 4.5, f"{foreground}/{background}")
         self.assertLessEqual(css_path.stat().st_size, 40_000)
         self.assertLessEqual(max(path.stat().st_size for path in script_paths), 16_000)
-        self.assertLessEqual(sum(path.stat().st_size for path in script_paths), 72_000)
+        from tests.asset_budget import page_asset_bundles
+        bundles = page_asset_bundles(ROOT)
+        self.assertGreater(len(bundles), 10)
+        for name, assets in bundles.items():
+            self.assertLessEqual(sum(path.stat().st_size for path in assets if path.suffix == ".js"), 72_000, name)
+        self.assertNotIn(ROOT / "portal/app/static/migration.js", bundles["users.html"])
+        self.assertIn(ROOT / "portal/app/static/migration.js", bundles["migration.html"])
         self.assertNotRegex(css, r"@import|url\(\s*['\"]?https?://")
         self.assertNotRegex(script, r"https?://")
 

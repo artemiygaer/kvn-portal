@@ -6,7 +6,7 @@ AmneziaWG работает на хосте как systemd-служба `kvn-amne
 
 Поддерживаются VLESS TLS Vision, VLESS Reality xHTTP, VLESS Reality TCP Vision, Hysteria 2, AmneziaWG, стандартный WireGuard, OpenConnect/ocserv, Telemt и mtg FakeTLS.
 
-Runtime-образы закреплены на проверенных версиях: nginx `1.31.6-alpine`, Hysteria `v2.13.0`, Xray `26.3.27`, Telemt `3.5.14`, mtg `2.2.8`. Python 3.13/Alpine и Debian 13 base обновлены и закреплены digest. Для ocserv используется пакет из Debian stable/security; testing/unstable пакеты не подключаются автоматически. Версии, capabilities и writable paths описаны в `CONTAINER_SECURITY.md`.
+Runtime-образы закреплены на версиях: nginx `1.31.8-alpine`, Hysteria `v2.13.0`, Xray `26.10.29`, Telemt `3.5.15`, mtg `2.2.8`. Python 3.13/Alpine и Debian 13 base обновлены и закреплены digest. Для ocserv используется пакет из Debian stable/security; testing/unstable пакеты не подключаются автоматически. Версии, проверки, capabilities и writable paths описаны в `CONTAINER_SECURITY.md`.
 
 Веб-портал управляет пользователями, сервисами, логами, статистикой, сертификатами, диагностикой и аудитом. Привилегированные операции выполняет отдельный host-agent по Unix socket; web-контейнер не получает Docker socket и root-доступ.
 
