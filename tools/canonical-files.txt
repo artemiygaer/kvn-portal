@@ -128,12 +128,12 @@ portal/wheels/blinker-1.9.0-py3-none-any.whl
 portal/wheels/click-8.4.2-py3-none-any.whl
 portal/wheels/colorama-0.4.6-py2.py3-none-any.whl
 portal/wheels/flask-3.1.3-py3-none-any.whl
-portal/wheels/gunicorn-26.0.0-py3-none-any.whl
+portal/wheels/gunicorn-26.2.0-py3-none-any.whl
 portal/wheels/itsdangerous-2.2.0-py3-none-any.whl
 portal/wheels/jinja2-3.1.6-py3-none-any.whl
 portal/wheels/markupsafe-3.0.3-cp313-cp313-musllinux_1_2_x86_64.whl
 portal/wheels/packaging-26.2-py3-none-any.whl
-portal/wheels/werkzeug-3.1.8-py3-none-any.whl
+portal/wheels/werkzeug-3.1.9-py3-none-any.whl
 portal/wheels/SHA256SUMS
 portal/app/__init__.py
 portal/app/agent_facade.py

@@ -447,14 +447,14 @@ class SetupSourceTests(unittest.TestCase):
         wheel_names = {item.name for item in wheels}
         for expected in [
             "flask-3.1.3-py3-none-any.whl",
-            "gunicorn-26.0.0-py3-none-any.whl",
+            "gunicorn-26.2.0-py3-none-any.whl",
             "markupsafe-3.0.3-cp313-cp313-musllinux_1_2_x86_64.whl",
         ]:
             self.assertIn(expected, wheel_names)
         hashes = Path("portal/wheels/SHA256SUMS").read_text(encoding="utf-8")
         self.assertIn(
-            "40233d26a5f0d1872916188c276e21641155111c2853f0c2cd55260aec0d24fc"
-            "  gunicorn-26.0.0-py3-none-any.whl",
+            "bd249d0b3f7972f7432f0a6b6ff3b3ee2d129f70cd1ff6c09a9dd9e29a2b88e3"
+            "  gunicorn-26.2.0-py3-none-any.whl",
             hashes,
         )
         self.assertIn("sha256sum -c SHA256SUMS", source)

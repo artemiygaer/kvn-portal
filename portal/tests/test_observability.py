@@ -196,6 +196,39 @@ class PortalObservabilityTests(unittest.TestCase):
         self.assertEqual(cards["containers"]["status_label"], "актуально")
         self.assertEqual(cards["containers"]["detail"], "Требуют внимания: 0")
 
+    def test_disabled_service_is_healthy_only_when_actually_stopped(self):
+        class DisabledSnapshotAgent:
+            running = False
+            def call(_self, method, _params):
+                if method != "dashboard.snapshot":
+                    raise AssertionError(method)
+                names = ("xray", "hysteria", "telemt", "mtg", "ocserv", "amneziawg", "wireguard")
+                services = {name: {"active": True, "enabled": True} for name in names}
+                services["ocserv"] = {"active": _self.running, "enabled": False}
+                data = {
+                    "containers": {"available": True, "containers": [
+                        {"service": "xray", "state": "running", "health": "healthy"},
+                        {"service": "ocserv", "state": "running" if _self.running else "exited", "health": "none"},
+                    ]},
+                    "health_summary": {"services": services, "certificates": [], "diagnostics": []},
+                }
+                return {"sources": {name: {"data": value, "collected_at": self.clock[0], "age_seconds": 0,
+                                           "stale": False, "error": ""} for name, value in data.items()},
+                        "generated_at": self.clock[0], "refreshing": False, "stale": False, "status": "ok"}
+        agent = DisabledSnapshotAgent()
+        self.app.config["AGENT_CLIENT"] = agent
+        response = self.client.get("/gaer/dashboard.json", headers=self.headers)
+        cards = {item["id"]: item for item in response.get_json()["cards"]}
+        self.assertEqual(cards["containers"]["value"], "1 из 1")
+        self.assertEqual(cards["containers"]["status"], "ok")
+        self.assertEqual(cards["protocols"]["value"], "6 из 6")
+        self.assertEqual(cards["protocols"]["status"], "ok")
+        agent.running = True
+        response = self.client.get("/gaer/dashboard.json", headers=self.headers)
+        cards = {item["id"]: item for item in response.get_json()["cards"]}
+        self.assertEqual(cards["containers"]["status"], "stale")
+        self.assertEqual(cards["containers"]["detail"], "Требуют внимания: 1")
+
     def test_cold_dashboard_is_fast_and_poll_uses_one_snapshot_rpc(self):
         # 30 мс сравнивали скорость машины, а не non-blocking контракт страницы.
         slow_agent = SlowObservabilityAgent(delay=0.2)

@@ -379,37 +379,44 @@ def build_views(
         uptime_text = str(uptime.get("stdout", "")).strip().removeprefix("up ") or translate("no_data")
         load = sample.get("load1")
         container_rows = containers.get("containers", []) if isinstance(containers.get("containers"), list) else []
-        running = sum(1 for item in container_rows if str(item.get("state", "")).lower() == "running")
+        services_health = health_summary.get("services", {}) if isinstance(health_summary.get("services"), dict) else {}
+        def intentionally_disabled(service: str) -> bool:
+            info = services_health.get(service, {})
+            return health_summary_status == "ok" and isinstance(info, dict) and info.get("enabled") is False
+
+        monitored_rows = [item for item in container_rows if not intentionally_disabled(item.get("service", ""))]
+        running = sum(1 for item in monitored_rows if str(item.get("state", "")).lower() == "running")
         def needs_attention(item: dict) -> bool:
             state = str(item.get("state", "")).lower()
             health = str(item.get("health", "none")).lower()
+            if intentionally_disabled(item.get("service", "")):
+                return state == "running" or services_health[item.get("service", "")].get("active") is not False
             # Исторический restart после штатного update не означает текущую аварию.
             return state != "running" or health not in {"none", "healthy"}
 
         unhealthy = sum(1 for item in container_rows if needs_attention(item))
-        services_health = health_summary.get("services", {}) if isinstance(health_summary.get("services"), dict) else {}
         if container_rows:
-            container_total = len(container_rows)
+            container_total = len(monitored_rows)
             container_running = running
             container_detail = f"{translate('containers_attention')}: {unhealthy}"
             container_status = "stale" if unhealthy and containers_status == "ok" else containers_status
             container_status_label = translate("check") if unhealthy and containers_status == "ok" else containers_label
-            if running == 0 and services_health:
+            if running == 0 and services_health and unhealthy == 0:
                 fallback_running = sum(
                     1 for service in DOCKER_DASHBOARD_SERVICES
-                    if isinstance(services_health.get(service), dict) and services_health[service].get("active")
+                    if not intentionally_disabled(service) and isinstance(services_health.get(service), dict) and services_health[service].get("active")
                 )
                 if fallback_running:
                     container_running = fallback_running
-                    container_total = len(DOCKER_DASHBOARD_SERVICES)
+                    container_total = sum(not intentionally_disabled(service) for service in DOCKER_DASHBOARD_SERVICES)
                     container_detail = translate("containers_from_health")
                     container_status = "ok" if container_running == container_total else "stale"
                     container_status_label = translate("actual") if container_status == "ok" else translate("check")
         elif services_health:
-            container_total = len(DOCKER_DASHBOARD_SERVICES)
+            container_total = sum(not intentionally_disabled(service) for service in DOCKER_DASHBOARD_SERVICES)
             container_running = sum(
                 1 for service in DOCKER_DASHBOARD_SERVICES
-                if isinstance(services_health.get(service), dict) and services_health[service].get("active")
+                if not intentionally_disabled(service) and isinstance(services_health.get(service), dict) and services_health[service].get("active")
             )
             container_detail = translate("containers_from_health")
             container_status = "ok" if container_running == container_total else "stale"
@@ -422,10 +429,10 @@ def build_views(
             container_status_label = containers_label
         collectors = protocols.get("collectors", {}) if isinstance(protocols.get("collectors"), dict) else {}
         if services_health:
-            protocol_total = len(PROTOCOL_DASHBOARD_SERVICES)
+            protocol_total = sum(not intentionally_disabled(service) for service in PROTOCOL_DASHBOARD_SERVICES)
             available_protocols = sum(
                 1 for service in PROTOCOL_DASHBOARD_SERVICES
-                if isinstance(services_health.get(service), dict) and services_health[service].get("active")
+                if not intentionally_disabled(service) and isinstance(services_health.get(service), dict) and services_health[service].get("active")
             )
             protocol_detail = translate("protocol_services_active")
             protocol_status = "ok" if available_protocols == protocol_total else "stale"
@@ -1344,12 +1351,30 @@ def build_views(
 
     @require_session
     def services_list():
-        services = []
-        for service in MANAGED_SERVICES:
-            status = call_agent("service.status", {"service": service})
-            if not isinstance(status, dict):
-                return status
-            services.append(status)
+        try:
+            batch = agent_client().call("service.statuses", {})
+        except AgentClientError as exc:
+            if exc.code != "method_not_found":
+                return render_template("error.html", code=502, message="Host-agent недоступен или отклонил операцию."), 502
+            batch = None
+        if batch is None:
+            services = []
+            for service in MANAGED_SERVICES:
+                status = call_agent("service.status", {"service": service})
+                if not isinstance(status, dict):
+                    return status
+                services.append(status)
+        else:
+            items = batch.get("services") if isinstance(batch, dict) else None
+            if not isinstance(items, list):
+                return render_template("error.html", code=502, message="Некорректный ответ host-agent."), 502
+            by_name = {item.get("service"): item for item in items if isinstance(item, dict) and isinstance(item.get("service"), str)}
+            if len(by_name) != len(items) or set(by_name) != set(MANAGED_SERVICES) or any(
+                any(item.get(key) is not None and type(item.get(key)) is not bool for key in ("active", "enabled"))
+                for item in items
+            ):
+                return render_template("error.html", code=502, message="Некорректный ответ host-agent."), 502
+            services = [by_name[service] for service in MANAGED_SERVICES]
         confirmations = {
             f"{service}:{action}": storage.create_confirmation(
                 g.session_token, f"service.{action}", service, now()

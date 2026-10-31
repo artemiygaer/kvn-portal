@@ -218,6 +218,7 @@ class DashboardSnapshotCache:
         self._lock = threading.Lock()
         self._refreshing = False
         self._refreshing_sources: set[str] = set()
+        self._generations: dict[str, int] = {}
         self._refresh_done = threading.Event()
         self._refresh_done.set()
 
@@ -244,6 +245,16 @@ class DashboardSnapshotCache:
         """Используется smoke/unit-проверками, RPC его не вызывает."""
         return self._refresh_done.wait(timeout)
 
+    def invalidate(self, *names: str) -> None:
+        """Запланировать обновление, не теряя запрос во время фонового сбора."""
+        with self._lock:
+            for name in names:
+                if name not in DASHBOARD_SOURCE_TTLS:
+                    continue
+                self._generations[name] = self._generations.get(name, 0) + 1
+                if name in self._items:
+                    self._items[name]["next_refresh"] = 0
+
     def _refresh(self, names: tuple[str, ...]) -> None:
         with self._lock:
             context = {
@@ -253,6 +264,8 @@ class DashboardSnapshotCache:
         try:
             for name in names:
                 collected_at = int(self.now_provider())
+                with self._lock:
+                    generation = self._generations.get(name, 0)
                 try:
                     data = self.loader(name, context)
                 except Exception:
@@ -262,7 +275,7 @@ class DashboardSnapshotCache:
                             "data": previous.get("data"),
                             "collected_at": previous.get("collected_at", 0),
                             "error": "Источник временно недоступен.",
-                            "next_refresh": collected_at + 15,
+                            "next_refresh": 0 if self._generations.get(name, 0) != generation else collected_at + 15,
                         }
                     continue
                 context[name] = data
@@ -271,7 +284,7 @@ class DashboardSnapshotCache:
                         "data": data,
                         "collected_at": collected_at,
                         "error": "",
-                        "next_refresh": collected_at + DASHBOARD_SOURCE_TTLS[name],
+                        "next_refresh": 0 if self._generations.get(name, 0) != generation else collected_at + DASHBOARD_SOURCE_TTLS[name],
                     }
         finally:
             with self._lock:
@@ -1251,6 +1264,60 @@ class AgentDispatcher:
         service = self._service(params)
         return self._service_status_snapshot(service)
 
+    def _service_statuses(self, _params: dict) -> dict[str, Any]:
+        """Получает состояние всех сервисов двумя процессами без кеша после действий."""
+        try:
+            control = self._control()
+            preferences = (control.effective_service_preferences() if hasattr(control, "effective_service_preferences")
+                           else control.service_preferences())
+            if not isinstance(preferences, dict):
+                raise ValueError("Некорректные настройки сервисов.")
+        except Exception:
+            preferences = None
+        try:
+            result = self.runner.run([*self.compose, "--profile", "portal", "ps", "--all", "--format", "json"], timeout=15)
+            raw = result.stdout.strip()
+            if result.returncode != 0:
+                raise ValueError("Docker недоступен.")
+            if not raw:
+                rows = []
+            else:
+                try:
+                    rows = json.loads(raw)
+                except json.JSONDecodeError:
+                    rows = [json.loads(line) for line in raw.splitlines() if line.strip()]
+                if isinstance(rows, dict):
+                    rows = [rows]
+            if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+                raise ValueError("Некорректный ответ Docker.")
+            docker_states = {}
+            for row in rows:
+                service, state = row.get("Service"), row.get("State")
+                if service in DOCKER_SERVICES:
+                    if service in docker_states or not isinstance(state, str):
+                        raise ValueError("Неоднозначный ответ Docker.")
+                    docker_states[service] = state.lower() == "running"
+        except (ProtocolError, ValueError, TypeError):
+            docker_states = None
+        units = {"amneziawg": "kvn-amneziawg.service", "wireguard": "kvn-wireguard.service", "agent": "kvn-portal-agent.service"}
+        try:
+            result = self.runner.run(["systemctl", "is-active", *units.values()], timeout=10)
+            states = result.stdout.splitlines()
+            host_states = {}
+            if len(states) == len(units):
+                for service, state in zip(units, states):
+                    host_states[service] = True if state == "active" else False if state in {"inactive", "failed", "unknown"} else None
+            else:
+                host_states = {service: None for service in units}
+        except ProtocolError:
+            host_states = {service: None for service in units}
+        items = []
+        for service in OPERATOR_SERVICE_ORDER:
+            active = (None if docker_states is None else docker_states.get(service, False)) if service in DOCKER_SERVICES else host_states.get(service)
+            items.append({"service": service, "active": active,
+                          "enabled": None if preferences is None else preferences.get(service, True)})
+        return {"services": items}
+
     def _service_status_snapshot(self, service: str) -> dict[str, Any]:
         if service in {"amneziawg", "wireguard", "agent"}:
             unit = {
@@ -1261,9 +1328,10 @@ class AgentDispatcher:
             result = self.runner.run(["systemctl", "is-active", unit], timeout=10)
         else:
             result = self.runner.run([*self.compose, "ps", "--format", "json", service], timeout=15)
-        active = result.returncode == 0
         if service in DOCKER_SERVICES:
-            active = active and ("running" in result.stdout.lower() or '"state":"running"' in result.stdout.lower())
+            active = ("running" in result.stdout.lower() or '"state":"running"' in result.stdout.lower()) if result.returncode == 0 else None
+        else:
+            active = True if result.returncode == 0 else False if result.returncode == 3 else None
         try:
             control = self._control()
             preferences = (
@@ -1311,6 +1379,7 @@ class AgentDispatcher:
             apply_report = apply_result.get("apply", {}) if isinstance(apply_result.get("apply"), dict) else {}
             operation_ok = apply_report.get("outcome") in {"applied", "fallback", "no-op"}
             health_ok = after["active"] is True
+            self.dashboard_cache.invalidate("containers", "protocols", "health_summary")
             return {
                 "service": service,
                 "action": action,
@@ -1383,6 +1452,7 @@ class AgentDispatcher:
                 operation_ok = False
                 warning = "Сервис изменён, но persistent-состояние сохранить не удалось."
         after = self._service_status_snapshot(service)
+        self.dashboard_cache.invalidate("containers", "protocols", "health_summary")
         expected_active = action not in {"stop", "disable"}
         health_ok = after["active"] is expected_active
         if service == "agent" and operation_ok:
@@ -2118,16 +2188,17 @@ class AgentDispatcher:
             if isinstance(item, dict) and isinstance(item.get("service"), str)
         }
         for service in sorted(SERVICES):
-            if service in DOCKER_SERVICES and service in container_states:
+            if (service in DOCKER_SERVICES and service in container_states
+                    and str(container_states[service].get("state", "")).lower() != "missing"):
                 status = {"active": str(container_states[service].get("state", "")).lower() == "running"}
             else:
                 try:
                     status = self._service_status_snapshot(service)
                 except ProtocolError:
-                    status = {"active": False}
+                    status = {"active": None}
             enabled = preferences.get(service, True)
             services[service] = {"active": status["active"], "enabled": enabled}
-            if enabled and not status["active"]:
+            if (enabled and status["active"] is not True) or (not enabled and status["active"] is not False):
                 command = (
                     "systemctl status kvn-amneziawg.service"
                     if service == "amneziawg"
@@ -2138,8 +2209,10 @@ class AgentDispatcher:
                     else f"docker compose ps {service}"
                 )
                 diagnostics.append({
-                    "severity": "error",
-                    "reason": f"Сервис {service} не запущен.",
+                    "severity": "warning" if status["active"] is None else "error",
+                    "reason": (f"Состояние сервиса {service} недоступно." if status["active"] is None
+                               else f"Сервис {service} запущен вопреки настройке отключения." if not enabled
+                               else f"Сервис {service} не запущен."),
                     "command": command,
                 })
         certificate_rows = (

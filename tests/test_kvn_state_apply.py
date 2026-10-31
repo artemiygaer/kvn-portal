@@ -1,9 +1,14 @@
 import json
+import copy
+import os
+import subprocess
 import tempfile
 import time
 import unittest
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from tools import kvnctl
@@ -137,6 +142,163 @@ class JsonStateStoreTests(unittest.TestCase):
 
 
 class EffectiveServicePlanTests(unittest.TestCase):
+    @unittest.skipUnless(os.environ.get("KVN_SERVICE_DOCKER_E2E") == "1", "Изолированный Docker E2E запускается явно")
+    def test_real_isolated_docker_service_lifecycle(self):
+        from portal.agent_handlers.dispatcher import AgentDispatcher, CommandRunner, OPERATOR_SERVICE_ORDER
+
+        name = "kvn-service-e2e-" + uuid.uuid4().hex[:12]
+        host_env = dict(os.environ)
+        host_env.pop("DOCKER_HOST", None)
+        image = "nginx:1.31.6-alpine"
+        def host(*args, **kwargs):
+            return subprocess.run(["docker", *args], env=host_env, check=True, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE, timeout=120, **kwargs)
+        try:
+            host("run", "-d", "--privileged", "--name", name, "-e", "DOCKER_TLS_CERTDIR=",
+                 "-p", "127.0.0.1::2375", "docker:29-dind")
+            port = host("port", name, "2375/tcp").stdout.decode().strip().rsplit(":", 1)[1]
+            nested = {**host_env, "DOCKER_HOST": "tcp://127.0.0.1:" + port}
+            for attempt in range(45):
+                probe = subprocess.run(["docker", "info"], env=nested, stdout=subprocess.DEVNULL,
+                                       stderr=subprocess.DEVNULL, timeout=5, check=False)
+                if probe.returncode == 0:
+                    break
+                time.sleep(1)
+            else:
+                self.fail("Изолированный Docker daemon не запустился.")
+            image_bytes = host("save", image).stdout
+            subprocess.run(["docker", "load"], input=image_bytes, env=nested, stdout=subprocess.PIPE,
+                           stderr=subprocess.PIPE, timeout=120, check=True)
+            names = {"xray": "xray", "hysteria": "hysteria", "telemt": "telemt-proxy", "mtg": "mtg-proxy", "ocserv": "ocserv"}
+            with tempfile.TemporaryDirectory(prefix="kvn-service-lifecycle-") as temporary:
+                root = Path(temporary)
+                lines = ["services:"]
+                for service, container in names.items():
+                    lines += [f"  {service}:", f"    image: {image}", f"    container_name: {container}", "    restart: unless-stopped"]
+                (root / "docker-compose.yml").write_text("\n".join(lines) + "\n", encoding="utf-8")
+                state_path = root / "users.json"
+                state = {"users": [{"name": "synthetic"}], "services": {}, "ocserv": {"sni": "fixture.example"}}
+                state_path.write_text(json.dumps(state), encoding="utf-8")
+                store = JsonStateStore(state_path)
+
+                class Control:
+                    def service_preferences(self):
+                        return kvnctl.configured_service_preferences(store.load())
+                    def set_service_enabled(self, service, enabled):
+                        def mutate(value):
+                            value.setdefault("services", {}).setdefault(service, {})["enabled"] = enabled
+                        store.update(mutate)
+                        return {"enabled": enabled}
+
+                with mock.patch.dict(os.environ, nested, clear=True), mock.patch.object(kvnctl, "ROOT", root), \
+                     mock.patch.object(kvnctl, "STATE_STORE", store), mock.patch.object(kvnctl, "ok"):
+                    compose = ["docker", "compose", "-f", str(root / "docker-compose.yml")]
+                    subprocess.run([*compose, "up", "-d"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+                    class CountingRunner(CommandRunner):
+                        def __init__(self):
+                            self.count = 0
+                        def run(self, argv, **kwargs):
+                            self.count += 1
+                            return super().run(argv, **kwargs)
+                    runner = CountingRunner()
+                    dispatcher = AgentDispatcher(root, runner=runner, control=Control())
+                    started = time.perf_counter()
+                    for service in OPERATOR_SERVICE_ORDER:
+                        dispatcher._service_status_snapshot(service)
+                    before_ms, before_calls = round((time.perf_counter() - started) * 1000), runner.count
+                    runner.count = 0
+                    started = time.perf_counter()
+                    statuses = dispatcher._service_statuses({})
+                    after_ms, after_calls = round((time.perf_counter() - started) * 1000), runner.count
+                    self.assertEqual((before_calls, after_calls), (10, 2))
+                    self.assertTrue(next(row for row in statuses["services"] if row["service"] == "xray")["active"])
+                    print(f"[МЕТРИКА] services: subprocess {before_calls}→{after_calls}, {before_ms}→{after_ms} мс", flush=True)
+                    for service, container in names.items():
+                        with self.subTest(service=service):
+                            result = dispatcher._service_action({"service": service, "action": "disable"})
+                            self.assertTrue(result["ok"], result)
+                            self.assertFalse(store.load()["services"][service]["enabled"])
+                            status = subprocess.run(["docker", "inspect", "--format", "{{.State.Running}} {{.HostConfig.RestartPolicy.Name}}", container],
+                                                    check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15).stdout.strip()
+                            self.assertEqual(status, b"false no")
+                            kvnctl.cmd_service_set(SimpleNamespace(action="enable", service=service))
+                            self.assertTrue(store.load()["services"][service]["enabled"])
+                            status = subprocess.run(["docker", "inspect", "--format", "{{.State.Running}} {{.HostConfig.RestartPolicy.Name}}", container],
+                                                    check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15).stdout.strip()
+                            self.assertEqual(status, b"true unless-stopped")
+                    self.assertEqual(store.load()["ocserv"], state["ocserv"])
+                    self.assertEqual(store.load()["users"], state["users"])
+                    for service in names:
+                        kvnctl.cmd_service_set(SimpleNamespace(action="disable", service=service))
+                    host("restart", name)
+                    port = host("port", name, "2375/tcp").stdout.decode().strip().rsplit(":", 1)[1]
+                    os.environ["DOCKER_HOST"] = "tcp://127.0.0.1:" + port
+                    for attempt in range(45):
+                        probe = subprocess.run(["docker", "info"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                               timeout=5, check=False)
+                        if probe.returncode == 0:
+                            break
+                        time.sleep(1)
+                    else:
+                        self.fail("Изолированный Docker не восстановился после перезапуска.")
+                    reconciled = dispatcher.reconcile_services()
+                    self.assertTrue(all(item.get("ok") for item in reconciled), reconciled)
+                    for service, container in names.items():
+                        status = subprocess.run(["docker", "inspect", "--format", "{{.State.Running}}", container],
+                                                check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15).stdout.strip()
+                        self.assertEqual(status, b"false", service)
+                    subprocess.run(["docker", "rm", "ocserv"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
+                    self.assertTrue(dispatcher._service_action({"service": "ocserv", "action": "disable"})["ok"])
+                    self.assertTrue(dispatcher._service_action({"service": "ocserv", "action": "enable"})["ok"])
+                    self.assertEqual(store.load()["ocserv"], state["ocserv"])
+        finally:
+            subprocess.run(["docker", "rm", "-fv", name], env=host_env, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=60, check=False)
+
+    @unittest.skipUnless(hasattr(__import__("os"), "geteuid"), "Нужен Linux")
+    def test_cli_service_toggle_preserves_state_and_rejects_failed_operations(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "users.json"
+            original = {"users": [{"name": "synthetic"}], "services": {}, "ocserv": {"sni": "fixture.example"}}
+            path.write_text(json.dumps(original), encoding="utf-8")
+            store = JsonStateStore(path)
+            calls = []
+            def docker(argv, **_kwargs):
+                calls.append(argv)
+                output = b"false" if argv[1] == "inspect" and "Running" in argv[3] else b"fixture-id"
+                return SimpleNamespace(returncode=0, stdout=output)
+            args = SimpleNamespace(action="disable", service="ocserv")
+            with mock.patch.object(kvnctl.os, "geteuid", return_value=0), \
+                 mock.patch.object(kvnctl, "STATE_STORE", store), \
+                 mock.patch.object(kvnctl.subprocess, "run", side_effect=docker), \
+                 mock.patch.object(kvnctl, "_run_compose", return_value=SimpleNamespace(returncode=0)) as compose, \
+                 mock.patch.object(kvnctl, "ok"):
+                kvnctl.cmd_service_set(args)
+            self.assertEqual(store.load()["services"]["ocserv"], {"enabled": False})
+            self.assertEqual(store.load()["ocserv"], original["ocserv"])
+            compose.assert_called_once_with(["stop", "ocserv"], timeout=120)
+            self.assertIn(["docker", "update", "--restart=no", "ocserv"], calls)
+            with mock.patch.object(kvnctl.os, "geteuid", return_value=0), \
+                 mock.patch.object(kvnctl, "STATE_STORE", store), \
+                 mock.patch.object(kvnctl.subprocess, "run", side_effect=docker), \
+                 mock.patch.object(kvnctl, "_run_compose", return_value=SimpleNamespace(returncode=1)):
+                with self.assertRaises(SystemExit):
+                    kvnctl.cmd_service_set(SimpleNamespace(action="enable", service="ocserv"))
+            self.assertFalse(store.load()["services"]["ocserv"]["enabled"])
+            def running(argv, **_kwargs):
+                calls.append(argv)
+                return SimpleNamespace(returncode=0, stdout=b"true" if "Running" in argv[3] else b"fixture-id")
+            with mock.patch.object(kvnctl.os, "geteuid", return_value=0), \
+                 mock.patch.object(kvnctl, "STATE_STORE", store), \
+                 mock.patch.object(kvnctl.subprocess, "run", side_effect=running), \
+                 mock.patch.object(kvnctl, "_run_compose", return_value=SimpleNamespace(returncode=0)) as compose, \
+                 mock.patch.object(kvnctl, "ok"):
+                kvnctl.cmd_service_set(SimpleNamespace(action="enable", service="ocserv"))
+            self.assertTrue(store.load()["services"]["ocserv"]["enabled"])
+            self.assertEqual(store.load()["ocserv"], original["ocserv"])
+            compose.assert_called_once_with(["up", "-d", "--no-deps", "--no-build", "--pull", "never", "ocserv"], timeout=120)
+            self.assertIn(["docker", "update", "--restart=unless-stopped", "ocserv"], calls)
+
     def test_legacy_state_keeps_non_portal_services_enabled(self):
         plan = effective_service_plan({"users": [], "portal": {"enabled": False}})
         self.assertEqual(
@@ -265,6 +427,7 @@ class ApplyPlanTests(unittest.TestCase):
         plan = build_change_set({"xray/config.json": "old"}, {"xray/config.json": "new"})
         with (
             mock.patch("tools.kvnctl.shutil.which", return_value="docker"),
+            mock.patch("tools.kvnctl._xray_users_only_change", return_value=True),
             mock.patch("tools.kvnctl._hot_update_xray_users", return_value=True) as hot,
             mock.patch("tools.kvnctl._restart_docker_services") as restart,
         ):
@@ -282,6 +445,7 @@ class ApplyPlanTests(unittest.TestCase):
         plan = build_change_set({"xray/config.json": "old"}, {"xray/config.json": "new"})
         with (
             mock.patch("tools.kvnctl.shutil.which", return_value="docker"),
+            mock.patch("tools.kvnctl._xray_users_only_change", return_value=True),
             mock.patch("tools.kvnctl._hot_update_xray_users", return_value=False),
             mock.patch("tools.kvnctl._restart_docker_services", return_value=True) as restart,
         ):
@@ -296,7 +460,6 @@ class ApplyPlanTests(unittest.TestCase):
         self.assertEqual(len(report["fallbacks"]), 1)
         self.assertEqual(report["warnings"], [])
 
-    @unittest.expectedFailure
     def test_baseline_xray_structural_delta_must_not_be_reported_as_hot_update(self):
         """Регрессия фазы 1: users-only API скрывает изменение Reality target."""
         before = {"users": [], "sni_routes": {"reality-tcp": {"default": "apple.com"}}}
@@ -314,6 +477,65 @@ class ApplyPlanTests(unittest.TestCase):
         self.assertEqual(report["hot_updated"], [])
         self.assertEqual(report["restarted"], ["xray"])
         restart.assert_called_once_with(["xray"])
+
+    def test_xray_evidence_only_allows_exact_client_change(self):
+        tags = (kvnctl.TLS_INBOUND_TAG, kvnctl.REALITY_XHTTP_INBOUND_TAG, kvnctl.REALITY_TCP_INBOUND_TAG)
+        before = {"users": []}
+        after = {"users": [{"name": "Alice", "uuid": "18f0bddd-8871-4ba5-98c3-5aefb29732e0", "systems": ["reality-tcp"]}]}
+        old_clients, new_clients = kvnctl._xray_clients_by_tag(before), kvnctl._xray_clients_by_tag(after)
+        def config(clients):
+            return {"inbounds": [{"tag": tag, "settings": {"clients": clients[tag]}, "streamSettings": {"security": "reality"}} for tag in tags]}
+        with tempfile.TemporaryDirectory() as temporary:
+            old, new = Path(temporary) / "old.json", Path(temporary) / "new.json"
+            old.write_text(json.dumps(config(old_clients)), encoding="utf-8")
+            new_config = config(new_clients)
+            new.write_text(json.dumps(new_config), encoding="utf-8")
+            plan = build_change_set({"xray/config.json": "old"}, {"xray/config.json": "new"})
+            plan.xray_before_evidence = kvnctl._xray_config_evidence(old)
+            plan.xray_after_evidence = kvnctl._xray_config_evidence(new)
+            self.assertTrue(kvnctl._xray_users_only_change(plan, before, after))
+            self.assertFalse(kvnctl._xray_users_only_change(plan, before, before))
+            with mock.patch("tools.kvnctl.shutil.which", return_value="docker"), \
+                 mock.patch("tools.kvnctl._hot_update_xray_users", return_value=True) as hot, \
+                 mock.patch("tools.kvnctl._restart_docker_services", return_value=True) as restart:
+                result = kvnctl.restart_services(plan, before_state=before, after_state=after)
+                hot.assert_called_once()
+                restart.assert_called_once_with([])
+                self.assertEqual(result["hot_updated"], ["xray"])
+            new_config["inbounds"][0]["streamSettings"]["target"] = "changed.example:443"
+            new.write_text(json.dumps(new_config), encoding="utf-8")
+            plan.xray_after_evidence = kvnctl._xray_config_evidence(new)
+            self.assertFalse(kvnctl._xray_users_only_change(plan, before, after))
+            with mock.patch("tools.kvnctl.shutil.which", return_value="docker"), \
+                 mock.patch("tools.kvnctl._hot_update_xray_users") as hot, \
+                 mock.patch("tools.kvnctl._restart_docker_services", return_value=True) as restart:
+                result = kvnctl.restart_services(plan, before_state=before, after_state=after)
+                hot.assert_not_called()
+                restart.assert_called_once_with(["xray"])
+                self.assertEqual(result["restarted"], ["xray"])
+            plan.xray_after_evidence = None
+            self.assertFalse(kvnctl._xray_users_only_change(plan, before, after))
+
+    def test_xray_api_rejects_success_exit_when_no_user_was_added(self):
+        client = {"email": "fixture", "id": "00000000-0000-4000-8000-000000000001"}
+        before, after = {"test": []}, {"test": [client]}
+        with tempfile.TemporaryDirectory() as temporary, \
+             mock.patch("tools.kvnctl.ROOT", Path(temporary)), \
+             mock.patch("tools.kvnctl._xray_clients_by_tag", side_effect=[before, after]), \
+             mock.patch("tools.kvnctl.subprocess.run") as run:
+            run.side_effect = lambda argv, **kwargs: SimpleNamespace(
+                returncode=0,
+                stdout="failed to build config\nAdded 0 user(s) in total.\n" if "adu" in argv else "",
+            )
+            self.assertFalse(kvnctl._hot_update_xray_users({}, {}))
+            self.assertEqual(list(Path(temporary).iterdir()), [])
+
+    def test_xray_api_rejects_success_exit_when_no_user_was_removed(self):
+        client = {"email": "fixture", "id": "00000000-0000-4000-8000-000000000001"}
+        with mock.patch("tools.kvnctl._xray_clients_by_tag", side_effect=[{"test": [client]}, {"test": []}]), \
+             mock.patch("tools.kvnctl.subprocess.run", return_value=SimpleNamespace(
+                 returncode=0, stdout="Removed 0 user(s) in total.\n")):
+            self.assertFalse(kvnctl._hot_update_xray_users({}, {}))
 
     def test_failed_restart_requires_reconcile(self):
         plan = build_change_set({"xray/config.json": "old"}, {"xray/config.json": "new"})
@@ -400,9 +622,10 @@ class ApplyPlanTests(unittest.TestCase):
             self.assertEqual(result["reason"], "ipv4_forwarding_disabled")
 
     def test_amneziawg_semantic_delta_is_applied_even_for_client_only_plan(self):
-        before_state = {"server": "203.0.113.10", "users": []}
         after_state = awg_state_with_user()
         kvnctl.prepare_state(after_state)
+        before_state = copy.deepcopy(after_state)
+        before_state["users"] = []
         plan = kvnctl.ChangeSet(changed_paths=("clients/Alice/amneziawg.conf",), services={})
         sync = {
             "ok": True,
@@ -416,6 +639,7 @@ class ApplyPlanTests(unittest.TestCase):
         with (
             mock.patch("tools.kvnctl.shutil.which", return_value="docker"),
             mock.patch("tools.kvnctl._sync_amneziawg", return_value=sync) as awg_sync,
+            mock.patch("tools.kvnctl._sync_wireguard") as wg_sync,
             mock.patch("tools.kvnctl._restart_docker_services") as restart,
         ):
             report = kvnctl.restart_services(
@@ -425,15 +649,17 @@ class ApplyPlanTests(unittest.TestCase):
             )
 
         awg_sync.assert_called_once()
+        wg_sync.assert_not_called()
         restart.assert_not_called()
         self.assertEqual(report["hot_updated"], ["amneziawg"])
         self.assertEqual(report["details"]["amneziawg"]["expected_peers"], 1)
         self.assertEqual(report["details"]["amneziawg"]["runtime_peers"], 1)
 
     def test_wireguard_semantic_delta_is_applied_even_for_client_only_plan(self):
-        before_state = {"server": "203.0.113.10", "users": []}
         after_state = wg_state_with_user()
         kvnctl.prepare_state(after_state)
+        before_state = copy.deepcopy(after_state)
+        before_state["users"] = []
         plan = kvnctl.ChangeSet(changed_paths=("clients/Alice/wireguard.conf",), services={})
         sync = {
             "ok": True,
@@ -447,6 +673,7 @@ class ApplyPlanTests(unittest.TestCase):
         with (
             mock.patch("tools.kvnctl.shutil.which", return_value="docker"),
             mock.patch("tools.kvnctl._sync_wireguard", return_value=sync) as wg_sync,
+            mock.patch("tools.kvnctl._sync_amneziawg") as awg_sync,
             mock.patch("tools.kvnctl._restart_docker_services") as restart,
         ):
             report = kvnctl.restart_services(
@@ -456,6 +683,7 @@ class ApplyPlanTests(unittest.TestCase):
             )
 
         wg_sync.assert_called_once()
+        awg_sync.assert_not_called()
         restart.assert_not_called()
         self.assertEqual(report["hot_updated"], ["wireguard"])
         self.assertEqual(report["details"]["wireguard"]["expected_peers"], 1)

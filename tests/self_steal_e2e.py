@@ -38,7 +38,7 @@ def main():
         )
     work=Path(tempfile.mkdtemp(prefix="kvn-self-steal-"))
     network=PREFIX+"-network"
-    containers=[PREFIX+"-nginx", PREFIX+"-xray", PREFIX+"-client"]
+    containers=[PREFIX+"-nginx", PREFIX+"-xray", PREFIX+"-client", PREFIX+"-cover"]
     try:
         archive=work/"source.tar.gz"
         run("bash","tools/build-deploy.sh",str(archive))
@@ -87,8 +87,9 @@ kvnctl.save_state(state)
             # Отдельный test overlay, generated config не изменяется.
             client_path=work/'client-test.json'
             client_path.write_text(json.dumps(client))
-            https_port,socks_port=port(),port()
+            https_port,socks_port,xray_port=port(),port(),port()
             run("docker","run","-d","--name",containers[1],"--network",network,"--network-alias","xray",
+                "-p",f"127.0.0.1:{xray_port}:{2054 if system == 'reality-tcp' else 2053}",
                 "-v",f"{project/'xray/config.json'}:/etc/xray/config.json:ro",
                 "-v",f"{project/'certs'}:/etc/xray/certs:ro",XRAY,"run","-c","/etc/xray/config.json")
             run("docker","run","-d","--name",containers[0],"--network",network,"--network-alias","nginx",
@@ -121,6 +122,91 @@ kvnctl.save_state(state)
                 raise
             assert code=='200', code
             assert 'https://self-steal.example.test:2448/' in (project/'clients/Fixture/openconnect.txt').read_text()
+            started_before=run('docker','inspect','--format','{{.State.StartedAt}}',containers[1]).strip()
+            hot_script = '''import copy,json,subprocess,sys
+from tools import kvnctl
+params=json.load(sys.stdin)
+before=kvnctl.load_state()
+after=copy.deepcopy(before)
+after['users'][0]['uuid']='00000000-0000-4000-8000-000000000002'
+plan=kvnctl.render_all(after)
+change=plan.services.get('xray')
+assert change is not None, 'users-only не изменил конфигурацию Xray'
+only=kvnctl.ChangeSet(changed_paths=('xray/config.json',), services={'xray':change}, xray_before_evidence=plan.xray_before_evidence, xray_after_evidence=plan.xray_after_evidence)
+original=subprocess.run
+def isolated(argv,*args,**kwargs):
+    argv=list(argv)
+    if argv[:3]==['docker','exec','xray']:
+        argv[2]=params['container']
+    elif argv[:5]==['docker','exec','--user','0','xray']:
+        argv[4]=params['container']
+    elif argv[:2]==['docker','cp']:
+        argv=[params['container']+a[4:] if isinstance(a,str) and a.startswith('xray:') else a for a in argv]
+    return original(argv,*args,**kwargs)
+subprocess.run=isolated
+result=kvnctl.restart_services(only,before_state=before,after_state=after)
+assert result['hot_updated']==['xray'] and not result['restarted'], 'HandlerService не применил пользователя'
+kvnctl.save_state(after)
+'''
+            try:
+                print(run('python3','-c',hot_script,cwd=project,input=json.dumps({'container':containers[1]})), flush=True)
+            except RuntimeError:
+                diagnostic=subprocess.run(['docker','logs','--tail=20',containers[1]],capture_output=True,text=True)
+                print('[ДИАГНОСТИКА] Xray: '+(diagnostic.stdout+diagnostic.stderr)[-2000:],flush=True)
+                raise
+            assert run('docker','inspect','--format','{{.State.StartedAt}}',containers[1]).strip()==started_before
+            client['outbounds'][0]['settings']['vnext'][0]['users'][0]['id']='00000000-0000-4000-8000-000000000002'
+            client_path.write_text(json.dumps(client))
+            run('docker','restart',containers[2])
+            time.sleep(1)
+            try:
+                code=run('curl','-fsS','--socks5-hostname',f'127.0.0.1:{socks_port}','--max-time','30',
+                         'https://github.com/artemiygaer/kvn-portal','-o','/dev/null','-w','%{http_code}')
+            except RuntimeError:
+                for name in containers[1:3]:
+                    diagnostic=subprocess.run(['docker','logs','--tail=20',name],capture_output=True,text=True)
+                    print('[ДИАГНОСТИКА] Xray: '+(diagnostic.stdout+diagnostic.stderr)[-2000:],flush=True)
+                raise
+            assert code=='200', 'Новый пользователь не подключился после hot-update'
+            print(f'[OK] {system}: реальный HandlerService обновил пользователя без restart Xray',flush=True)
+            if system in ('reality-tcp', 'reality-xhttp'):
+                cover = work / 'cover.conf'
+                cover.write_text('events {}\nhttp { server { listen 443 ssl; ssl_certificate /certs/server.crt; ssl_certificate_key /certs/server.key; location / { return 200 "external-cover-proof"; } } }\n')
+                run('docker', 'run', '-d', '--name', containers[3], '--network', network,
+                    '--network-alias', 'cover.example.test', '-v', f'{cover}:/etc/nginx/nginx.conf:ro',
+                    '-v', f"{project/'site-certs'}:/certs:ro", 'nginx:1.31.6-alpine')
+                script = '''import copy,json,subprocess,sys
+from tools import kvnctl
+params=json.load(sys.stdin)
+before=kvnctl.load_state()
+after=copy.deepcopy(before)
+route=after['sni_routes'][params['system']]
+route['default']=params['sni']; route['aliases']=[params['sni']]; route['reality_mode']=params['mode']
+plan=kvnctl.render_all(after)
+change=plan.services.get('xray')
+assert change is not None, 'смена режима не изменила конфигурацию Xray'
+only=kvnctl.ChangeSet(changed_paths=('xray/config.json',), services={'xray':change}, xray_before_evidence=plan.xray_before_evidence, xray_after_evidence=plan.xray_after_evidence)
+def restart(services):
+    assert services == ['xray']
+    return subprocess.run(['docker','restart',params['container']], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+kvnctl._restart_docker_services=restart
+result=kvnctl.restart_services(only,before_state=before,after_state=after)
+assert result['restarted']==['xray'] and not result['hot_updated'], 'не подтверждён структурный restart'
+kvnctl.save_state(after)
+same=kvnctl.render_all(copy.deepcopy(after))
+assert 'xray' not in same.services, 'повтор изменения не является no-op'
+'''
+                for mode, sni, marker in (('external','cover.example.test','external-cover-proof'),
+                                          ('self-steal',DOMAIN,'Self-steal HTTPS proof'),
+                                          ('external','cover.example.test','external-cover-proof')):
+                    run('python3','-c',script,cwd=project,input=json.dumps({'mode':mode,'sni':sni,'container':containers[1],'system':system}))
+                    page=run('curl','-fkSs','--noproxy','*','--max-time','15','--resolve',f'{sni}:{xray_port}:127.0.0.1',f'https://{sni}:{xray_port}/')
+                    assert marker in page, f'Неверный работающий cover после {mode}'
+                    changed=json.loads((project/'xray/config.json').read_text())
+                    entry=next(i for i in changed['inbounds'] if i['port']==(2054 if system=='reality-tcp' else 2053))
+                    assert entry['streamSettings']['realitySettings']['privateKey']==private
+                    assert any(item['id']=='00000000-0000-4000-8000-000000000002' for item in entry['settings']['clients'])
+                print(f'[OK] {system}: external → self-steal → external, live cover, restart и no-op',flush=True)
             print(f"[OK] {system}: nginx -t, TLS-сайт без ключа, authenticated Reality SOCKS → HTTPS 200, ocserv export 2448",flush=True)
             # Следующий режим начинается с чистого source template, без предыдущего SNI.
             if system=='reality-tcp':

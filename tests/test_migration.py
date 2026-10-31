@@ -756,6 +756,49 @@ class MigrationCryptoTests(unittest.TestCase):
                 finally:
                     subprocess.run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL,
                                    stderr=subprocess.DEVNULL, timeout=30, check=False)
+            script = """import copy,json
+from tools import kvnctl
+before = kvnctl.load_state()
+after = copy.deepcopy(before)
+after['users'][0]['uuid'] = '00000000-0000-4000-8000-000000000002'
+old_config = json.loads(kvnctl.XRAY_CONFIG.read_text())
+plan = kvnctl.render_all(after)
+old, new = plan.xray_before_evidence, plan.xray_after_evidence
+new_config = json.loads(kvnctl.XRAY_CONFIG.read_text())
+for config in (old_config, new_config):
+    for inbound in config.get('inbounds', []):
+        if inbound.get('tag') in (kvnctl.TLS_INBOUND_TAG,kvnctl.REALITY_XHTTP_INBOUND_TAG,kvnctl.REALITY_TCP_INBOUND_TAG):
+            inbound.get('settings', {}).pop('clients', None)
+def paths(a,b,p=''):
+    if isinstance(a,dict) and isinstance(b,dict):
+        return sum((paths(a.get(k),b.get(k),p+'/'+k) for k in a.keys() | b.keys()), [])
+    if isinstance(a,list) and isinstance(b,list) and len(a)==len(b):
+        return sum((paths(x,y,p+'/'+str(i)) for i,(x,y) in enumerate(zip(a,b))), [])
+    return [] if a==b else [p]
+assert kvnctl._xray_users_only_change(plan, before, after), f'users-only не распознан: изменены поля {paths(old_config,new_config)}'
+structural = copy.deepcopy(after)
+structural.setdefault('xray', {})['xhttp_mode'] = 'stream-one'
+plan = kvnctl.render_all(structural)
+assert not kvnctl._xray_users_only_change(plan, after, structural), 'структурное изменение распознано как users-only'
+legacy = json.loads(kvnctl.XRAY_CONFIG.read_text())
+rules = legacy['routing']['rules']
+api = next(rule for rule in rules if rule.get('inboundTag') == ['api-inbound'])
+rules.remove(api)
+rules.append(api)
+kvnctl.XRAY_CONFIG.write_text(json.dumps(legacy), encoding='utf-8')
+kvnctl.render_all(structural)
+unchanged = json.loads(kvnctl.XRAY_CONFIG.read_text())
+assert unchanged['routing']['rules'][-1].get('inboundTag') == ['api-inbound'], 'обычное обновление изменило старый порядок'
+next_user = copy.deepcopy(structural)
+next_user['users'][0]['uuid'] = '00000000-0000-4000-8000-000000000003'
+plan = kvnctl.render_all(next_user)
+fixed = json.loads(kvnctl.XRAY_CONFIG.read_text())
+assert fixed['routing']['rules'][0].get('inboundTag') == ['api-inbound'], 'старый порядок API не исправлен'
+assert not kvnctl._xray_users_only_change(plan, structural, next_user), 'исправление маршрута требует restart'
+"""
+            guarded = subprocess.run(["python3", "-c", script], cwd=project,
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+            self.assertEqual(guarded.returncode, 0, "Проверка guard на реальном render не прошла: " + guarded.stderr.decode("utf-8", "replace")[-1000:])
 
     def test_agent_rpc_export_preview_commit_and_degraded_apply(self):
         source = MigrationSchemaTests()

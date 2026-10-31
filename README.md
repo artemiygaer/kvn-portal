@@ -315,6 +315,15 @@ Docker-образ портала ставит Flask/gunicorn из `portal/wheels
 «Сервисы» нажмите «Отключить сервис» у неиспользуемых VPN-протоколов. Конфиги
 и пользователи сохранятся; кнопка «Остановить» отключает сервис только временно.
 nginx, portal-gateway и host-agent нужны для работы портала — их отключать нельзя.
+Те же постоянные настройки необязательных Docker-сервисов доступны по SSH:
+
+```bash
+sudo python3 tools/kvnctl.py service-set disable ocserv
+sudo python3 tools/kvnctl.py service-set enable ocserv
+```
+
+Допустимы `xray`, `hysteria`, `telemt`, `mtg` и `ocserv`. Повторное включение
+использует уже установленный Docker-образ; конфигурация и пользователи сохраняются.
 
 Для диагностики выполните:
 

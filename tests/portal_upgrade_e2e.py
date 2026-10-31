@@ -306,9 +306,12 @@ open('/project/.env','w').write('KVN_PORTAL_GID=12345\\nKVN_PORTAL_PORT=8443\\nC
             raise RuntimeError("Обновление изменило действующий внешний Reality config")
         if agent_run("sha256sum","clients/UpgradeUser/links.txt").split()[0]!=external_links:
             raise RuntimeError("Обновление изменило прежние клиентские ссылки")
-        if after['services']['ocserv']['enabled'] is not False: raise RuntimeError("ocserv включился после update")
+        for service in ('ocserv', 'telemt', 'hysteria', 'mtg', 'amneziawg', 'wireguard'):
+            if after['services'][service]['enabled'] is not False:
+                raise RuntimeError(f"{service} включился после update")
         running=agent_run("docker","compose","ps","--status","running","--services")
-        if 'ocserv' in running: raise RuntimeError("Отключённый ocserv запущен")
+        for service in ('ocserv', 'telemt', 'hysteria', 'mtg'):
+            if service in running.splitlines(): raise RuntimeError(f"Отключённый {service} запущен")
         if 'xray' not in running.splitlines(): raise RuntimeError("Прежний внешний Reality не запущен")
         if agent_run("docker","inspect","--format","{{.State.StartedAt}}","xray").strip()!=external_started:
             raise RuntimeError("Обновление перезапустило прежний внешний Reality")
@@ -327,14 +330,14 @@ open('/project/.env','w').write('KVN_PORTAL_GID=12345\\nKVN_PORTAL_PORT=8443\\nC
         if json.loads(agent_run("python3","-c","import json; print(json.dumps(json.load(open('users.json'))))"))['services']['ocserv']['enabled'] is not True:
             raise RuntimeError("Включение ocserv не сохранено")
         toggle(cookie,"disable")
-        for service in ("telemt","hysteria","xray"):
+        for service in ("telemt","hysteria","mtg","xray"):
             toggle(cookie,"enable",service)
         time.sleep(5)
         running=set(agent_run("docker","compose","ps","--status","running","--services").splitlines())
-        if not {"telemt","hysteria","xray"}.issubset(running):
-            raise RuntimeError("Новые runtime-конфиги не запустились: "+agent_run("docker","compose","logs","--tail=30","telemt","hysteria","xray"))
-        print("[OK] Новые Telemt/Hysteria/Xray запущены с generated-конфигами",flush=True)
-        for service in ("telemt","hysteria","xray"):
+        if not {"telemt","hysteria","mtg","xray"}.issubset(running):
+            raise RuntimeError("Новые runtime-конфиги не запустились: "+agent_run("docker","compose","logs","--tail=30","telemt","hysteria","mtg","xray"))
+        print("[OK] Новые Telemt/Hysteria/mtg/Xray запущены с generated-конфигами",flush=True)
+        for service in ("telemt","hysteria","mtg","xray"):
             toggle(cookie,"disable",service)
         source="GitHub download" if args.github else "upload"
         route=f"{args.baseline_version} → v4.1.2" if args.bridge else args.baseline_version

@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agent_client import AgentClientError
 from app import create_app
 from app.security import hash_password
+from app.service_catalog import MANAGED_SERVICE_ORDER
 
 
 class VisualAgent:
@@ -388,6 +389,8 @@ class VisualAgent:
                 "text_base64": base64.b64encode(text).decode("ascii"),
                 "manifest": {"schema": 1, "address_mode": mode},
             }
+        if method == "service.statuses":
+            return {"services": [{"service": name, "active": name != "mtg", "enabled": True} for name in MANAGED_SERVICE_ORDER]}
         if method == "service.status":
             return {"service": params["service"], "active": params["service"] != "mtg", "enabled": True}
         if method == "service.action":

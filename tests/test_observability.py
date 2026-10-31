@@ -163,6 +163,29 @@ class ProtocolCollectorTests(unittest.TestCase):
             ("who",),
         ])
 
+    def test_dashboard_invalidation_during_refresh_is_not_lost(self):
+        entered, release = threading.Event(), threading.Event()
+        calls = []
+
+        def loader(name, _context):
+            if name == "containers":
+                calls.append(name)
+                if len(calls) == 1:
+                    entered.set()
+                    self.assertTrue(release.wait(3))
+            return {"revision": len(calls)}
+
+        cache = DashboardSnapshotCache(loader, now_provider=lambda: 100)
+        cache.get()
+        self.assertTrue(entered.wait(3))
+        cache.invalidate("containers")
+        release.set()
+        self.assertTrue(cache.wait(3))
+        cache.get()
+        self.assertTrue(cache.wait(3))
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(cache.get()["sources"]["containers"]["data"]["revision"], 2)
+
     def test_dashboard_snapshot_preserves_last_data_after_collector_failure(self):
         clock = [100]
         failing = [False]

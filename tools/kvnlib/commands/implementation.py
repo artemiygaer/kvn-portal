@@ -3864,6 +3864,14 @@ def render_xray(state: dict) -> None:
     tls_inbound = ensure_inbound(config, TLS_INBOUND_TAG)
     xhttp_inbound = ensure_inbound(config, REALITY_XHTTP_INBOUND_TAG)
     tcp_inbound = ensure_reality_tcp_inbound(config, state)
+    clients_changed = any(
+        inbound.get("settings", {}).get("clients") != clients
+        for inbound, clients in (
+            (tls_inbound, tls_clients),
+            (xhttp_inbound, reality_xhttp_clients),
+            (tcp_inbound, reality_tcp_clients),
+        )
+    )
     previous_covers = {
         system: {f"{name}:443" for name in inbound.get("streamSettings", {}).get("realitySettings", {}).get("serverNames", [])}
         for system, inbound in (("reality-xhttp", xhttp_inbound), ("reality-tcp", tcp_inbound))
@@ -3964,6 +3972,13 @@ def render_xray(state: dict) -> None:
     routing = config.setdefault("routing", {})
     routing["domainStrategy"] = "IPIfNonMatch"
     rules = routing.setdefault("rules", [])
+    api_index = next((index for index, rule in enumerate(rules)
+                      if rule.get("inboundTag") == ["api-inbound"] and rule.get("outboundTag") == "api"), 0)
+    previous_api = next((rule for rule in rules
+                         if rule.get("inboundTag") == ["api-inbound"] and rule.get("outboundTag") == "api"), {})
+    api_rule = {"type": "field", "inboundTag": ["api-inbound"], "outboundTag": "api"}
+    if previous_api.get("domain") == []:
+        api_rule["domain"] = []
     rules[:] = [
         rule for rule in rules
         if not (
@@ -3971,23 +3986,21 @@ def render_xray(state: dict) -> None:
             and rule.get("outboundTag") == "api"
         )
     ]
-    rules.insert(0, {
-        "type": "field",
-        "inboundTag": ["api-inbound"],
-        "outboundTag": "api",
-    })
+    # При изменении пользователей исправляем старый порядок с безопасным restart;
+    # обычное обновление не меняет действующую маршрутизацию.
+    rules.insert(0 if clients_changed else min(api_index, len(rules)), api_rule)
     # Вычищаем устаревшие geosite-категории, которых нет в geosite.dat v26+
     _KNOWN_BAD_GEOSITES = {"microsoft-cn"}
     for rule in rules:
         domains = rule.get("domain", [])
-        if isinstance(domains, list):
+        if "domain" in rule and isinstance(domains, list):
             rule["domain"] = [d for d in domains if not (isinstance(d, str) and d.startswith("geosite:") and d.split(":", 1)[1] in _KNOWN_BAD_GEOSITES)]
     has_private = any(
         r.get("type") == "field" and "geoip:private" in r.get("ip", [])
         for r in rules
     )
     if not has_private:
-        rules.insert(0, {
+        rules.insert(rules.index(api_rule) + 1, {
             "type": "field",
             "outboundTag": "block",
             "ip": ["geoip:private"],
@@ -5953,9 +5966,50 @@ def prepare_state(state: dict, server: str | None = None) -> tuple[str, str, boo
     return public_key, tcp_public_key, before != after
 
 
+def _xray_digest(value: object) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def _xray_config_evidence(path: Path) -> tuple[str, str] | None:
+    """Фиксирует только хеши структуры и клиентов до/после генерации."""
+    try:
+        if path.stat().st_size > 16 * 1024 * 1024:
+            return None
+        config = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(config, dict) or not isinstance(config.get("inbounds"), list):
+            return None
+        tags = {TLS_INBOUND_TAG, REALITY_XHTTP_INBOUND_TAG, REALITY_TCP_INBOUND_TAG}
+        clients = {}
+        for inbound in config["inbounds"]:
+            if not isinstance(inbound, dict):
+                return None
+            tag = inbound.get("tag")
+            if tag in tags:
+                settings = inbound.get("settings")
+                if tag in clients or not isinstance(settings, dict) or not isinstance(settings.get("clients"), list):
+                    return None
+                clients[tag] = settings.pop("clients")
+        if set(clients) != tags:
+            return None
+        return _xray_digest(config), _xray_digest(clients)
+    except (OSError, ValueError, TypeError, RecursionError):
+        return None
+
+
+def _xray_users_only_change(change: ChangeSet, before: dict, after: dict) -> bool:
+    old, new = change.xray_before_evidence, change.xray_after_evidence
+    if old is None or new is None or old[0] != new[0] or old[1] == new[1]:
+        return False
+    try:
+        return old[1] == _xray_digest(_xray_clients_by_tag(before)) and new[1] == _xray_digest(_xray_clients_by_tag(after))
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
 def render_all(state: dict, server: str | None = None) -> RenderResult:
     """Рендерит generated-файлы из подготовленного state без скрытого сохранения source."""
     before_fingerprint = generated_fingerprint()
+    before_xray = _xray_config_evidence(XRAY_CONFIG)
     public_key, tcp_public_key, _ = prepare_state(state, server)
     render_decoy_site(state)
     render_nginx(state)
@@ -5972,7 +6026,10 @@ def render_all(state: dict, server: str | None = None) -> RenderResult:
     if public_key.startswith("<") or tcp_public_key.startswith("<"):
         warn("Reality public key не вычислен. Заполните users.json вручную.")
     fix_permissions()
-    return build_change_set(before_fingerprint, generated_fingerprint())
+    result = build_change_set(before_fingerprint, generated_fingerprint())
+    result.xray_before_evidence = before_xray
+    result.xray_after_evidence = _xray_config_evidence(XRAY_CONFIG)
+    return result
 
 
 def _run_compose(command: list[str], timeout: int = 120) -> subprocess.CompletedProcess:
@@ -6159,8 +6216,10 @@ def _hot_update_xray_users(before_state: dict, after_state: dict) -> bool:
                     cwd=ROOT,
                     check=False,
                     timeout=20,
+                    capture_output=True,
+                    text=True,
                 )
-                if result.returncode != 0:
+                if result.returncode != 0 or "Removed 1 user(s) in total." not in result.stdout:
                     return False
             added = [
                 client for email, client in new_by_email.items()
@@ -6170,8 +6229,10 @@ def _hot_update_xray_users(before_state: dict, after_state: dict) -> bool:
                 payload = {
                     "inbounds": [{
                         "tag": tag,
+                        "listen": "127.0.0.1",
+                        "port": 1,
                         "protocol": "vless",
-                        "settings": {"clients": [client]},
+                        "settings": {"clients": [client], "decryption": "none"},
                     }],
                 }
                 with tempfile.NamedTemporaryFile(
@@ -6195,14 +6256,16 @@ def _hot_update_xray_users(before_state: dict, after_state: dict) -> bool:
                         return False
                     result = subprocess.run(
                         [
-                            "docker", "exec", "xray", "xray", "api", "adu",
-                            "--server=127.0.0.1:10085", f"--tag={tag}", remote_path,
+                            "docker", "exec", "--user", "0", "xray", "xray", "api", "adu",
+                            "--server=127.0.0.1:10085", remote_path,
                         ],
                         cwd=ROOT,
                         check=False,
                         timeout=20,
+                        capture_output=True,
+                        text=True,
                     )
-                    if result.returncode != 0:
+                    if result.returncode != 0 or "Added 1 user(s) in total." not in result.stdout:
                         return False
                 finally:
                     try:
@@ -6671,6 +6734,7 @@ def restart_services(
             service == "xray"
             and before_state is not None
             and after_state is not None
+            and _xray_users_only_change(changed, before_state, after_state)
             and _hot_update_xray_users(before_state, after_state)
         ):
             report["hot_updated"].append(service)
@@ -6714,7 +6778,7 @@ def restart_services(
             else:
                 restart_queue.append(service)
             if service == "xray" and before_state is not None:
-                report["fallbacks"].append("xray: hot-update не удался, выполнен restart")
+                report["fallbacks"].append("xray: изменена структура или hot-update недоступен, выполнен restart")
     if (semantic_awg_changed or force_awg_sync) and not amneziawg_applied:
         _record_amneziawg_apply(report, after_state)
     if (semantic_wg_changed or force_wg_sync) and not wireguard_applied:
@@ -7575,6 +7639,56 @@ def cmd_service_plan(args: argparse.Namespace) -> None:
     )
     for key, value in rows:
         print(f"{key}\t{value}")
+
+
+def cmd_service_set(args: argparse.Namespace) -> None:
+    """Постоянно включает или отключает необязательный Docker-сервис."""
+    containers = {"xray": "xray", "hysteria": "hysteria", "telemt": "telemt-proxy", "mtg": "mtg-proxy", "ocserv": "ocserv"}
+    if not hasattr(os, "geteuid") or os.geteuid() != 0:
+        raise SystemExit("Управление сервисами доступно только root.")
+    if args.service not in containers or args.action not in {"enable", "disable"}:
+        raise SystemExit("Этот сервис нельзя изменить данной командой.")
+    enabled = args.action == "enable"
+    container = containers[args.service]
+    try:
+        inspected = subprocess.run(["docker", "inspect", "--format", "{{.Id}}", container],
+                                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=15, check=False)
+        if not enabled and inspected.returncode == 0:
+            policy = subprocess.run(["docker", "update", "--restart=no", container],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20, check=False)
+            if policy.returncode:
+                raise RuntimeError("Не удалось отключить автозапуск контейнера.")
+        argv = ["up", "-d", "--no-deps", "--no-build", "--pull", "never", args.service] if enabled else ["stop", args.service]
+        if _run_compose(argv, timeout=120).returncode:
+            raise RuntimeError("Docker Compose не подтвердил операцию.")
+        if enabled:
+            policy = subprocess.run(["docker", "update", "--restart=unless-stopped", container],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20, check=False)
+            if policy.returncode:
+                raise RuntimeError("Не удалось восстановить автозапуск контейнера.")
+        current = subprocess.run(["docker", "inspect", "--format", "{{.State.Running}}", container],
+                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=15, check=False)
+        if enabled and (current.returncode != 0 or current.stdout.strip() != b"true"):
+            raise RuntimeError("Запуск контейнера не подтверждён.")
+        if not enabled and current.returncode != 0:
+            daemon = subprocess.run(["docker", "info", "--format", "{{.ID}}"], stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL, timeout=15, check=False)
+            if daemon.returncode:
+                raise RuntimeError("Состояние Docker не подтверждено.")
+        if not enabled and current.returncode == 0 and current.stdout.strip() != b"false":
+            raise RuntimeError("Остановка контейнера не подтверждена.")
+        def mutate(state: dict) -> None:
+            services = state.setdefault("services", {})
+            if not isinstance(services, dict):
+                raise ValueError("Некорректные настройки сервисов.")
+            item = services.setdefault(args.service, {})
+            if not isinstance(item, dict):
+                raise ValueError("Некорректные настройки сервиса.")
+            item["enabled"] = enabled
+        STATE_STORE.update(mutate)
+    except (Exception, SystemExit) as exc:
+        raise SystemExit("Операция не подтверждена полностью. Проверьте состояние сервиса и повторите reconcile.") from exc
+    ok(f"Сервис {args.service} {'включён' if enabled else 'отключён'}; конфигурация сохранена.")
 
 
 def cmd_render(args: argparse.Namespace) -> None:
@@ -8845,6 +8959,11 @@ def build_parser() -> argparse.ArgumentParser:
     service_plan = sub.add_parser("service-plan", help="Показать эффективный план запуска сервисов")
     service_plan.add_argument("--format", choices=("json", "lines"), default="json")
     service_plan.set_defaults(func=cmd_service_plan)
+
+    service_set = sub.add_parser("service-set", help="Постоянно включить или отключить необязательный Docker-сервис")
+    service_set.add_argument("action", choices=("enable", "disable"))
+    service_set.add_argument("service", choices=("xray", "hysteria", "telemt", "mtg", "ocserv"))
+    service_set.set_defaults(func=cmd_service_set)
 
     # letsencrypt
     le = sub.add_parser("letsencrypt", help="Выпустить/обновить Let's Encrypt сертификат")

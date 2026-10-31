@@ -93,6 +93,8 @@ class ServiceChange:
 class ChangeSet:
     changed_paths: tuple[str, ...] = ()
     services: dict[str, ServiceChange] = field(default_factory=dict)
+    xray_before_evidence: tuple[str, str] | None = field(default=None, repr=False)
+    xray_after_evidence: tuple[str, str] | None = field(default=None, repr=False)
 
     def __bool__(self) -> bool:
         return bool(self.changed_paths)

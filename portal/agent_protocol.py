@@ -16,6 +16,7 @@ MAX_REQUEST_ID_LENGTH = 64
 READ_ONLY_METHODS = frozenset({
     "ping",
     "service.status",
+    "service.statuses",
     "logs.tail",
     "stats.containers",
     "dashboard.snapshot",

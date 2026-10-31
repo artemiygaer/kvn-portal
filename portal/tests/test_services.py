@@ -22,11 +22,14 @@ FORBIDDEN = "password=NeverStoreThis token=NeverStoreThis"
 class FakeServiceAgent:
     def __init__(self):
         self.calls = []
+        self.unknown_service = None
 
     def call(self, method, params):
         self.calls.append((method, dict(params)))
+        if method == "service.statuses":
+            return {"services": [{"service": service, "active": None if service == self.unknown_service else True, "enabled": True} for service in MANAGED_SERVICE_ORDER]}
         if method == "service.status":
-            return {"service": params["service"], "active": True, "enabled": True}
+            return {"service": params["service"], "active": None if params["service"] == self.unknown_service else True, "enabled": True}
         if method == "service.action":
             return {
                 "service": params["service"], "action": params["action"], "ok": True,
@@ -80,6 +83,8 @@ class PortalServiceTests(unittest.TestCase):
     def test_status_page_and_restart_confirmation_audit(self):
         page = self.client.get("/gaer/services", headers=self.headers)
         self.assertEqual(page.status_code, 200)
+        self.assertEqual(sum(method == "service.statuses" for method, _ in self.agent.calls), 1)
+        self.assertFalse(any(method == "service.status" for method, _ in self.agent.calls))
         self.assertIn(b"xray", page.data)
         self.assertIn(b'value="apply"', page.data)
         text = page.data.decode("utf-8")
@@ -108,6 +113,29 @@ class PortalServiceTests(unittest.TestCase):
         self.assertIn("correlation-123", detail)
         self.assertNotIn("NeverStoreThis", detail)
         self.assertNotIn("stderr", detail)
+
+    def test_unavailable_runtime_is_not_shown_as_stopped(self):
+        self.agent.unknown_service = "ocserv"
+        page = self.client.get("/gaer/services", headers=self.headers)
+        html = page.data.decode("utf-8")
+        card = re.search(r'<article class="panel service-card"[^>]*data-service-name="ocserv\b.*?</article>', html, re.DOTALL)
+        self.assertIsNotNone(card)
+        self.assertIn('data-service-active="unknown"', card.group())
+        self.assertIn("Нет данных", card.group())
+        self.assertNotIn('name="action" value="disable"', card.group())
+        self.assertNotIn('name="action" value="start"', card.group())
+
+    def test_legacy_agent_falls_back_to_individual_status(self):
+        from app.agent_facade import AgentClientError
+        original = self.agent.call
+        def legacy(method, params):
+            if method == "service.statuses":
+                raise AgentClientError("method_not_found", code="method_not_found")
+            return original(method, params)
+        self.agent.call = legacy
+        page = self.client.get("/gaer/services", headers=self.headers)
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(sum(method == "service.status" for method, _ in self.agent.calls), len(MANAGED_SERVICE_ORDER))
 
     def test_wireguard_apply_button_calls_service_action_with_confirmation(self):
         page = self.client.get("/gaer/services", headers=self.headers)
@@ -145,9 +173,12 @@ class PortalServiceTests(unittest.TestCase):
     def test_disabled_service_has_only_enable_toggle_and_keeps_config(self):
         original = self.agent.call
         def disabled_status(method, params):
-            if method == "service.status" and params["service"] == "ocserv":
-                return {"service": "ocserv", "active": False, "enabled": False}
-            return original(method, params)
+            result = original(method, params)
+            if method == "service.statuses":
+                for item in result["services"]:
+                    if item["service"] == "ocserv":
+                        item.update(active=False, enabled=False)
+            return result
         self.agent.call = disabled_status
         page = self.client.get("/gaer/services", headers=self.headers)
         text = page.data.decode()

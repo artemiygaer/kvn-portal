@@ -998,6 +998,35 @@ class PortalAgentProtocolTests(unittest.TestCase):
             self.assertIn(field, data)
         self.assertTrue(data["health"]["ok"])
 
+    def test_service_statuses_batches_queries_and_preserves_unknown(self):
+        class BatchRunner(FakeRunner):
+            def run(self, argv, **kwargs):
+                self.calls.append((tuple(argv), kwargs.get("timeout", 30), kwargs.get("max_output", 0)))
+                if "ps" in argv:
+                    lines = [json.dumps({"Service": "xray", "State": "running"}),
+                             json.dumps({"Service": "ocserv", "State": "exited"})]
+                    return CommandResult(tuple(argv), 0, "\n".join(lines), "", 1)
+                if argv[:2] == ["systemctl", "is-active"]:
+                    return CommandResult(tuple(argv), 3, "active\ninactive\nactive\n", "", 1)
+                raise AssertionError(argv)
+        runner = BatchRunner()
+        dispatcher = AgentDispatcher(Path("/srv/kvn"), runner, FakeServiceControl({"ocserv": False}))
+        result = dispatcher._service_statuses({})
+        rows = {item["service"]: item for item in result["services"]}
+        self.assertEqual(len(runner.calls), 2)
+        self.assertTrue(rows["xray"]["active"])
+        self.assertFalse(rows["ocserv"]["enabled"])
+        self.assertFalse(rows["ocserv"]["active"])
+        self.assertFalse(rows["wireguard"]["active"])
+        self.assertTrue(rows["agent"]["active"])
+        class FailedDocker(BatchRunner):
+            def run(self, argv, **kwargs):
+                if "ps" in argv:
+                    return CommandResult(tuple(argv), 1, "", "unavailable", 1)
+                return super().run(argv, **kwargs)
+        failed = AgentDispatcher(Path("/srv/kvn"), FailedDocker(), FakeServiceControl())._service_statuses({})
+        self.assertIsNone(next(row for row in failed["services"] if row["service"] == "xray")["active"])
+
     def test_wireguard_apply_uses_control_force_sync_path(self):
         control = FakeServiceControl()
         dispatcher = AgentDispatcher(Path("/srv/kvn"), self.runner, control)
@@ -1041,7 +1070,9 @@ class PortalAgentProtocolTests(unittest.TestCase):
         control = FakeServiceControl()
         runner = StatefulRunner()
         dispatcher = AgentDispatcher(Path("/srv/kvn"), runner, control)
-        result = dispatcher._service_action({"service": "xray", "action": "disable"})
+        with mock.patch.object(dispatcher.dashboard_cache, "invalidate", wraps=dispatcher.dashboard_cache.invalidate) as invalidate:
+            result = dispatcher._service_action({"service": "xray", "action": "disable"})
+        invalidate.assert_called_once_with("containers", "protocols", "health_summary")
         self.assertTrue(result["ok"])
         self.assertFalse(control.preferences["xray"])
         calls = [call for call, _timeout, _max in runner.calls]
@@ -1051,6 +1082,33 @@ class PortalAgentProtocolTests(unittest.TestCase):
         self.assertFalse(runner.active["xray"])
         self.assertTrue(reconciled[0]["ok"])
         self.assertFalse(any("start" in call or "up" in call for call, _timeout, _max in runner.calls))
+
+    def test_disable_does_not_report_success_when_docker_status_unavailable(self):
+        class LostStatusRunner(StatefulRunner):
+            def run(self, argv, **kwargs):
+                if "ps" in argv and not self.active["ocserv"]:
+                    return CommandResult(tuple(argv), 1, "", "Docker unavailable", 1)
+                return super().run(argv, **kwargs)
+
+        runner = LostStatusRunner()
+        dispatcher = AgentDispatcher(Path("/srv/kvn"), runner, FakeServiceControl())
+        result = dispatcher._service_action({"service": "ocserv", "action": "disable"})
+        self.assertFalse(result["ok"])
+        self.assertIsNone(result["after"]["active"])
+        self.assertFalse(result["health"]["ok"])
+
+    def test_health_flags_disabled_service_only_if_running_or_unknown(self):
+        dispatcher = AgentDispatcher(Path("/srv/kvn"), FakeRunner(), FakeServiceControl({"ocserv": False}))
+        def summary(state):
+            containers = {"containers": [{"service": "ocserv", "state": state}]}
+            return dispatcher._health_summary({}, containers=containers, certificates={"certificates": []})
+        stopped = summary("exited")
+        self.assertFalse(any("ocserv" in row["reason"] for row in stopped["diagnostics"]))
+        running = summary("running")
+        self.assertTrue(any("ocserv" in row["reason"] and "вопреки" in row["reason"] for row in running["diagnostics"]))
+        with mock.patch.object(dispatcher, "_service_status_snapshot", return_value={"active": None}):
+            unknown = dispatcher._health_summary({}, certificates={"certificates": []})
+        self.assertTrue(any("ocserv" in row["reason"] and row["severity"] == "warning" for row in unknown["diagnostics"]))
 
     def test_service_action_accepts_the_real_portal_request_id(self):
         runner = StatefulRunner()
