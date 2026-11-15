@@ -85,27 +85,23 @@ class WorkflowContractTests(unittest.TestCase):
         release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
         for marker in [
             "tools/source_safety.py --mode tracked",
+            "tools/architecture_check.py",
             "tools/docs_check.py",
             "python3 -m unittest discover -s tests -v",
-            "docker build --target test -t kvn-portal:test portal",
-            "bash tools/build-deploy.sh",
-            "actions/upload-artifact@v4",
+            "python3 -m unittest discover -s tests/v5 -v",
+            "PYTHONPATH=. /usr/bin/python3 -m unittest discover -s tests -v",
         ]:
             self.assertIn(marker, ci)
-        for name in PUBLICATION_NAMES:
-            self.assertIn(name, release)
         for marker in [
             "workflow_dispatch:",
-            "type: boolean",
-            "inputs.publish",
-            "tools/publication_manifest.py",
-            'gh release create "$TAG"',
-            "--draft",
-            'gh release upload "$TAG"',
-            'gh release view "$TAG" --json assets',
-            'gh release edit "$TAG" --draft=false',
+            "contents: read",
+            "tools/source_safety.py --mode tracked",
+            "не публикует выпуск",
         ]:
             self.assertIn(marker, release)
+        self.assertNotIn("gh release", release)
+        self.assertNotIn("contents: write", ci + release)
+        self.assertNotIn("kvn-vpn-deploy.tar.gz", ci + release)
         self.assertNotRegex(release, r"(?m)^\s+(?:push|schedule):\s*$")
         self.assertNotIn("pull_request_target", ci + release)
         self.assertNotIn("repository_dispatch", ci + release)
