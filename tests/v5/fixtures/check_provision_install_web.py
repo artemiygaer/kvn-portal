@@ -1,6 +1,7 @@
 """Установка Docker из HTTPS на изолированной учебной Debian VM."""
 
 import http.client
+from http.cookies import SimpleCookie
 from pathlib import Path
 import re
 import ssl
@@ -20,11 +21,18 @@ origin = 'https://127.0.0.1:8443'
 
 
 def request(method, path, body=None, content_type=None):
+    global cookie
     headers = {'Cookie': cookie}
     if method == 'POST':
         headers.update({'Origin': origin, 'Content-Type': content_type})
     connection.request(method, path, body=body, headers=headers)
     response = connection.getresponse()
+    updated = response.getheader('Set-Cookie')
+    if updated:
+        jar = SimpleCookie()
+        jar.load(updated)
+        if 'session' in jar:
+            cookie = 'session=' + jar['session'].value
     return response.status, response.read().decode('utf-8')
 
 

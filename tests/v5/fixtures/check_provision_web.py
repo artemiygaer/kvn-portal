@@ -31,7 +31,9 @@ def request(method, path, body=None):
 
 
 status, page = request('GET', '/modules')
-assert status == 200 and 'Подготовить зависимости' in page
+assert status == 200
+if not wait_only:
+    assert 'Подготовить зависимости' in page
 csrf = re.search(r'name="csrf" value="([^"]+)"', page)[1]
 if not wait_only:
     body = urlencode({'csrf': csrf, 'module': module, 'confirm': 'yes'})

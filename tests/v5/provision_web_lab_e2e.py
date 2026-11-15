@@ -12,8 +12,11 @@ def main():
     module = sys.argv[1] if len(sys.argv) >= 2 else 'wireguard'
     if module not in ('wireguard', 'xray'):
         raise ValueError('Неизвестный тестовый модуль')
-    wait_only = len(sys.argv) == 3 and sys.argv[2] == '--wait-only'
-    lab = Lab(22063, ROOT)
+    wait_only = len(sys.argv) >= 3 and sys.argv[2] == '--wait-only'
+    port = int(sys.argv[3]) if len(sys.argv) == 4 and wait_only else 22063
+    if port not in (22063, 22067):
+        raise ValueError('Разрешены только выделенные учебные VM')
+    lab = Lab(port, ROOT)
     lab.wait()
     if not wait_only:
         stage_candidate(lab)

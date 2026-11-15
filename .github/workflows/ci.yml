@@ -22,7 +22,9 @@ jobs:
       - name: Зависимости тестов
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends python3-flask python3-cryptography python3-websockets
+          sudo apt-get install -y --no-install-recommends python3-venv python3-cryptography python3-websockets
+          /usr/bin/python3 -m venv --system-site-packages "$RUNNER_TEMP/kvn-ci"
+          "$RUNNER_TEMP/kvn-ci/bin/python" -m pip install -r portal/requirements.txt
       - name: Исходники и документация
         run: |
           /usr/bin/python3 tools/source_safety.py --mode tracked
@@ -31,7 +33,7 @@ jobs:
           /usr/bin/python3 -m compileall -q v5
       - name: Проверки v5 и совместимости
         run: |
-          sudo env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE" /usr/bin/python3 -m unittest discover -s tests/v5 -v
-          sudo env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE" /usr/bin/python3 -m unittest discover -s tests -v
+          sudo env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE" "$RUNNER_TEMP/kvn-ci/bin/python" -m unittest discover -s tests/v5 -v
+          sudo env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE" "$RUNNER_TEMP/kvn-ci/bin/python" -m unittest discover -s tests -v
           cd portal
-          sudo env PYTHONPATH=. /usr/bin/python3 -m unittest discover -s tests -v
+          sudo env PYTHONPATH=. "$RUNNER_TEMP/kvn-ci/bin/python" -m unittest discover -s tests -v
