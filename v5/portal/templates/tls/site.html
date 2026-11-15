@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Публичная страница · KVN Portal{% endblock %}
+{% block header %}<a href="{{ url_for('dashboard') }}">К обзору</a>{% endblock %}
+{% block body %}
+<h1>Публичная страница</h1>
+<p>Отображается на HTTPS/443 для всех имён с активным сертификатом. Панель на 8443 не меняется.</p>
+{% for notice in get_flashed_messages() %}<p role="status" class="badge">{{ notice }}</p>{% endfor %}
+{% if site %}
+<section class="panel">
+  <p>{% if site.customized %}Опубликована загруженная страница.{% else %}Активна стандартная страница.{% endif %}</p>
+  <p>Загрузите один файл HTML в UTF-8 до 128 КиБ. Можно использовать встроенные стили и изображения; скрипты, формы и внешние ресурсы запрещены.</p>
+  <form method="post" action="{{ url_for('site_action', action='publish') }}" enctype="multipart/form-data" rel="noopener noreferrer">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Файл страницы <input type="file" name="html" accept=".html,.htm,text/html" required></label>
+    <button class="secondary" type="submit" formaction="{{ url_for('site_action', action='preview') }}" formtarget="_blank">Предпросмотр</button>
+    <button type="submit">Опубликовать</button>
+  </form>
+</section>
+{% if site.customized %}
+<section class="panel">
+  <form method="post" action="{{ url_for('site_action', action='reset') }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label><input type="checkbox" name="confirm" value="yes" required> Заменить опубликованный HTML стандартной страницей</label>
+    <button class="secondary" type="submit">Вернуть стандартную</button>
+  </form>
+</section>
+{% endif %}
+{% else %}<p role="alert">Публичная страница недоступна для изменения.</p>{% endif %}
+{% endblock %}

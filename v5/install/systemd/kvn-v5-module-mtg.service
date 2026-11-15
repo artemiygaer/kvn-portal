@@ -1,0 +1,25 @@
+[Unit]
+Description=KVN v5 MTG FakeTLS module
+After=docker.service network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/usr/local/lib/kvn-v5
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m v5.modules.mtproto_common.worker mtg run
+ExecStop=/usr/bin/python3 -m v5.modules.mtproto_common.worker mtg stop
+TimeoutStopSec=25
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+MemoryMax=72M
+TasksMax=20

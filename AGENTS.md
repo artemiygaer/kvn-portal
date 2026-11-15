@@ -1,117 +1,27 @@
-# KVN VPN v4.2.0: краткая инструкция для ИИ-ассистента
+# KVN Portal: правила работы с проектом
 
-Говорить с пользователем по-русски, коротко и по делу. Комментарии и документацию писать на русском. Перед правками сначала смотреть код вокруг задачи; подробности есть в `README.md`, `DEPLOY.md` и `ARCHITECTURE.md`. Для модульной задачи сначала читать ближайший вложенный `AGENTS.md` и брать минимальный test surface из task-routing.
+Общайтесь с пользователем по-русски; комментарии и документацию также пишите
+по-русски. На устройстве пользователя выполняйте разработку, Git, сборку и
+тесты через WSL. Перед изменениями изучайте соседний код и проверяйте статус
+Git; сохраняйте посторонние изменения.
 
-## Суть проекта
+Текущая линейка — v5: чистая установка портала Debian в `/root/portal`,
+непосредственно не совместимая с обновлением установленной v4.2. После
+установки дополнительные модули отсутствуют. Подписанные модули управляются
+через панель; отключение не должно открывать их порты или удалять настройки.
+Начните с [README](README.md), [архитектуры](v5/ARCHITECTURE.md) и
+[правил v5](v5/AGENTS.md). При работе в старых каталогах учитывайте их
+вложенные инструкции; опубликованные старые релизы не изменяйте.
 
-KVN VPN v4.2.0 — модульный мультипротокольный VPN-стек для Debian 12/13. Основные сервисы идут через Docker Compose. Host-службы:
+Не публикуйте секреты, данные пользователей, базы, runtime-конфигурации и
+бэкапы. Web-процесс не получает Docker socket или root-доступ; привилегии
+выдаются только ограниченным проверяемым службам. Браузерная root-консоль
+по умолчанию выключена. Сертификаты, сетевой план, откат обновления и права
+доступа проверяйте на изолированной Debian VM; реальный сервер используйте
+только с явного разрешения владельца и в указанных им границах.
 
-- `kvn-amneziawg.service`: AmneziaWG, `awg0`, `51820/udp`;
-- `kvn-wireguard.service`: стандартный WireGuard, `wg0`, `51821/udp`;
-- `kvn-portal-agent.service`: привилегированный agent портала.
-
-Поддерживаемые `systems`: `tls`, `reality-xhttp`, `reality-tcp`, `hysteria`, `telemt`, `mtg`, `amneziawg`, `wireguard`, `ocserv`.
-
-Порты: `80/tcp` HTTP-проверка домена/редирект/Certbot HTTP-01, `443/tcp` nginx SNI-router, `443/udp` Hysteria2, `4443/udp` ocserv DTLS, `51820/udp` AmneziaWG, `51821/udp` WireGuard, `2096/tcp` резервная подписка, `2443-2448/tcp` прямые backends. Порты должны быть открыты и на host, и в cloud firewall.
-
-## Жёсткие правила
-
-- `users.json` — единственный source of truth.
-- GitHub-источник обновлений фиксирован как `artemiygaer/kvn-portal`; browser/RPC не могут подменить repository или URL. Token для private Release хранится только в `/etc/kvn-portal/github.token` с root-only правами и никогда не выводится.
-- Не редактировать вручную generated/runtime: `nginx/nginx.conf`, `nginx/site/index.html`, `nginx/portal-gateway.conf`, `xray/config.json`, `hy2/config.yaml`, `amneziawg/awg0.conf`, `wireguard/wg0.conf`, `telemt/config.toml`, `mtg/config.toml`, `ocserv/ocserv.conf`, `ocserv/users.txt`, `ocserv/ocserv.env`, `clients/`, `CLIENT_LINKS.md`, `nginx/web/`.
-- Не включать в deploy и не логировать секреты/runtime: `users.json`, `clients/`, certs, `.env`, portal DB/WAL/SHM, metrics DB/WAL/SHM, `/etc/kvn-portal/agent.secret`, `/run/kvn-portal/control.sock`.
-- Backup-архивы `kvn-vpn-backup-*.tar` в `/backup` содержат runtime-секреты и Docker images; не класть их в deploy, git, `nginx/web/` или публичные ссылки.
-- Web-порталу нельзя монтировать Docker socket; не монтировать Docker socket в контейнер портала. Привилегированные действия только через `kvn-portal-agent.service` и allowlisted RPC по Unix socket.
-- Интерактивный root shell портала разрешён только через `kvn-portal-agent.service`: запрос системного root-пароля при открытии, проверка через `/etc/shadow` с резервной PAM-проверкой `systemd-run --uid=nobody su`, привязка к текущей portal session, PTY-проксирование, xterm.js в браузере, raw-ввод, ANSI/curses, лимит сессий и таймаут. Docker socket по-прежнему запрещён.
-- После изменений предпочитать hot-update/reload. Restart — только когда технически нужен.
-- Не удалять пользовательские runtime-данные при очистке. Удалять можно кеши, временные тестовые каталоги и явно сборочные артефакты.
-
-## Важные решения
-
-- Стандартный WireGuard — отдельный сервис. Нельзя выдавать `wireguard.conf`, указывающий на `51820/udp` AmneziaWG: tunnel может подняться, но трафик не будет работать из-за AWG handshake/обфускации.
-- AmneziaWG и WireGuard синхронизируются host-скриптами:
-  - `amneziawg/install-host-service.sh`, `amneziawg/sync-host-service.sh`;
-  - `wireguard/install-host-service.sh`, `wireguard/sync-host-service.sh`.
-- Peer-only изменения AWG/WG применяются через `syncconf`; structural delta — controlled restart.
-- AmneziaWG `legacy` остаётся default. Профиль `3.1` включается явно, требует актуальные tools/module, одинаковый secret `HeaderProtectionKey` на сервере и клиентах и повторный экспорт всех AWG-конфигов. Ключ нельзя возвращать в portal RPC или аудит.
-- Dashboard показывает активные удалённые SSH-сессии через фиксированный `loginctl` с fallback `who --ips`: разрешены поля user/IP/TTY/login time, включая `root`; локальные сессии, raw output и содержимое терминала наружу не выдаются.
-- Портал создаёт только обычных Linux-пользователей SSH через узкий root-helper: домашний каталог и `/bin/bash`, пароль через stdin, без `sudo`/`adm`/`wheel`; при ошибке выполняется rollback.
-- `/settings` имеет строгие группы `portal|protocols|access|update`. Каждая группа загружает только свои RPC и JavaScript; POST должен возвращать в соответствующую группу.
-- SNI-пулы управляются через портал «Настройки» или `sni-routes`; пересечения SNI между сервисами отклоняются до применения. Исключение: сайт может разделять имя с одним явно включённым Reality self-steal backend (target `nginx:8443`, xver=0). `sni_routes.<system>.reality_mode` отсутствует — сохранить внешний режим и действующий target/dest/xver, не включать self-steal автоматически при update. Общий с сайтом ocserv SNI обслуживается только на прямом `2448/tcp`; dedicated ocserv SNI остаётся на `443`.
-- Per-user SNI разрешён для `tls`, `reality-xhttp`, `reality-tcp` и `hysteria`; HAPP должен получать выбранные значения после render/apply. Reality SNI должен быть заранее в `sni_routes.<system>.aliases`, чтобы nginx и Xray были согласованы.
-- Telemt/mtg/ocserv имеют service-level SNI. Telemt менять через default сервиса (`sni-routes set-default telemt <domain>` или портал), иначе QR/secret и `telemt/config.toml` разойдутся.
-- Универсального SNI «белого списка» для РФ нет. До применения можно выполнить ограниченную 3 секундами проверку `sni-routes diagnose <domain>` (или кнопку портала): она не меняет state и не выдаёт IP/сертификат, но не подтверждает доступность у другого оператора.
-- Portal: HTTPS + login/password + custom path + блок IP на 12 часов после 5 ошибок. Пароли только через `getpass`/hash, reset инвалидирует сессии.
-- Dashboard использует stale-while-revalidate: последний успешный snapshot остаётся актуальным во время фонового сбора. `stale` допустим только при ошибке источника, отсутствии данных или просрочке вне активного refresh.
-- Карточка контейнеров определяет проблему по текущим `state/health`; исторический `RestartCount` после штатного update сам по себе не должен давать тревогу.
-- HAPP получает URL-подписку с base64-списком URI. OpenConnect выдаётся отдельно в `openconnect.txt`.
-- Пользовательский экспорт строится в памяти по allowlist. ZIP предназначен для ручного вложения в Telegram; прямого Telegram API и хранения bot token нет.
-- Режим export по IP меняет только endpoint. SNI, Reality `serverName` и certificate identity не переписываются; HTTPS subscription по IP требует direct route и точный IP SAN.
-
-## Типовой apply
-
-После изменения `users.json` или state через CLI/портал:
-
-```bash
-python3 tools/kvnctl.py render
-sudo ./amneziawg/sync-host-service.sh
-sudo ./wireguard/sync-host-service.sh
-docker compose -f docker-compose.yml up -d --build --remove-orphans
-```
-
-На Windows:
-
-```powershell
-$env:PYTHONIOENCODING='utf-8'; python tools\kvnctl.py render
-```
-
-## CLI
-
-```bash
-python3 tools/kvnctl.py interactive
-python3 tools/kvnctl.py add-user USER --systems hysteria,reality-tcp,amneziawg,wireguard --restart
-python3 tools/kvnctl.py edit-user USER --restart
-python3 tools/kvnctl.py remove-user USER --restart
-python3 tools/kvnctl.py links USER
-python3 tools/kvnctl.py sni-routes diagnose example.com
-python3 tools/kvnctl.py portal status|configure|reset-credentials|unlock-ip
-python3 tools/kvnctl.py amneziawg diagnose USER
-python3 tools/kvnctl.py wireguard diagnose USER
-python3 tools/kvnctl.py amneziawg verify
-python3 tools/kvnctl.py wireguard verify
-```
-
-## Setup, update, deploy
-
-- `setup.sh`: устанавливает Docker/Compose/Python/qrencode/Certbot/wireguard-tools, проверяет AmneziaWG apt/kernel, на reboot выходит до вопросов, настраивает домены/портал/users, делает `render --certs`, ставит host-службы, запускает Compose и проверяет контейнеры/AWG/WG.
-- Для 1 vCPU/1 ГБ использовать `kvn-vpn-release-linux-amd64.tar.gz`: `update.sh` проверяет release/images, загружает их до source mutation и запускает Compose с `--no-build --pull never`. Source-only deploy остаётся online fallback.
-- `update.sh`: положить full release или `kvn-vpn-deploy.tar.gz` в корень установленного проекта и выполнить `sudo ./update.sh [архив]`. Скрипт не затирает `users.json`, certs, clients, portal/metrics DB. Web-портал принимает те же архивы через host-agent.
-- `tools/build-deploy.sh`: собирает deploy только из canonical source-файлов и пишет `.kvn-canonical-files` в архив. В архиве запрещены пользователи, QR/clients, private keys/certs, DB/WAL/SHM, sockets, logs, generated server configs включая `wireguard/wg0.conf`.
-- `tools/build-release.sh`: на рабочей машине собирает полный воспроизводимый Linux/amd64 release с семью Compose images, source deploy и `release-manifest.json`.
-- `tools/project-backup.sh`: root-only backup проекта и Docker images в `/backup`; портал запускает его через host-agent на странице «Бэкапы».
-- `tools/restore-backup.sh`: root-only restore backup-архива в новый абсолютный каталог с проверкой имени архива и target.
-- `tools/cleanup-project.sh`: dry-run по умолчанию; `--apply` удаляет только кеши/временные файлы и отказывается трогать runtime/generated и `/backup`.
-- `packaging/deploy-template/users.json` должен быть шаблоном без секретов и пользователей: `portal.enabled=false`.
-
-## Проверки перед сдачей
-
-```bash
-python3 -m py_compile tools/kvnctl.py
-python3 -m compileall -q portal
-python3 -m unittest discover -s tests -v
-bash -n setup.sh update.sh tools/*.sh amneziawg/*.sh wireguard/*.sh ocserv/*.sh portal/*.sh
-docker compose -f docker-compose.yml config --quiet
-docker build --target test -t kvn-portal:test portal
-python3 tools/kvnctl.py render
-python3 tests/deploy_runtime_e2e.py
-bash tools/build-deploy.sh
-python3 tests/portal_upgrade_e2e.py --release kvn-vpn-release-linux-amd64.tar.gz
-python3 tests/self_steal_e2e.py
-KVN_BUILD_ID=20261031-v4.2.0-release1 KVN_VERSION=v4.2.0 bash tools/build-release.sh
-```
-
-Debian-only: systemd, socket права, firewall, Certbot HTTP-01, реальный Compose lifecycle. Если Docker/WSL недоступен локально, явно указать это в ответе.
-
-## Передача проекта
-
-Для новой ИИ-сессии использовать `HANDOFF_PROMPT.md`. Он короче и содержит текущий статус, последние проверки и SHA deploy-артефакта.
+Первичная установка выполняется по SSH из GitHub Releases либо проверенного
+архива; последующие обновления и установка модулей — через портал. Минимальные
+проверки подбирайте по изменённому компоненту, а результаты и пропуски
+указывайте явно. Для передачи контекста используйте
+[HANDOFF_PROMPT.md](HANDOFF_PROMPT.md).

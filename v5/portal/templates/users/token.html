@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Токен подписки · KVN Portal{% endblock %}
+{% block body %}
+<p><a href="{{ url_for('vpn_users.detail', user_id=user_id) }}">Назад к карточке</a></p>
+<h1>Ссылка подписки</h1>
+<p>Скопируйте её сейчас. Повторно показать этот токен нельзя.</p>
+<p><code class="user-secret">{{ link }}</code></p>
+{% endblock %}

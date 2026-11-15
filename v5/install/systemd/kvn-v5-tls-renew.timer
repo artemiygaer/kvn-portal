@@ -1,0 +1,10 @@
+[Unit]
+Description=KVN v5: проверка продления TLS дважды в сутки
+
+[Timer]
+OnCalendar=*-*-* 00,12:00:00
+RandomizedDelaySec=45min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

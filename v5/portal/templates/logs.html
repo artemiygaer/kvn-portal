@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% block title %}Журнал — KVN Portal{% endblock %}
+{% block body %}
+<h1>Журнал</h1>
+<p>До 40 событий за последние сутки по выбранному источнику. Время UTC.</p>
+<section class="panel" aria-labelledby="journal-title">
+  <h2 id="journal-title">{{ sources[source] }}</h2>
+  <form action="{{ url_for('logs') }}" method="get">
+    <label>Источник
+      <select name="source">
+        {% for key, label in sources.items() %}<option value="{{ key }}"{% if source == key %} selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    <button type="submit">Показать</button>
+  </form>
+  {% if rows is none %}
+  <p class="alert" role="alert">Журнал недоступен. Повторите попытку или проверьте службы через SSH.</p>
+  {% elif not rows %}
+  <p>За выбранный период событий нет.</p>
+  {% else %}
+  <ul class="journal-list">
+    {% for row in rows %}
+    <li><time datetime="{{ row.time }}">{{ row.time | replace('T', ' ') | replace('+00:00', '') }}</time>
+      {% if source == 'operations' %}
+      <span>{{ operations[row.method] }}{% if row.module %} · {{ sources[row.module] }}{% endif %}</span>
+      <span class="badge{% if row.status == 'ok' %} badge-ok{% endif %}">{{ 'Выполнено' if row.status == 'ok' else 'Отклонено или не выполнено' }}</span>
+      {% else %}
+      <span class="badge">{{ priorities[row.priority] }}</span>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if source != 'operations' %}<p>Здесь видны время и уровень событий. Подробности доступны через SSH; текст служб не передаётся в браузер.</p>{% endif %}
+</section>
+{% endblock %}

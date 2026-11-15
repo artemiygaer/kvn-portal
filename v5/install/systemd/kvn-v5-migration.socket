@@ -1,0 +1,15 @@
+[Unit]
+Description=KVN v5 private VPN archive socket
+
+[Socket]
+ListenStream=/run/kvn-v5-migration.sock
+Accept=yes
+SocketUser=root
+SocketGroup=kvn-v5-web
+SocketMode=0660
+RemoveOnStop=yes
+MaxConnections=1
+Backlog=2
+
+[Install]
+WantedBy=sockets.target

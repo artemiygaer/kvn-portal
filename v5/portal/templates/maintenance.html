@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+{% block title %}Обслуживание — KVN Portal{% endblock %}
+{% block body %}
+<h1>Обслуживание</h1>
+<p>Ядро {{ 'v' ~ version if version else 'v5 без метки выпуска' }} · версия API {{ core_api }}</p>
+{% if console_available %}
+<section class="panel" aria-labelledby="console-title">
+  <h2 id="console-title">Консоль root</h2>
+  <p>Консоль открывается отдельно после ввода системного пароля root.</p>
+  <a class="button" href="{{ url_for('console_page') }}">Открыть консоль</a>
+</section>
+{% endif %}
+<section class="panel" aria-labelledby="backup-title">
+  <h2 id="backup-title">Приватная копия ядра</h2>
+  <p>Через SSH от root. В копии есть закрытые данные, поэтому панель не может её скачать. Пользовательские данные переносите отдельно через «Импорт и экспорт .kvn».</p>
+  <pre><code>cd /usr/local/lib/kvn-v5
+python3 -m v5.core.maintenance backup</code></pre>
+  <p>Сохраните имя файла и SHA-256, которые покажет команда. Если при установке выбран другой каталог, перед командой <code>backup</code> укажите <code>--install-dir /root/ИМЯ</code>.</p>
+</section>
+<section class="panel" aria-labelledby="recovery-title">
+  <h2 id="recovery-title">Если потерян доступ к панели</h2>
+  <p>Подключитесь по SSH и смените пароль. Все старые сеансы панели будут завершены. TLS и VPN-модули команда не меняет.</p>
+  <pre><code>cd /usr/local/lib/kvn-v5
+python3 -m v5.core.maintenance reset-admin</code></pre>
+</section>
+<section class="panel" aria-labelledby="update-title">
+  <h2 id="update-title">Обновление ядра</h2>
+  <p><a class="button" href="{{ url_for('core_update_page') }}">Открыть обновления</a></p>
+  <p>Отдельно от модулей. В панели сначала проверьте подписанный пакет, затем подтвердите применение. Аварийный вариант через SSH:</p>
+  <pre><code>cd /usr/local/lib/kvn-v5
+python3 -m v5.core.maintenance core-update /root/КАТАЛОГ</code></pre>
+  <p>При прерванном обновлении выполните <code>python3 -m v5.core.maintenance core-recover</code>. Для явного возврата к предыдущей рабочей версии добавьте <code>--previous</code>.</p>
+</section>
+{% endblock %}

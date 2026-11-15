@@ -1,0 +1,18 @@
+[Unit]
+Description=KVN v5 isolated root PTY agent
+PartOf=kvn-v5-console-agent.socket
+After=kvn-v5-console-agent.socket
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/usr/local/lib/kvn-v5
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m v5.core.console.agent --web-uid @WEB_UID@
+StandardInput=null
+StandardOutput=null
+StandardError=journal
+UMask=0077
+KillMode=control-group
+TimeoutStopSec=5s

@@ -13,6 +13,8 @@ from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
 ALLOWED_RUNTIME_TEMPLATES = {
+    # Шаблон исходников v5, не действующая конфигурация установленного сервера.
+    "v5/core/tls/nginx.conf",
     "packaging/deploy-template/users.json",
     "packaging/deploy-template/nginx/site/index.html",
     "packaging/deploy-template/portal-data/.gitkeep",

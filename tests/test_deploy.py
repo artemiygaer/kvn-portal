@@ -305,30 +305,24 @@ class DeployDocumentationTests(unittest.TestCase):
         agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
         deploy = (ROOT / "DEPLOY.md").read_text(encoding="utf-8")
         for marker in [
-            "portal reset-credentials", "portal unlock-ip", "portal configure",
-            "kvn-portal-agent.service", "portal-data/portal.db", "/var/lib/kvn-portal/metrics.db",
-            "metrics/history.json", "amneziawg verify", "wireguard verify", "reconcile", "/var/run/docker.sock",
-            "tools/project-backup.sh", "tools/restore-backup.sh", "tools/cleanup-project.sh", "/backup",
-            "раздел «Бэкапы»", "раздел «Проект»", "содержит runtime-секреты",
+            "KVN Portal", "Debian 12/13", "чистой установки", "/root/portal",
+            "GitHub Releases", "SHA-256", "отдельно", "Docker socket", "SSH-туннель",
+            "TCP/80", "TCP/443", "TCP/8443", "зашифрованного `.kvn`",
+            "v5/README.md", "v5/DEPLOY.md", "v5/install/README.md", "v5/ARCHITECTURE.md",
         ]:
             self.assertIn(marker, readme)
         for marker in [
-            "не монтировать Docker socket", "nginx/portal-gateway.conf",
-            "portal DB/WAL/SHM", "portal.enabled=false", "Debian-only",
-            "kvn-vpn-backup-*.tar", "tools/cleanup-project.sh", "/backup",
+            "Docker socket", "секреты", "WSL", "v5/ARCHITECTURE.md",
+            "/root/portal", "опубликованные старые релизы",
         ]:
             self.assertIn(marker, agents)
         for marker in [
-            "## Fresh install", "## Upgrade", "## Rollback", "## Backup",
-            "<PORTAL_PORT>/tcp", "80/tcp", "kvn-portal-agent.service",
-            "kvn-amneziawg.service", "kvn-wireguard.service", "sudo reboot", "4443/udp", "51820/udp", "51821/udp",
-            "metrics.db", "72", "QR", "reconcile", "update.sh",
-            "## Restore", "tools/project-backup.sh", "tools/restore-backup.sh", "tools/cleanup-project.sh", "/backup",
-            "Обновление из GitHub Releases", "--bootstrap-only",
-            "ZIP для Telegram", "Прямой отправки через Telegram API нет",
-            "/etc/kvn-portal/github.token",
+            "v5/DEPLOY.md", "v5/install/README.md", "чистом Debian", ".kvn",
         ]:
             self.assertIn(marker, deploy)
+        current_deploy = (ROOT / "v5/DEPLOY.md").read_text(encoding="utf-8")
+        for marker in ("/root/portal", "GitHub", "8443", ".kvn", "Обновление"):
+            self.assertIn(marker, current_deploy)
 
     def test_relative_markdown_links_exist(self):
         documents = [ROOT / "README.md", ROOT / "AGENTS.md", ROOT / "DEPLOY.md"]

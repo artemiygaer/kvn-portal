@@ -1,0 +1,13 @@
+[Unit]
+Description=KVN v5 core update request socket
+
+[Socket]
+ListenStream=/run/kvn-v5-core-update.sock
+SocketUser=root
+SocketGroup=kvn-v5-web
+SocketMode=0660
+Accept=yes
+MaxConnections=4
+
+[Install]
+WantedBy=sockets.target

@@ -1,0 +1,16 @@
+[Unit]
+Description=KVN v5 explicitly enabled browser console socket
+Requires=kvn-v5-console-agent.socket
+After=kvn-v5-console-agent.socket
+
+[Socket]
+ListenStream=/run/kvn-v5-console-web.sock
+SocketUser=root
+SocketGroup=kvn-v5-web
+SocketMode=0660
+Accept=no
+RemoveOnStop=yes
+Backlog=4
+
+[Install]
+WantedBy=sockets.target

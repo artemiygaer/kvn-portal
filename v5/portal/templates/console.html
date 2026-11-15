@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+{% block title %}Консоль root — KVN Portal{% endblock %}
+{% block body %}
+<link rel="stylesheet" href="{{ url_for('static', filename='vendor/xterm/xterm.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='console.css') }}">
+<h1>Консоль root</h1>
+<p>До 10 минут на сеанс. Выход из панели закроет консоль. Для аварийного доступа используйте SSH.</p>
+<section class="panel">
+  <form id="console-auth" method="post" action="{{ url_for('console_authorize') }}" autocomplete="off">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Системный пароль root <input type="password" name="root_password" required maxlength="1024"></label>
+    <button type="submit">Открыть терминал</button>
+  </form>
+  <noscript><p>Для работы терминала нужен JavaScript.</p></noscript>
+  <p id="console-status" role="status">Терминал не подключён.</p>
+  <div id="console-terminal" hidden aria-label="Терминал root"></div>
+  <button id="console-close" type="button" class="secondary" hidden>Закрыть терминал</button>
+</section>
+{% endblock %}
+{% block scripts %}
+<script defer src="{{ url_for('static', filename='vendor/xterm/xterm.js') }}"></script>
+<script defer src="{{ url_for('static', filename='vendor/xterm/addon-fit.js') }}"></script>
+<script defer src="{{ url_for('static', filename='console.js') }}"></script>
+{% endblock %}

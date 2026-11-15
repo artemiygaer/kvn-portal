@@ -1,0 +1,15 @@
+[Unit]
+Description=KVN v5 module lifecycle socket
+
+[Socket]
+ListenStream=/run/kvn-v5-lifecycle.sock
+Accept=yes
+SocketUser=root
+SocketGroup=kvn-v5-web
+SocketMode=0660
+RemoveOnStop=yes
+MaxConnections=2
+Backlog=4
+
+[Install]
+WantedBy=sockets.target

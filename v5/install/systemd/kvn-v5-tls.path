@@ -1,0 +1,9 @@
+[Unit]
+Description=KVN v5: запуск задачи выпуска TLS
+
+[Path]
+PathExists=/var/lib/kvn-v5/tls/pending.json
+Unit=kvn-v5-tls.service
+
+[Install]
+WantedBy=multi-user.target

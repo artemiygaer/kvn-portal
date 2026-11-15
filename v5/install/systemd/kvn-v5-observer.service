@@ -1,0 +1,30 @@
+[Unit]
+Description=KVN v5 optional SSH and process history
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/usr/local/lib/kvn-v5
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m v5.core.observability.collector
+StateDirectory=kvn-v5/observability
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+CapabilityBoundingSet=
+MemoryMax=48M
+TasksMax=8
+Restart=on-failure
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target

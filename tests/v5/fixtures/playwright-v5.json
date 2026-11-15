@@ -1,0 +1,10 @@
+{
+  "browser": {
+    "browserName": "chromium",
+    "isolated": true,
+    "contextOptions": {"ignoreHTTPSErrors": true, "colorScheme": "light"}
+  },
+  "network": {"allowedOrigins": ["https://127.0.0.1:18087"]},
+  "outputDir": "../../../output/playwright",
+  "outputMode": "file"
+}

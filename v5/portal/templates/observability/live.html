@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+{% block title %}SSH и процессы · KVN Portal{% endblock %}
+{% block body %}
+{% macro value(number, unit='') %}{{ '—' if number is none else number ~ unit }}{% endmacro %}
+<h1>SSH и процессы</h1>
+<p>Снимок по запросу. TCP-счётчики относятся к соединению целиком, а не к отдельному SSH-каналу. «—» означает, что данных нет.</p>
+<p>На узком экране таблицы прокручиваются по горизонтали.</p>
+<a class="button secondary" href="{{ url_for('observability', session=selected) }}">Обновить</a>
+<a class="button secondary" href="{{ url_for('observation_history') }}">История и её настройка</a>
+{% if data is none %}
+<p role="alert" class="alert">Агент наблюдения недоступен.</p>
+{% else %}
+<p>Снимок: {{ date(data.captured_at) }}</p>
+<section class="panel"><h2>Сеть сервера</h2>
+{% if data.network %}
+<p>Всего: {{ data.network.received_bytes }} / {{ data.network.sent_bytes }} Б (RX / TX).
+Скорость: {{ value(data.network.rx_per_second, ' Б/с') }} / {{ value(data.network.tx_per_second, ' Б/с') }}.
+Это сумма интерфейсов: мосты и виртуальные интерфейсы могут учитывать один пакет повторно.</p>
+{% else %}<p role="status">Сетевые счётчики недоступны.</p>{% endif %}</section>
+<section class="panel">
+  <h2>Подключения SSH</h2>
+  {% if data.ssh_partial %}<p role="status">Источник SSH недоступен или список неполный.</p>{% endif %}
+  {% if data.tcp_partial %}<p role="status">TCP-счётчики недоступны.</p>{% endif %}
+  {% if data.ssh %}
+  <div class="table-scroll" tabindex="0" role="region" aria-label="Подключения SSH">
+    <table>
+      <thead><tr><th scope="col">Пользователь</th><th scope="col">Адрес</th><th scope="col">Вход</th><th scope="col">Трафик RX / TX</th><th scope="col">Скорость RX / TX</th></tr></thead>
+      <tbody>{% for row in data.ssh %}
+        <tr>
+          <td><a href="{{ url_for('observability', session=row.id) }}">{{ row.user }}</a>{% if row.tty %} · {{ row.tty }}{% endif %}</td>
+          <td>{{ row.ip or '—' }}{% if row.port is not none %} · {{ row.port }}{% endif %}</td>
+          <td>{{ date(row.started_at) }} · {{ row.age_seconds }} с</td>
+          <td>{{ value(row.rx_bytes, ' Б') }} / {{ value(row.tx_bytes, ' Б') }}</td>
+          <td>{{ value(row.rx_per_second, ' Б/с') }} / {{ value(row.tx_per_second, ' Б/с') }}</td>
+        </tr>
+      {% endfor %}</tbody>
+    </table>
+  </div>
+  {% elif not data.ssh_partial %}<p>Активных SSH-сессий нет.</p>{% endif %}
+</section>
+<section class="panel">
+  <h2>Процессы{% if selected %} выбранной SSH-сессии{% endif %}</h2>
+  {% if selected %}<p><a href="{{ url_for('observability') }}">Показать все процессы</a></p>{% endif %}
+  {% if data.session_filter_confirmed is sameas false %}
+  <p role="status">Связь процессов с этой сессией не подтверждена.</p>
+  {% endif %}
+  {% if data.processes_partial %}<p role="status">Список процессов ограничен или неполный.</p>{% endif %}
+  {% if data.processes %}
+  <div class="table-scroll" tabindex="0" role="region" aria-label="Процессы">
+    <table>
+      <thead><tr><th scope="col">PID</th><th scope="col">Имя</th><th scope="col">Пользователь</th><th scope="col">CPU</th><th scope="col">RAM</th><th scope="col">Возраст</th></tr></thead>
+      <tbody>{% for row in data.processes %}
+        <tr><td>{{ row.pid }}</td><td>{{ row.name }}</td><td>{{ row.user }}</td><td>{{ value(row.cpu_percent, ' %') }}</td><td>{{ row.rss_bytes }} Б</td><td>{{ row.age_seconds }} с</td></tr>
+      {% endfor %}</tbody>
+    </table>
+  </div>
+  {% elif data.session_filter_confirmed is not sameas false %}<p>Нет данных о процессах.</p>{% endif %}
+</section>
+{% endif %}
+{% endblock %}

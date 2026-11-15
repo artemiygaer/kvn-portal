@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+{% block title %}История SSH и процессов · KVN Portal{% endblock %}
+{% block body %}
+<h1>История SSH и процессов</h1>
+<p><a href="{{ url_for('observability') }}">Текущие подключения и процессы</a></p>
+{% if state is none %}
+<p role="alert">Служба истории недоступна.</p>
+{% else %}
+<section class="panel">
+  <h2>Сбор истории</h2>
+  <p>{% if state.enabled and state.active %}Включён.{% elif state.enabled %}Включён, но сборщик не работает.{% elif state.active %}Работает до перезагрузки, автозапуск выключен.{% else %}Выключен.{% endif %}
+     Запись выполняется раз в минуту и хранится не дольше 24 часов. Команды и содержимое сеансов не сохраняются.</p>
+  {% if state.enabled or state.active %}
+  <form method="post">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="disable">
+    <label><input type="checkbox" name="confirm" value="yes" required> Удалить сохранённую историю при отключении</label>
+    <button type="submit">Выключить и удалить историю</button>
+  </form>
+  {% else %}
+  <form method="post">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="enable">
+    <button type="submit">Включить сбор истории</button>
+  </form>
+  {% endif %}
+</section>
+<section class="panel">
+  <h2>Период</h2>
+  <nav aria-label="Интервал истории">{% for window in windows %}
+    <a href="{{ url_for('observation_history', hours=window) }}"{% if hours == window %} aria-current="page"{% endif %}>{{ window }} ч</a>
+  {% endfor %}</nav>
+  {% if data.captured_count == 0 %}<p>За выбранный период данных нет.</p>{% else %}
+  <p>Всего снимков: {{ data.captured_count }}. Ниже показаны до 24 равномерно выбранных снимков. «—» означает отсутствие данных; таблицу можно прокручивать по горизонтали. Счётчики сети суммируют интерфейсы и могут учитывать пакеты повторно.</p>
+  <div class="table-scroll" tabindex="0" role="region" aria-label="Снимки">
+  <table><thead><tr><th scope="col">Время</th><th scope="col">SSH: пользователь и адрес, RX / TX, скорость RX / TX</th><th scope="col">Процессы: PID, имя, владелец, CPU, RAM, возраст</th><th scope="col">Сеть сервера RX / TX</th></tr></thead>
+  <tbody>{% for sample in data.samples %}<tr>
+    <td>{{ date(sample.captured_at) }}</td>
+    <td>{% if sample.ssh_partial %}Неполные данные.<br>{% endif %}{% for row in sample.ssh %}
+      {{ row.user }}{% if row.tty %} · {{ row.tty }}{% endif %} · {% if row.ip and ':' in row.ip %}[{{ row.ip }}]{% else %}{{ row.ip or '—' }}{% endif %}:{{ row.port if row.port is not none else '—' }} · {{ row.age_seconds }} с ·
+      {{ row.rx_bytes if row.rx_bytes is not none else '—' }} / {{ row.tx_bytes if row.tx_bytes is not none else '—' }} Б ·
+      {{ row.rx_per_second if row.rx_per_second is not none else '—' }} / {{ row.tx_per_second if row.tx_per_second is not none else '—' }} Б/с<br>
+    {% else %}Нет сессий или данных{% endfor %}</td>
+    <td>{% if sample.processes_partial %}Список неполный.<br>{% endif %}{% for row in sample.processes[:10] %}
+      {{ row.pid }} · {{ row.name }} · {{ row.user }} · {{ row.cpu_percent if row.cpu_percent is not none else '—' }} % · {{ row.rss_bytes }} Б · {{ row.age_seconds }} с<br>
+    {% else %}Нет данных{% endfor %}{% if sample.processes|length > 10 %}<details><summary>Показать остальные ({{ sample.processes|length - 10 }})</summary>
+    {% for row in sample.processes[10:] %}{{ row.pid }} · {{ row.name }} · {{ row.user }} · {{ row.cpu_percent if row.cpu_percent is not none else '—' }} % · {{ row.rss_bytes }} Б · {{ row.age_seconds }} с<br>{% endfor %}</details>{% endif %}</td>
+    <td>{% if sample.network %}{{ sample.network.received_bytes }} / {{ sample.network.sent_bytes }} Б<br>
+      {{ sample.network.rx_per_second if sample.network.rx_per_second is not none else '—' }} /
+      {{ sample.network.tx_per_second if sample.network.tx_per_second is not none else '—' }} Б/с{% else %}—{% endif %}</td>
+  </tr>{% endfor %}</tbody></table></div>{% endif %}
+  {% if data.gaps %}<h3>Интервалы без данных</h3><ul>{% for start, end in data.gaps %}<li>{{ date(start) }} — {{ date(end) }}</li>{% endfor %}</ul>{% endif %}
+  {% if data.events %}<h3>Изменения SSH-сессий</h3><p>Событие фиксируется по соседним полным снимкам, а не как точное время входа или выхода.</p>
+  <ul>{% for event in data.events %}<li>{{ date(event.at) }} · {{ event.action }} · {{ event.user }} · {{ event.ip or '—' }}</li>{% endfor %}</ul>{% endif %}
+  {% if data.truncated %}<p>Часть событий или интервалов не показана из-за ограничения размера.</p>{% endif %}
+</section>
+{% endif %}
+{% endblock %}

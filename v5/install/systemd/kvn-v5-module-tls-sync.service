@@ -1,0 +1,25 @@
+[Unit]
+Description=KVN v5 synchronize module TLS from the gateway
+ConditionPathExists=/var/lib/kvn-v5/modules/hysteria/runtime.json
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/usr/local/lib/kvn-v5
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m v5.core.lifecycle.tls_sync
+TimeoutStartSec=6min
+UMask=0077
+ProtectSystem=strict
+ReadWritePaths=/var/lib/kvn-v5/modules/hysteria /var/lib/kvn-v5/packages /var/lib/kvn-v5/users
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+InaccessiblePaths=-/run/docker.sock -/var/run/docker.sock
+CapabilityBoundingSet=CAP_CHOWN
+MemoryMax=48M
+TasksMax=8

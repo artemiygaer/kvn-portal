@@ -1,0 +1,15 @@
+[Unit]
+Description=KVN v5 explicitly enabled root console socket
+PartOf=kvn-v5-console-web.socket
+
+[Socket]
+ListenStream=/run/kvn-v5-console-agent.sock
+SocketUser=root
+SocketGroup=kvn-v5-web
+SocketMode=0660
+Accept=no
+RemoveOnStop=yes
+Backlog=4
+
+[Install]
+WantedBy=sockets.target

@@ -27,6 +27,7 @@ class SourceSafetyTests(unittest.TestCase):
             "output/debug.log",
             "kvn-vpn-release-linux-amd64.tar.gz",
             ".supergoal/STATE.md",
+            "nginx/nginx.conf",
         ]:
             with self.subTest(relative=relative):
                 self.assertTrue(denied_path(relative))
@@ -34,6 +35,7 @@ class SourceSafetyTests(unittest.TestCase):
             "packaging/deploy-template/users.json",
             "packaging/deploy-template/nginx/site/index.html",
             "packaging/deploy-template/portal-data/.gitkeep",
+            "v5/core/tls/nginx.conf",
             "README.md",
         ]:
             self.assertEqual(denied_path(relative), "")

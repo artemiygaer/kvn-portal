@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Обзор · KVN Portal{% endblock %}
+{% block body %}
+<div class="page-heading">
+  <div><p class="eyebrow">Ядро v5</p><h1>Обзор сервера</h1><p>Снимок обновляется при открытии страницы. История настраивается отдельно.</p></div>
+  {% if status %}<span class="badge badge-ok">Агент доступен</span>{% endif %}
+</div>
+{% if status %}
+<dl class="metrics">
+  <div class="panel"><dt>CPU</dt><dd>{{ ('%.1f'|format(status.cpu_percent)) ~ ' %' if status.cpu_percent is not none else 'Нет второй выборки' }}</dd></div>
+  <div class="panel"><dt>Свободная память</dt><dd>{{ '%.0f'|format(status.memory.available_bytes / 1048576) }} МиБ</dd></div>
+  <div class="panel"><dt>Свободный диск</dt><dd>{{ '%.1f'|format(status.disk.free_bytes / 1073741824) }} ГиБ</dd></div>
+  <div class="panel"><dt>Время работы</dt><dd>{{ (status.uptime_seconds / 60)|int }} мин</dd></div>
+  <div class="panel"><dt>Сеть · принято</dt><dd>{{ '%.1f'|format(status.network.received_bytes / 1048576) }} МиБ</dd></div>
+  <div class="panel"><dt>Сеть · отправлено</dt><dd>{{ '%.1f'|format(status.network.sent_bytes / 1048576) }} МиБ</dd></div>
+</dl>
+{% else %}<p role="status" class="alert">Агент недоступен. Попробуйте обновить страницу позже.</p>{% endif %}
+<div class="overview-grid">
+  <section class="panel">
+    <div class="section-heading"><h2>Модули</h2>{% if not package_error %}<span class="badge">{{ installed | length }} из {{ modules_total }}</span>{% endif %}</div>
+    {% if package_error %}
+    <p role="status" class="alert">{{ package_error }}</p>
+    {% elif not installed %}
+    <p>Модули не установлены. Панель работает без VPN. Установленный пакет остаётся выключенным до отдельного запуска.</p>
+    <div class="actions"><a class="button" href="{{ url_for('modules_page') }}#module-catalog">Открыть каталог</a><a class="button secondary" href="{{ url_for('modules_page') }}#module-upload">Загрузить архив</a></div>
+    {% else %}
+    <p>Модули и их настройки управляются отдельно от ядра.</p>
+    <a class="button" href="{{ url_for('modules_page') }}">Управление модулями</a>
+    {% endif %}
+  </section>
+  <section class="panel"><h2>Пользователи VPN</h2><p>Карточки, конфиги и перенос зашифрованных архивов.</p><a class="button secondary" href="{{ url_for('vpn_users.index') }}">Карточки и доступы</a></section>
+</div>
+{% endblock %}

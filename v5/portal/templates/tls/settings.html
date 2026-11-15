@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Сертификаты HTTPS · KVN Portal{% endblock %}
+{% block header %}<a href="{{ url_for('dashboard') }}">К обзору</a>{% endblock %}
+{% block body %}
+<h1>Сертификаты HTTPS</h1>
+<p>Для каждого зарегистрированного имени сертификат используется на 443 и 8443. Для выпуска нужен доступ извне на TCP/80.</p>
+{% for notice in get_flashed_messages() %}<p role="status" class="badge">{{ notice }}</p>{% endfor %}
+{% if tls %}
+{% if tls.busy %}<p role="status" class="badge">Задача TLS выполняется.</p>{% endif %}
+<div class="metrics">
+{% for item in tls.names %}
+{% set result = tls.results.get(item.slot, {}) %}
+<section class="panel">
+  <h2>{{ item.authority }}</h2>
+  <p>{% if result.active_expires_at %}Активен до <time datetime="{{ result.active_expires_at }}">{{ result.active_expires_at }}</time>{% else %}Сертификат не применён{% endif %}</p>
+  {% for mode, label in [('public', 'Публичный выпуск'), ('staging', 'Проверочный выпуск')] %}
+    {% set entry = result.get(mode) %}
+    {% if entry %}<p>{{ label }}: {{ messages.get(entry.status, 'Ошибка TLS') }}</p>{% endif %}
+  {% endfor %}
+</section>
+{% endfor %}
+</div>
+<section class="panel">
+  <h2>Выпуск сертификата</h2>
+  <p>Проверочный режим не заменяет действующую пару. Для публичного выпуска нужен Certbot 5.4.0 или новее.</p>
+  <form method="post" action="{{ url_for('tls_settings') }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Имя или IP <select name="name" required>{% for item in tls.names %}<option value="{{ item.name }}">{{ item.authority }}</option>{% endfor %}</select></label>
+    <label>Контактный email (необязательно) <input name="email" type="email" maxlength="317"></label>
+    <p>При выпуске без email восстановление аккаунта ACME может быть затруднено. Следите за сроком действия и автопродлением в портале: Let’s Encrypt не отправляет письма об истечении сертификатов.</p>
+    <label>Режим <select name="mode"><option value="staging">Проверочный</option><option value="public">Публичный</option></select></label>
+    <button type="submit"{% if tls.busy %} disabled{% endif %}>Запустить выпуск</button>
+  </form>
+  <p><a href="{{ url_for('tls_settings') }}">Обновить статус</a></p>
+</section>
+{% else %}<p role="alert">Служба TLS недоступна.</p>{% endif %}
+{% endblock %}

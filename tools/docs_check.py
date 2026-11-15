@@ -10,17 +10,6 @@ from urllib.parse import unquote
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_DOCS = (
-    Path("tools/kvnlib/core/AGENTS.md"),
-    Path("tools/kvnlib/protocols/AGENTS.md"),
-    Path("tools/kvnlib/exports/AGENTS.md"),
-    Path("tools/kvnlib/runtime/AGENTS.md"),
-    Path("tools/kvnlib/commands/AGENTS.md"),
-    Path("portal/control/AGENTS.md"),
-    Path("portal/agent_handlers/AGENTS.md"),
-    Path("portal/app/routes/AGENTS.md"),
-    Path("tools/release/AGENTS.md"),
-)
 DOCS = (
     Path("README.md"),
     Path("ARCHITECTURE.md"),
@@ -31,71 +20,30 @@ DOCS = (
     Path("HANDOFF_PROMPT.md"),
     Path("AGENTS.md"),
     Path("MTPROTO.md"),
-    *MODULE_DOCS,
-)
-SHIPPING_DOCS = (
-    "README.md",
-    "PROJECT_AUDIT.md",
-    "CONTAINER_SECURITY.md",
-    "HANDOFF_PROMPT.md",
-    "PORTAL_UPDATE_NOTES.md",
-    "MTPROTO.md",
-    "AGENTS.md",
-    "ARCHITECTURE.md",
-    *(path.as_posix() for path in MODULE_DOCS),
-    "tools/architecture_check.py",
-    "tools/docs_check.py",
-)
-SERVICES = {
-    "nginx",
-    "portal",
-    "portal-gateway",
-    "xray",
-    "hysteria",
-    "telemt",
-    "mtg",
-    "ocserv",
-}
-PORTS = (
-    "80/tcp",
-    "443/tcp",
-    "443/udp",
-    "4443/udp",
-    "51820/udp",
-    "51821/udp",
-    "2096/tcp",
-    "2443-2448/tcp",
+    *tuple(sorted(path.relative_to(ROOT) for path in (ROOT / "v5").rglob("*.md"))),
 )
 REQUIRED = {
     "README.md": (
-        "ZIP для Telegram",
+        "KVN Portal",
         "artemiygaer/kvn-portal",
-        "updates configure",
-        "public-ip",
-        "IP SAN",
-        "tools/docs_check.py",
+        "Debian 12/13",
+        "/root/portal",
+        "v5/install/README.md",
+        "v5/ARCHITECTURE.md",
     ),
     "DEPLOY.md": (
-        "Обновление через портал",
-        "Ручное обновление через update.sh",
-        "Обновление из GitHub Releases",
-        "--bootstrap-only",
-        "ZIP для Telegram",
-        "root-only",
+        "v5/DEPLOY.md",
+        "v5/install/README.md",
+        ".kvn",
     ),
     "HANDOFF_PROMPT.md": (
-        "Статус",
-        "Архитектура",
-        "Release и публикация",
-        "Полный gate",
-        "тестов проекта прошли",
-        "no-build --pull never",
+        "v5/ARCHITECTURE.md",
+        "v5/install/README.md",
+        "WSL",
     ),
     "ARCHITECTURE.md": (
-        "## Направление зависимостей",
-        "## Маршрутизация задач",
-        "tools/architecture_check.py",
-        "## Контракты, которые нельзя обходить",
+        "v5/ARCHITECTURE.md",
+        "v5/AGENTS.md",
     ),
 }
 FORBIDDEN_PATTERNS = {
@@ -108,22 +56,6 @@ FORBIDDEN_PATTERNS = {
     "local user home": re.compile(r"/home/[A-Za-z0-9._-]+/"),
 }
 LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
-
-
-def compose_services() -> set[str]:
-    """Извлекает только ключи первого уровня секции services."""
-    result: set[str] = set()
-    inside = False
-    for line in (ROOT / "docker-compose.yml").read_text(encoding="utf-8").splitlines():
-        if line == "services:":
-            inside = True
-            continue
-        if inside and line and not line.startswith((" ", "\t", "#")):
-            break
-        match = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line) if inside else None
-        if match:
-            result.add(match.group(1))
-    return result
 
 
 def check_links(relative: Path, text: str, errors: list[str]) -> int:
@@ -169,38 +101,10 @@ def main() -> int:
             if fragment not in text:
                 errors.append(f"{relative}: отсутствует обязательный фрагмент: {fragment}")
 
-    architecture = texts.get("ARCHITECTURE.md", "")
-    routing_rows = sum(
-        1
-        for line in architecture.splitlines()
-        if line.startswith("|") and "Минимальный контекст" not in line and not re.match(r"^\|[-|]+\|$", line.replace(" ", ""))
-    )
-    if routing_rows < 12:
-        errors.append(f"ARCHITECTURE.md: типовых task routes меньше 12: {routing_rows}")
-    for relative in MODULE_DOCS:
-        text = texts.get(relative.as_posix(), "")
-        for fragment in ("## Public API", "## Imports", "## Проверки", "Запрещены"):
-            if fragment not in text:
-                errors.append(f"{relative}: отсутствует обязательный фрагмент: {fragment}")
-
-    readme = texts.get("README.md", "")
-    deploy = texts.get("DEPLOY.md", "")
-    for port in PORTS:
-        if port not in readme or port not in deploy:
-            errors.append(f"порт {port} не синхронизирован в README.md и DEPLOY.md")
-
-    actual_services = compose_services()
-    if actual_services != SERVICES:
-        errors.append(
-            "docker-compose.yml: service set отличается: "
-            f"ожидалось {sorted(SERVICES)}, получено {sorted(actual_services)}"
-        )
-
-    canonical_path = ROOT / "tools/canonical-files.txt"
-    canonical = set(canonical_path.read_text(encoding="utf-8").splitlines())
-    for relative in SHIPPING_DOCS:
-        if relative not in canonical:
-            errors.append(f"tools/canonical-files.txt: не поставляется {relative}")
+    deploy = texts.get("v5/DEPLOY.md", "")
+    for fragment in ("/root/portal", "8443", ".kvn", "GitHub"):
+        if fragment not in deploy:
+            errors.append(f"v5/DEPLOY.md: отсутствует обязательный фрагмент: {fragment}")
 
     if errors:
         for error in errors:
@@ -208,8 +112,7 @@ def main() -> int:
         print(f"[ИТОГ] Документация: ошибок {len(errors)}", file=sys.stderr)
         return 1
     print(
-        f"[OK] Документация: {len(DOCS)} файлов, {link_count} локальных ссылок, "
-        f"{len(SERVICES)} Compose-сервисов, {len(PORTS)} портовых контрактов"
+        f"[OK] Документация v5: {len(DOCS)} файлов, {link_count} локальных ссылок"
     )
     return 0
 

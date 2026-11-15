@@ -1,0 +1,28 @@
+[Unit]
+Description=KVN v5 bounded private VPN archive operation
+
+[Service]
+Type=exec
+User=root
+Group=root
+WorkingDirectory=/usr/local/lib/kvn-v5
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m v5.core.migration.rpc --web-uid @WEB_UID@
+StandardInput=socket
+StandardOutput=null
+StandardError=journal
+RuntimeMaxSec=145s
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ReadWritePaths=/var/lib/kvn-v5/packages /var/lib/kvn-v5/users
+InaccessiblePaths=-/run/docker.sock -/var/run/docker.sock -/etc/shadow -/etc/gshadow -/etc/ssh /etc/kvn-v5/web
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+MemoryMax=112M
+TasksMax=10

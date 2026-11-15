@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Клиентские профили · KVN Portal{% endblock %}
+{% block body %}
+<p><a href="{{ url_for('vpn_users.detail', user_id=user_id) }}">Назад к карточке</a></p>
+<h1>Клиентские профили</h1>
+{% if profiles %}
+<p>В профилях есть данные для подключения. Не публикуйте их.</p>
+<p><a href="{{ url_for('vpn_users.download', user_id=user_id) }}">Скачать файл со ссылками</a></p>
+<ol>{% for profile in profiles %}<li><a href="{{ url_for('vpn_users.qr', user_id=user_id, index=loop.index0) }}">QR-код профиля {{ loop.index }}</a><p><code class="user-secret">{{ profile }}</code></p></li>{% endfor %}</ol>
+{% else %}<p>Нет подтверждённых действующих профилей.</p>{% endif %}
+{% endblock %}

@@ -1,0 +1,27 @@
+[Unit]
+Description=KVN v5 включение IPv4-пересылки по решению администратора
+After=systemd-sysctl.service procps.service
+Before=kvn-v5-module-wireguard.service kvn-v5-module-amneziawg.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/bin/python3 -c "from pathlib import Path; p=Path('/proc/sys/net/ipv4/ip_forward'); v=p.read_text().strip(); assert v in ('0','1'); p.write_text('1\\n') if v == '0' else None; assert p.read_text().strip() == '1'"
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=no
+ReadOnlyPaths=/proc/sys
+ReadWritePaths=/proc/sys/net/ipv4/ip_forward
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=CAP_NET_ADMIN
+MemoryMax=24M
+TasksMax=4
+TimeoutStartSec=20s
+
+[Install]
+WantedBy=multi-user.target

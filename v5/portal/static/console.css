@@ -1,0 +1,10 @@
+#console-terminal {
+    background: #111820;
+    border: 1px solid #6b7788;
+    border-radius: .35rem;
+    height: clamp(16rem, 60vh, 44rem);
+    min-width: 0;
+    padding: .45rem;
+}
+#console-close { margin-top: .65rem; }
+#console-auth[hidden], #console-terminal[hidden], #console-close[hidden] { display: none; }

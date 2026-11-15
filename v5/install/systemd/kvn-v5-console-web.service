@@ -1,0 +1,31 @@
+[Unit]
+Description=KVN v5 unprivileged console WebSocket bridge
+PartOf=kvn-v5-console-web.socket
+After=kvn-v5-console-web.socket kvn-v5-console-agent.socket
+
+[Service]
+Type=simple
+User=kvn-v5-web
+Group=kvn-v5-web
+WorkingDirectory=/usr/local/lib/kvn-v5
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m v5.portal.console_ws
+StandardInput=null
+StandardOutput=null
+StandardError=journal
+UMask=0007
+KillMode=control-group
+TimeoutStopSec=5s
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+InaccessiblePaths=-/run/docker.sock -/var/run/docker.sock /etc/kvn-v5/gateway
+MemoryMax=64M
+TasksMax=12
+LimitNOFILE=64

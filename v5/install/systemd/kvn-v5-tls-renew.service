@@ -1,0 +1,27 @@
+[Unit]
+Description=KVN v5: плановое продление TLS
+After=kvn-v5-gateway.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/usr/local/lib/kvn-v5
+ExecStart=/usr/bin/python3 -m v5.core.tls.worker --renew
+ExecStartPost=/usr/bin/systemctl --no-block start kvn-v5-module-tls-sync.service
+Environment=PYTHONDONTWRITEBYTECODE=1
+UMask=0022
+ProtectSystem=strict
+ReadWritePaths=/etc/kvn-v5/gateway /run/kvn-v5-gateway /var/lib/kvn-v5/acme /var/lib/kvn-v5/tls
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+InaccessiblePaths=-/run/docker.sock -/var/run/docker.sock
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+MemoryMax=160M
+TasksMax=24
+TimeoutStartSec=65min

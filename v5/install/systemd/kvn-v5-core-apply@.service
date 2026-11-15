@@ -1,0 +1,23 @@
+[Unit]
+Description=KVN v5 authenticated core update job
+After=network.target
+
+[Service]
+Type=exec
+# Системная служба запускается от root по умолчанию. Явный User=root вместе
+# с защитой systemd лишает процесс возможности проверить RPC от UID web.
+WorkingDirectory=/usr/local/lib/kvn-v5
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m v5.core.maintenance.portal_apply %i
+RuntimeMaxSec=10min
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ReadWritePaths=/usr/local/lib /etc/systemd/system
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=160M
+TasksMax=24

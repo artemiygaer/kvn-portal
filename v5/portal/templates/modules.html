@@ -1,0 +1,287 @@
+{% extends 'base.html' %}
+{% block title %}Модули — KVN Portal{% endblock %}
+{% block body %}
+<h1>Модули</h1>
+<p>Сначала проверьте подпись и содержимое. Установка отдельным действием не запускает модуль.</p>
+{% for category, message in get_flashed_messages(with_categories=true) %}<p class="{{ 'alert' if category == 'error' else 'badge' }}" role="{{ 'alert' if category == 'error' else 'status' }}">{{ message }}</p>{% endfor %}
+{% if busy %}
+<section class="panel" aria-labelledby="busy-title"><h2 id="busy-title">Операция выполняется</h2><p role="status">Дождитесь результата в исходной вкладке.</p><a class="button secondary" href="{{ url_for('modules_page') }}">Обновить список</a></section>
+{% else %}
+<section class="panel operation-status" data-operation-progress hidden>
+  <p role="status" data-operation-text></p>
+  <progress aria-label="Выполнение операции модуля"></progress>
+</section>
+{% if status_error %}<p role="alert" class="alert">{{ status_error }}</p>{% endif %}
+{% if provision_error %}<p role="status">{{ provision_error }}</p>{% endif %}
+{% if provision_job %}
+<section class="panel" role="status">
+  <h2>Подготовка зависимостей: {{ provision_job.module }}</h2>
+  {% if provision_job.status in ('queued', 'running') %}<p>Выполняется. Не выключайте сервер и обновите страницу позже.</p><progress aria-label="Подготовка зависимостей"></progress>
+  {% elif provision_job.status == 'ready' %}<p>Зависимости подготовлены.</p>
+  {% else %}<p class="alert">Подготовка не завершена: {{ messages.get(provision_job.code, 'проверьте состояние пакетов системы и повторите попытку.') }}</p>{% endif %}
+</section>
+{% endif %}
+{% if network_plan %}
+<section class="panel" aria-labelledby="plan-title">
+  <h2 id="plan-title">Сетевой план: {{ network_plan.module }}</h2>
+  <p>Декларации при включении. Проверка занятости портов и готовности служб выполняется при запуске. Состояние не изменено.</p>
+  {% if network_plan.sni %}<h3>Общий вход TCP/443</h3><ul>{% for name in network_plan.sni %}<li><code>{{ name }}</code></li>{% endfor %}</ul>{% endif %}
+  {% if network_plan.ports %}<h3>Отдельные порты</h3><ul>{% for port in network_plan.ports %}<li>{{ port.protocol | upper }}/{{ port.port }} · <code>{{ port.ip }}</code></li>{% endfor %}</ul>{% endif %}
+  {% if not (network_plan.sni or network_plan.ports) %}<p>Модуль не заявляет публичных привязок.</p>{% endif %}
+</section>
+{% endif %}
+{% if diagnostics %}
+<section>
+  <h2>Совместимость {{ diagnostics.module }}</h2>
+  <p>Ядро: {{ diagnostics.host.kernel }} · заголовки: {{ 'есть' if diagnostics.host.headers else 'нет' }}</p>
+  <p>Модуль ядра: {{ diagnostics.host.module_version or ('доступен' if diagnostics.host.module_available else 'не найден') }} · инструменты: {{ diagnostics.host.tools_version or 'не найдены' }}</p>
+  <p>Профили: {{ diagnostics.host.profiles | join(', ') or 'нет' }}</p>
+  {% if diagnostics.host.issue %}<p role="status">{{ messages.get(diagnostics.host.issue, 'Проверьте зависимости модуля.') }}</p>{% endif %}
+  {% if diagnostics.module == 'amneziawg' and '3.1' not in diagnostics.host.profiles %}
+  <p class="alert" role="status">AWG 3.1 недоступен. Для новой настройки нужны совместимые awg-tools и модуль загруженного ядра.</p>
+  {% endif %}
+</section>
+{% endif %}
+{% if prepared %}
+<section>
+  <h2>Пакет проверен</h2>
+  <p>{{ prepared.module }} {{ prepared.version }} · SHA-256 <code>{{ prepared.sha256 }}</code></p>
+  <p>Требования: {{ prepared.dependencies.host_checks | join(', ') }}.
+     {% if prepared.dependencies.offline_image %}Образ входит в подписанный архив.
+     {% elif prepared.dependencies.online_image %}Образ понадобится загрузить по закреплённому digest.{% endif %}</p>
+  <form method="post" action="{{ url_for('module_action', action='upgrade' if prepared_active else 'install') }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="ticket" value="{{ prepared.ticket }}">
+    {% if prepared_active %}
+      <input type="hidden" name="module" value="{{ prepared.module }}">
+      <label><input type="checkbox" name="confirm" value="yes" required> Подтверждаю краткую остановку модуля</label>
+      <button type="submit">Обновить активный модуль</button>
+    {% else %}
+      <button type="submit">Установить выключенным</button>
+    {% endif %}
+  </form>
+</section>
+{% endif %}
+<section class="panel" id="module-catalog">
+  <h2>Из GitHub</h2>
+  <form method="post" action="{{ url_for('module_action', action='github') }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Модуль <select name="module">{% for module in modules %}<option>{{ module }}</option>{% endfor %}</select></label>
+    <label>Версия модуля <input name="version" placeholder="1.0.0" maxlength="29" required></label>
+    <label>Тег релиза, если не последний <input name="tag" placeholder="v5.0.0" maxlength="30"></label>
+    <button type="submit">Скачать и проверить</button>
+  </form>
+</section>
+<section class="panel" id="module-upload">
+  <h2>Загрузка архива</h2>
+  <form method="post" enctype="multipart/form-data" action="{{ url_for('module_action', action='upload') }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Подписанный архив (до 256 МиБ) <input type="file" name="package" accept=".tar.gz" required></label>
+    <button type="submit">Загрузить и проверить</button>
+  </form>
+</section>
+<section class="panel">
+  <h2>Установлены</h2>
+  {% for item in installed %}
+    <article class="module-item">
+      <div class="section-heading"><h3>{{ item.module }} <small>{{ item.version }}</small></h3>
+        <span class="badge{% if item.enabled and not item.updating %} badge-ok{% endif %}">{{ 'Обновляется' if item.updating else ('Включён' if item.enabled else 'Установлен, выключен') }}</span>
+      </div>
+      {% if item.module == 'amneziawg' %}
+      <p>Новые настройки используют AWG 3.1. Профиль legacy сохраняется только при переносе старой конфигурации.</p>
+      {% endif %}
+      {% if item.module == 'xray' %}
+      {% if xray_error %}<p role="status">{{ xray_error }}</p>{% endif %}
+      {% for profile in xray_profiles %}
+      <details>
+        <summary>{{ profile.kind }} · {{ profile.sni }}</summary>
+        {% if not item.enabled and not item.updating %}
+        <p>После изменения SNI или адреса повторно передайте пользователям конфигурации. Удаление профиля с назначенными пользователями запрещено.</p>
+        <form method="post" action="{{ url_for('module_action', action='initialize_xray') }}">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="kind" value="{{ profile.kind }}">
+          <input type="hidden" name="revision" value="{{ profile.revision }}">
+          <input type="hidden" name="profile_action" value="replace">
+          <label>Подключение <select name="exposure">{% for value, label in [('shared', 'Общий TCP/443'), ('direct', 'Прямой порт'), ('both', 'Оба варианта')] %}<option value="{{ value }}"{% if profile.exposure == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+          <label>Имя SNI <input name="sni" maxlength="253" required value="{{ profile.sni }}"></label>
+          {% if profile.kind != 'tls' %}<label>Режим Reality <select name="reality"><option value="external"{% if profile.reality == 'external' %} selected{% endif %}>Внешний сайт</option><option value="self-steal"{% if profile.reality == 'self-steal' %} selected{% endif %}>Сайт портала</option></select></label>
+          <label>Внешняя цель Reality <input name="external_host" maxlength="253" value="{{ profile.external_host or '' }}"></label>{% endif %}
+          {% if profile.kind == 'reality-xhttp' %}<label>Путь XHTTP <input name="path" maxlength="64" value="{{ profile.path }}" required></label>{% endif %}
+          <label><input type="checkbox" name="confirm" value="yes" required> Подтверждаю изменение профиля</label>
+          <button type="submit">Сохранить</button>
+        </form>
+        <form method="post" action="{{ url_for('module_action', action='remove_xray') }}">
+          <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="kind" value="{{ profile.kind }}"><input type="hidden" name="revision" value="{{ profile.revision }}">
+          <label><input type="checkbox" name="confirm" value="yes" required> Подтверждаю удаление профиля</label>
+          <button class="secondary" type="submit">Удалить профиль</button>
+        </form>
+        {% else %}<p>Для изменения профиля сначала отключите модуль.</p>{% endif %}
+      </details>
+      {% endfor %}
+      {% if not item.enabled and not item.updating %}
+      <details>
+        <summary>Создать или добавить профиль Xray</summary>
+        <p>Начальный профиль создаётся только при отсутствии настроек. При добавлении существующие пользователи и ключи сохраняются. Self-steal требует имени сайта портала и его доверенного сертификата.</p>
+        <form method="post" action="{{ url_for('module_action', action='initialize_xray') }}">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <label>Протокол <select name="kind"><option value="reality-tcp">Reality TCP</option><option value="reality-xhttp">Reality XHTTP</option><option value="tls">TLS</option></select></label>
+          <label>Подключение <select name="exposure"><option value="shared">Общий TCP/443</option><option value="direct">Прямой порт</option><option value="both">Оба варианта</option></select></label>
+          <label>Имя SNI <input name="sni" maxlength="253" required placeholder="example.org"></label>
+          <label>Режим Reality <select name="reality"><option value="external">Внешний сайт</option><option value="self-steal">Сайт портала</option></select></label>
+          <label>Внешняя цель Reality <input name="external_host" maxlength="253" placeholder="example.org"></label>
+          <label>Путь XHTTP <input name="path" maxlength="64" value="/kvn"></label>
+          <label><input type="checkbox" name="confirm" value="yes" required> Подтверждаю изменение выключенного модуля</label>
+          <button type="submit" name="profile_action" value="initial">Создать начальный</button>
+          <button type="submit" name="profile_action" value="add">Добавить профиль</button>
+        </form>
+      </details>
+      {% endif %}
+      {% endif %}
+      {% if item.module == 'hysteria' and not item.enabled and not item.updating %}
+      {% if hysteria_error %}
+      <p class="alert" role="status">Не удалось прочитать настройки Hysteria2. Обновите страницу.</p>
+      {% elif hysteria_profile %}
+      <details>
+        <summary>Изменить настройки Hysteria2</summary>
+        <p>Учетные данные сохраняются. После изменения имени, порта или Salamander повторно передайте пользователям конфигурации.</p>
+        <form method="post" action="{{ url_for('module_action', action='change_hysteria') }}">
+          <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ hysteria_profile.revision }}">
+          <label>Имя или IP для сертификата <input name="identity" maxlength="253" required value="{{ hysteria_profile.identity }}"></label>
+          <label>UDP-порт <input name="port" type="number" min="1" max="65535" value="{{ hysteria_profile.port }}" required></label>
+          <label><input type="checkbox" name="salamander" value="yes"{% if hysteria_profile.salamander %} checked{% endif %}> Использовать Salamander</label>
+          <label><input type="checkbox" name="confirm" value="yes" required> Подтверждаю изменение</label>
+          <button type="submit">Сохранить настройки</button>
+        </form>
+      </details>
+      {% else %}
+      <details>
+        <summary>Создать начальные настройки Hysteria2</summary>
+        <p>Имя или IP должны быть добавлены в HTTPS портала и иметь подходящий сертификат. Существующие настройки не заменяются.</p>
+        <form method="post" action="{{ url_for('module_action', action='initialize_hysteria') }}">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <label>Имя или IP для сертификата <input name="identity" maxlength="253" required placeholder="server.example.org"></label>
+          <label>UDP-порт <input name="port" type="number" min="1" max="65535" value="443" required></label>
+          <label><input type="checkbox" name="salamander" value="yes"> Создать секрет Salamander автоматически</label>
+          <label><input type="checkbox" name="confirm" value="yes" required> Создать только при отсутствии настроек</label>
+          <button type="submit">Создать настройки</button>
+        </form>
+      </details>
+      {% endif %}
+      {% endif %}
+      {% if item.module in ('telemt', 'mtg') and not item.enabled and not item.updating %}
+      {% if item.module in mtproto_errors %}
+      <p class="alert" role="status">Не удалось прочитать настройки MTProto. Обновите страницу.</p>
+      {% elif mtproto_profiles.get(item.module) %}
+      {% set profile = mtproto_profiles[item.module] %}
+      <details>
+        <summary>Изменить настройки MTProto</summary>
+        <p>Секреты сохраняются. После изменения имени или порта повторно передайте ссылки пользователям.</p>
+        <form method="post" action="{{ url_for('module_action', action='change_mtproto') }}">
+          <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="module" value="{{ item.module }}"><input type="hidden" name="revision" value="{{ profile.revision }}">
+          <label>Имя FakeTLS <input name="sni" maxlength="180" required value="{{ profile.sni }}"></label>
+          <label>Маскировка <select name="mode"><option value="external"{% if not profile.own_site %} selected{% endif %}>Внешний сайт</option><option value="own"{% if profile.own_site %} selected{% endif %}>Сайт портала</option></select></label>
+          <label>Подключение <select name="exposure">{% for value, label in [('shared', 'Общий TCP/443'), ('direct', 'Прямой порт'), ('both', 'Оба варианта')] %}<option value="{{ value }}"{% if (value == 'both' and profile.shared and profile.direct_ip) or (value == 'shared' and profile.shared and not profile.direct_ip) or (value == 'direct' and not profile.shared) %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+          <label><input type="checkbox" name="confirm" value="yes" required> Подтверждаю изменение настроек</label>
+          <button type="submit">Сохранить</button>
+        </form>
+      </details>
+      {% else %}
+      <details>
+        <summary>Создать начальные настройки MTProto</summary>
+        <p>Секрет создаётся на сервере. Существующие настройки не заменяются.</p>
+        <form method="post" action="{{ url_for('module_action', action='initialize_mtproto') }}">
+          <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="module" value="{{ item.module }}">
+          <label>Имя FakeTLS <input name="sni" maxlength="180" required placeholder="example.org"></label>
+          <label>Маскировка <select name="mode"><option value="external">Внешний сайт</option><option value="own">Сайт портала</option></select></label>
+          <label>Подключение <select name="exposure"><option value="shared">Общий TCP/443</option><option value="direct">Прямой порт</option><option value="both">Оба варианта</option></select></label>
+          <label><input type="checkbox" name="confirm" value="yes" required> Создать только при отсутствии настроек</label>
+          <button type="submit">Создать настройки</button>
+        </form>
+      </details>
+      {% endif %}
+      {% endif %}
+      {% if not item.enabled and not item.updating %}
+      <form method="post" action="{{ url_for('module_action', action='provision') }}">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="module" value="{{ item.module }}">
+        <label><input type="checkbox" name="confirm" value="yes" required> Разрешаю установку необходимых системных пакетов Debian</label>
+        <button type="submit"{% if provision_job and provision_job.status in ('queued', 'running') %} disabled{% endif %}>Подготовить зависимости</button>
+      </form>
+      {% endif %}
+      {% if item.module in ('wireguard', 'amneziawg') %}
+      <details>
+        <summary>Пересылка IPv4 для выхода в интернет</summary>
+        {% if forwarding_status %}
+        <p>Сейчас: {{ 'включена' if forwarding_status.active else 'выключена' }}; после перезагрузки: {{ 'включается службой портала' if forwarding_status.persistent else 'не настроена порталом' }}.</p>
+        {% else %}<p role="status">{{ forwarding_error or 'Состояние временно недоступно.' }}</p>{% endif %}
+        <p>Настройка действует на весь сервер. Включение пересылки может сбросить другие параметры IPv4 ядра. При отключении модуля она остаётся включённой: её могут использовать другие службы. Внешний firewall не меняется.</p>
+        <form method="post" action="{{ url_for('module_action', action='forwarding') }}">
+          <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="module" value="{{ item.module }}">
+          <label><input type="checkbox" name="confirm" value="yes" required> Разрешаю включить общесистемную пересылку IPv4 и сохранять её после перезагрузки</label>
+          <button type="submit">Включить пересылку IPv4</button>
+        </form>
+      </details>
+      <form method="post" action="{{ url_for('module_action', action='diagnostics') }}">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="module" value="{{ item.module }}">
+        <button type="submit">Проверить ядро и инструменты</button>
+      </form>
+      {% if not item.enabled and not item.updating %}
+      {% if item.module in tunnel_errors %}
+      <p class="alert" role="status">Не удалось прочитать настройки туннеля. Обновите страницу.</p>
+      {% elif tunnel_profiles.get(item.module) %}
+      {% set profile = tunnel_profiles[item.module] %}
+      <form method="post" action="{{ url_for('module_action', action='change_tunnel') }}">
+        <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="module" value="{{ item.module }}"><input type="hidden" name="revision" value="{{ profile.revision }}">
+        <label>Интерфейс выхода в интернет <input name="egress" maxlength="15" value="{{ profile.egress or '' }}" placeholder="Например, eth0" autocomplete="off"></label>
+        <p>Пустое значение ограничивает доступ подсетью туннеля. После изменения повторно передайте пользователям конфигурации.</p>
+        <label><input type="checkbox" name="confirm" value="yes" required> Подтверждаю изменение</label>
+        <button type="submit">Сохранить настройки туннеля</button>
+      </form>
+      {% else %}
+      <form method="post" action="{{ url_for('module_action', action='initialize') }}">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="module" value="{{ item.module }}">
+        <label>Интерфейс выхода в интернет (необязательно)
+          <input name="egress" maxlength="15" placeholder="Например, eth0" autocomplete="off">
+        </label>
+        <p>Без интерфейса доступна только подсеть туннеля. Для выхода также включите пересылку IPv4 выше.</p>
+        <label><input type="checkbox" name="confirm" value="yes" required> Создать только при отсутствии настроек</label>
+        <button type="submit">Создать настройки туннеля</button>
+      </form>
+      {% endif %}
+      {% endif %}
+      {% endif %}
+      {% if not item.updating %}
+      <form method="post" action="{{ url_for('module_action', action='plan') }}">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="module" value="{{ item.module }}">
+        <button class="secondary" type="submit">Сетевой план</button>
+      </form>
+      <form method="post" action="{{ url_for('module_action', action='disable' if item.enabled else 'enable') }}">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="module" value="{{ item.module }}">
+        <label><input type="checkbox" name="confirm" value="yes" required> Подтверждаю</label>
+        <button type="submit">{{ 'Отключить' if item.enabled else 'Включить' }}</button>
+      </form>
+      {% endif %}
+      {% if not item.enabled %}
+        {% for action, label in [('rollback', 'Откатить'), ('remove', 'Удалить пакет')] %}
+          {% if action != 'rollback' or item.previous %}
+            <form method="post" action="{{ url_for('module_action', action=action) }}">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <input type="hidden" name="module" value="{{ item.module }}">
+              <label><input type="checkbox" name="confirm" value="yes" required> Подтверждаю</label>
+              <button type="submit">{{ label }}</button>
+            </form>
+          {% endif %}
+        {% endfor %}
+      {% endif %}
+    </article>
+  {% else %}
+    <p>{{ 'Не удалось загрузить список.' if status_error else 'Модули не установлены.' }}</p>
+  {% endfor %}
+</section>
+{% endif %}
+{% endblock %}
+{% block scripts %}<script defer src="{{ url_for('static', filename='module-progress.js') }}"></script>{% endblock %}

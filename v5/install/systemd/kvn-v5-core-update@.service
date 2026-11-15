@@ -1,0 +1,29 @@
+[Unit]
+Description=KVN v5 bounded core update request
+
+[Service]
+Type=exec
+User=root
+Group=root
+WorkingDirectory=/usr/local/lib/kvn-v5
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m v5.core.maintenance.portal_rpc --web-uid @WEB_UID@
+StandardInput=socket
+StandardOutput=null
+StandardError=journal
+StateDirectory=kvn-v5/core-updates kvn-v5/provision
+StateDirectoryMode=0700
+RuntimeMaxSec=4min
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/kvn-v5/packages
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+MemoryMax=128M
+TasksMax=12

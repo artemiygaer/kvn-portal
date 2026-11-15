@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}{{ user.name }} · Пользователи VPN{% endblock %}
+{% block body %}
+<p><a href="{{ url_for('vpn_users.index') }}">Все пользователи</a></p>
+<h1>{{ user.name }}</h1>
+{% for message in get_flashed_messages() %}<p class="alert" role="status">{{ message }}</p>{% endfor %}
+{% if not user.enabled %}<p role="status">Пользователь выключен. Профили недоступны.</p>{% endif %}
+<section class="panel">
+<h2>Доступы к модулям</h2>
+<p>Назначение права не устанавливает и не включает модуль. Доступ выдаётся после подтверждения конфигурации.</p>
+{% for grant in user.grants %}
+<section>
+  <h3>{{ labels[grant.module] }}</h3>
+  <p>{{ statuses.get(grant.status, 'Не подтверждено') }}</p>
+  {% if grant.status == 'active' and grant.module in ('wireguard', 'amneziawg') %}
+  <p><a href="{{ url_for('vpn_users.client_conf', user_id=user.id, module=grant.module) }}">Скачать .conf</a> · <a href="{{ url_for('vpn_users.client_qr', user_id=user.id, module=grant.module) }}">QR-код</a></p>
+  {% endif %}
+  <form method="post" action="{{ url_for('vpn_users.action', user_id=user.id, action='grant') }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="revision" value="{{ user.revision }}">
+    <input type="hidden" name="module" value="{{ grant.module }}">
+    <button name="enabled" value="{{ 'no' if grant.desired else 'yes' }}">{{ 'Отозвать право' if grant.desired else 'Назначить право' }}</button>
+  </form>
+  {% if grant.status in ('error', 'pending', 'revoking') %}
+  <form method="post" action="{{ url_for('vpn_users.action', user_id=user.id, action='retry') }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="revision" value="{{ user.revision }}">
+    <input type="hidden" name="module" value="{{ grant.module }}">
+    <button class="secondary">Повторить сверку</button>
+  </form>
+  {% endif %}
+</section>
+{% endfor %}
+</section>
+<section class="panel">
+<h2>Профили и подписка</h2>
+<p><a href="{{ url_for('vpn_users.profile_page', user_id=user.id) }}">Открыть профили и QR-коды</a></p>
+<p>Подписка показывает только действующие права. Новый токен отменяет предыдущий; передавайте ссылку лично.</p>
+{% for action, label in [('rotate', 'Выдать новый токен'), ('revoke', 'Отозвать токен')] %}
+<form method="post" action="{{ url_for('vpn_users.action', user_id=user.id, action=action) }}">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="revision" value="{{ user.revision }}">
+  <button class="secondary">{{ label }}</button>
+</form>
+{% endfor %}
+</section>
+{% endblock %}

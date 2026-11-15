@@ -1,0 +1,30 @@
+[Unit]
+Description=KVN v5 local status agent
+
+[Service]
+Type=simple
+User=root
+Group=kvn-v5-web
+WorkingDirectory=/usr/local/lib/kvn-v5
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m v5.core.agent --socket /run/kvn-v5-agent/control.sock --web-uid @WEB_UID@
+RuntimeDirectory=kvn-v5-agent
+RuntimeDirectoryMode=0750
+UMask=0007
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/kvn-v5/tls /var/lib/kvn-v5/site
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+CapabilityBoundingSet=
+MemoryMax=48M
+TasksMax=16
+Restart=on-failure
+RestartSec=2s
+
+[Install]
+WantedBy=multi-user.target

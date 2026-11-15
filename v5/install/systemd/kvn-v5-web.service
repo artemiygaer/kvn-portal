@@ -1,0 +1,32 @@
+[Unit]
+Description=KVN v5 administrator portal
+After=kvn-v5-agent.service
+Wants=kvn-v5-agent.service
+
+[Service]
+Type=simple
+User=kvn-v5-web
+Group=kvn-v5-web
+WorkingDirectory=/usr/local/lib/kvn-v5
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/gunicorn --workers 1 --threads 2 --umask 7 --bind unix:/run/kvn-v5-web/http.sock v5.portal.app:create_app()
+RuntimeDirectory=kvn-v5-web
+RuntimeDirectoryMode=0770
+UMask=0007
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+InaccessiblePaths=-/run/docker.sock -/var/run/docker.sock /etc/kvn-v5/gateway
+MemoryMax=112M
+TasksMax=24
+Restart=on-failure
+RestartSec=2s
+
+[Install]
+WantedBy=multi-user.target

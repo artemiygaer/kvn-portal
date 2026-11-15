@@ -1,0 +1,28 @@
+[Unit]
+Description=KVN v5 bootstrap HTTPS gateway
+After=kvn-v5-web.service
+Wants=kvn-v5-web.service
+
+[Service]
+Type=simple
+ExecStartPre=/usr/sbin/nginx -t -c /etc/kvn-v5/gateway/nginx.conf
+ExecStart=/usr/sbin/nginx -c /etc/kvn-v5/gateway/nginx.conf -g 'daemon off;'
+ExecReload=/usr/sbin/nginx -s reload -c /etc/kvn-v5/gateway/nginx.conf
+RuntimeDirectory=kvn-v5-gateway
+RuntimeDirectoryMode=0755
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=CAP_CHOWN CAP_SETUID CAP_SETGID CAP_NET_BIND_SERVICE
+MemoryMax=32M
+TasksMax=16
+Restart=on-failure
+RestartSec=2s
+
+[Install]
+WantedBy=multi-user.target

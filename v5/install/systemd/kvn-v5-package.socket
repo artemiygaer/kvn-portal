@@ -1,0 +1,15 @@
+[Unit]
+Description=KVN v5 package management socket
+
+[Socket]
+ListenStream=/run/kvn-v5-package.sock
+Accept=yes
+SocketUser=root
+SocketGroup=kvn-v5-web
+SocketMode=0660
+RemoveOnStop=yes
+MaxConnections=3
+Backlog=8
+
+[Install]
+WantedBy=sockets.target

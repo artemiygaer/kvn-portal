@@ -1,0 +1,26 @@
+[Unit]
+Description=KVN v5 bounded TCP observation helper
+
+[Service]
+Type=exec
+User=root
+Group=root
+WorkingDirectory=/usr/local/lib/kvn-v5
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m v5.core.observability.socket_helper
+StandardInput=socket
+StandardOutput=null
+StandardError=null
+RuntimeMaxSec=8
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+CapabilityBoundingSet=CAP_SYS_PTRACE
+MemoryMax=32M
+TasksMax=4

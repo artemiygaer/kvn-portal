@@ -1,0 +1,20 @@
+[Unit]
+Description=KVN v5 подготовка зависимостей модуля
+After=network-online.target
+
+[Service]
+Type=exec
+WorkingDirectory=/usr/local/lib/kvn-v5
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m v5.core.packages.provision_worker %i
+StateDirectory=kvn-v5/provision
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+MemoryMax=512M
+TasksMax=128

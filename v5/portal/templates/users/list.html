@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Пользователи VPN · KVN Portal{% endblock %}
+{% block body %}
+<h1>Пользователи VPN</h1>
+<p><a href="{{ url_for('migration.index') }}">Импорт и экспорт .kvn</a></p>
+{% for message in get_flashed_messages() %}<p class="alert" role="status">{{ message }}</p>{% endfor %}
+{% if data is not none %}
+<form method="post" action="{{ url_for('vpn_users.create') }}" class="panel">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label for="vpn-name">Имя пользователя</label>
+  <input id="vpn-name" name="name" pattern="[A-Za-z0-9_.\-]{1,64}" maxlength="64" required>
+  <button type="submit">Создать</button>
+</form>
+{% if data.users %}<ul>{% for user in data.users %}<li><a href="{{ url_for('vpn_users.detail', user_id=user.id) }}">{{ user.name }}</a></li>{% endfor %}</ul>
+{% else %}<p>На этой странице пока нет пользователей.</p>{% endif %}
+{% if offset %}<a href="{{ url_for('vpn_users.index', offset=[0, offset - 50]|max) }}">Назад</a>{% endif %}
+{% if data.more %}<a href="{{ url_for('vpn_users.index', offset=offset + 50) }}">Дальше</a>{% endif %}
+{% else %}<p role="status">Служба пользователей недоступна.</p>{% endif %}
+{% endblock %}

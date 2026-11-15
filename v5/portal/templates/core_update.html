@@ -1,0 +1,81 @@
+{% extends 'base.html' %}
+{% block title %}Обновление ядра · KVN Portal{% endblock %}
+{% block body %}
+<h1>Обновление ядра</h1>
+<p>Сначала загрузите и проверьте подписанный пакет. Применение запускается отдельно; настройки и модули сохраняются.</p>
+<p><a href="{{ url_for('maintenance') }}">К обслуживанию</a></p>
+{% for category, message in get_flashed_messages(with_categories=true) %}<p class="{{ 'alert' if category == 'error' else 'badge' }}" role="{{ 'alert' if category == 'error' else 'status' }}">{{ message }}</p>{% endfor %}
+{% if status is none %}
+<p class="alert" role="alert">Служба обновления недоступна. Если обновление уже запущено, подождите и обновите страницу; при необходимости проверьте состояние по SSH.</p>
+{% else %}
+<section class="panel">
+  <h2>GitHub Releases</h2>
+  <p>Источник закреплён за artemiygaer/kvn-portal. Пустой тег означает последний стабильный выпуск v5.</p>
+  <form method="post" action="{{ url_for('core_update_action', action='github') }}" data-core-github>
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Тег выпуска <input name="tag" placeholder="v5.0.0" maxlength="30"></label>
+    <button type="submit">Скачать и проверить</button>
+  </form>
+  <div data-core-github-progress hidden><p role="status">Загрузка с GitHub и проверка выполняются. Дождитесь результата.</p><progress aria-label="Подготовка с GitHub"></progress></div>
+</section>
+<section class="panel">
+  <h2>Ручная загрузка</h2>
+  <p>Выберите штатный подписанный <code>kvn-portal-v5-update.tar</code> из выпуска v5.</p>
+  <form method="post" enctype="multipart/form-data" action="{{ url_for('core_update_action', action='upload') }}" data-core-upload>
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Пакет ядра <input type="file" name="bundle" accept=".tar" required></label>
+    <button type="submit">Загрузить и проверить</button>
+  </form>
+  <div data-core-progress hidden><p role="status" data-core-progress-text></p><progress max="100" value="0" aria-label="Загрузка пакета ядра"></progress></div>
+</section>
+<section class="panel">
+  <h2>Подготовленные пакеты</h2>
+  <p>Текущая версия: {{ 'v' ~ status.current if status.current else 'не определена' }}. Проверка и запуск — разные действия.</p>
+  {% for item in status.records %}
+  <article class="module-item">
+    <h3>v{{ item.version }}</h3>
+    <p>SHA-256 архива установщика: <code>{{ item.sha256 }}</code></p>
+    {% if item.status == 'ready' %}
+    <p>Подпись, версия и состав проверены. Готово к применению.</p>
+    <form method="post" action="{{ url_for('core_update_action', action='start') }}">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="ticket" value="{{ item.ticket }}">
+      <label><input type="checkbox" name="confirm" value="yes" required> Подтверждаю краткое отключение панели</label>
+      <button type="submit">Запустить обновление</button>
+    </form>
+    {% elif item.status in ('queued', 'running') %}
+    <p role="status">Операция в очереди либо выполняется. Если связь прервалась, подождите и обновите эту страницу.</p>
+    {% if item.job_active is sameas false %}
+    <p class="alert" role="status">Служба сейчас не активна; результат требует проверки.</p>
+    <form method="post" action="{{ url_for('core_update_action', action='reconcile') }}">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="ticket" value="{{ item.ticket }}">
+      <label><input type="checkbox" name="confirm" value="yes" required> Проверить остановленную задачу</label>
+      <button class="secondary" type="submit">Проверить состояние</button>
+    </form>
+    {% endif %}
+    {% elif item.status == 'applied' %}<p role="status">Системная служба подтвердила обновление и проверку панели.</p>
+    {% elif item.status == 'expired' %}<p role="status">Срок подготовки истёк. Загрузите и проверьте пакет заново.</p>
+    {% elif item.status == 'obsolete' %}<p role="status">Эта версия уже установлена или устарела.</p>
+    {% else %}<p class="alert" role="alert">Обновление не подтверждено. Проверьте состояние и восстановление по SSH.</p>{% endif %}
+    {% if item.status not in ('queued', 'running') %}
+    <form method="post" action="{{ url_for('core_update_action', action='discard') }}">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="ticket" value="{{ item.ticket }}">
+      <label><input type="checkbox" name="confirm" value="yes" required> Удалить подготовленный пакет</label>
+      <button class="secondary" type="submit">Удалить запись</button>
+    </form>
+    {% endif %}
+  </article>
+  {% else %}<p>Подготовленных пакетов пока нет.</p>{% endfor %}
+</section>
+{% endif %}
+<section class="panel">
+  <h2>Восстановление через SSH</h2>
+  <p>Если результат не подтверждён, проверьте журнал службы. Прерванную транзакцию можно восстановить; предыдущую версию — вернуть отдельно.</p>
+  <pre><code>journalctl -u 'kvn-v5-core-apply@*' -n 100 --no-pager
+cd /usr/local/lib/kvn-v5
+python3 -m v5.core.maintenance core-recover
+# Для возврата предыдущей версии:
+python3 -m v5.core.maintenance core-recover --previous</code></pre>
+  <p>При нестандартном каталоге установки укажите <code>--install-dir /root/ИМЯ</code> перед командой <code>core-recover</code>.</p>
+</section>
+{% endblock %}
+{% block scripts %}<script defer src="{{ url_for('static', filename='core-update.js') }}"></script>{% endblock %}

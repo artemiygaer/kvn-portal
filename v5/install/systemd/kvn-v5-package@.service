@@ -1,0 +1,30 @@
+[Unit]
+Description=KVN v5 bounded package request
+
+[Service]
+Type=exec
+User=root
+Group=root
+WorkingDirectory=/usr/local/lib/kvn-v5
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m v5.core.packages.rpc --web-uid @WEB_UID@
+StandardInput=socket
+StandardOutput=null
+StandardError=journal
+UMask=0077
+RuntimeMaxSec=360
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/kvn-v5/packages
+InaccessiblePaths=/etc/kvn-v5/web /etc/kvn-v5/gateway /var/lib/kvn-v5/acme /var/lib/kvn-v5/tls /var/lib/kvn-v5/site
+InaccessiblePaths=-/run/docker.sock -/var/run/docker.sock -/etc/shadow -/etc/gshadow -/etc/ssh
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+MemoryMax=48M
+TasksMax=4

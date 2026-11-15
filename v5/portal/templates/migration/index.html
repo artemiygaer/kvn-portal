@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Перенос пользователей · KVN Portal{% endblock %}
+{% block body %}
+<p><a href="{{ url_for('vpn_users.index') }}">Пользователи VPN</a></p>
+<h1>Перенос пользователей</h1>
+{% for message in get_flashed_messages() %}<p class="alert" role="status">{{ message }}</p>{% endfor %}
+{% if preview %}
+<section class="panel">
+  <h2>Предпросмотр · {{ 'Добавление' if mode == 'merge' else 'Восстановление' }}</h2>
+  <p>Пользователей к переносу: {{ preview.users }}. Ничего ещё не применено. Предпросмотр действует 10 минут.</p>
+  {% if preview.skipped_openconnect %}<p>Доступ OpenConnect не переносится:</p>
+  <ul>{% for name in preview.skipped_openconnect %}<li>{{ name }}</li>{% endfor %}</ul>{% endif %}
+  {% if preview.ignored_server_keys %}<p>Останутся ключи назначения: {{ preview.ignored_server_keys | join(', ') }}.</p>{% endif %}
+  <form method="post" action="{{ url_for('migration.submit', action='commit') }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="ticket" value="{{ preview.ticket }}">
+    <label><input type="checkbox" name="confirm" value="yes" required> Подтверждаю перенос</label>
+    <button>Перенести пользователей</button>
+  </form>
+  <p><a href="{{ url_for('migration.index') }}">Отмена</a></p>
+</section>
+{% else %}
+<section class="panel">
+  <h2>Импорт</h2>
+  <p>Архив v4.2 или v5, до 8 МиБ. Сначала проверьте список. Установка модулей и их включение — отдельные действия.</p>
+  <form method="post" action="{{ url_for('migration.submit', action='preview') }}" enctype="multipart/form-data">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label for="migration-archive">Архив .kvn</label><input id="migration-archive" type="file" name="archive" accept=".kvn" required>
+    <label for="migration-mode">Режим</label><select id="migration-mode" name="mode">
+      <option value="merge">Добавить пользователей, сохранить ключи цели</option>
+      <option value="restore">Восстановить ключи на пустой цели</option>
+    </select>
+    <label for="migration-phrase">Фраза архива</label><input id="migration-phrase" type="password" name="phrase" maxlength="256" autocomplete="off" required>
+    <button>Проверить архив</button>
+  </form>
+</section>
+<section class="panel">
+  <h2>Зашифрованный экспорт</h2>
+  <p>Архив содержит ключи и права VPN, но не системные учётные записи, сертификаты и настройки сети. Храните архив и фразу отдельно.</p>
+  <form method="post" action="{{ url_for('migration.submit', action='export') }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label for="export-phrase">Фраза (от 12 символов)</label><input id="export-phrase" type="password" name="phrase" minlength="12" maxlength="256" autocomplete="new-password" required>
+    <label for="export-repeat">Повтор фразы</label><input id="export-repeat" type="password" name="repeat" minlength="12" maxlength="256" autocomplete="new-password" required>
+    <button>Скачать .kvn</button>
+  </form>
+</section>
+{% if can_rollback %}<section class="panel">
+  <h2>Отменить последний импорт</h2>
+  <p>Доступно, пока настройки и права не менялись после переноса.</p>
+  <form method="post" action="{{ url_for('migration.submit', action='rollback') }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label><input type="checkbox" name="confirm" value="yes" required> Подтверждаю откат</label>
+    <button class="secondary">Откатить импорт</button>
+  </form>
+</section>{% endif %}
+{% endif %}
+{% endblock %}
