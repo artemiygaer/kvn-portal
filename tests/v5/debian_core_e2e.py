@@ -20,7 +20,8 @@ ASSET = "kvn-portal-v5-installer.tar.gz"
 RELEASES = "https://github.com/artemiygaer/kvn-portal/releases/download"
 VM_NAMES = {22053: "phase2-debian12", 22054: "phase2-debian13", 22055: "phase3-debian13", 22056: "phase3-debian12",
             22057: "phase3-debian13-full", 22058: "phase4-debian13", 22059: "phase4-debian12",
-            22060: "phase10-debian13-clean", 22061: "phase11-debian13-clean"}
+            22060: "phase10-debian13-clean", 22061: "phase11-debian13-clean",
+            22068: "phase14-debian12-fresh", 22069: "phase14-debian13-fresh"}
 HTTP_FORWARD = {22055: 22880, 22056: 22881, 22057: 22882, 22058: 22883, 22059: 22884, 22060: 22885,
                 22061: 22886}
 TLS_FORWARD = {22056: (22443, 22444)}
@@ -66,7 +67,7 @@ class Lab:
     def probe(self, password=""):
         source = Path(__file__).with_name("fixtures") / "check_debian_core.py"
         self.upload(source, "/var/tmp/kvn-v5-phase2/check_debian_core.py")
-        flags = " --http01" if self.port in HTTP_FORWARD else ""
+        flags = " --http01" if self.port in HTTP_FORWARD or self.port in (22068, 22069) else ""
         if self.port == 22057:
             flags += " --phase3-app"
             if not password:

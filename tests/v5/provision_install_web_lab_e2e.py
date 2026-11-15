@@ -1,6 +1,7 @@
 """Реальная установка Docker через портал на учебной Debian VM в WSL."""
 
 from datetime import datetime, timedelta, timezone
+import hashlib
 from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
@@ -16,11 +17,25 @@ from v5.packaging.build_module import build
 
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 22063
-    if port not in (22063, 22065, 22066, 22067):
+    if port not in (22063, 22065, 22066, 22067, 22068):
         raise ValueError('Разрешены только выделенные учебные VM')
     lab = Lab(port, ROOT)
     lab.wait()
     lab.run('test ! -e /usr/bin/docker')
+    if port == 22068:
+        # На свежей установке проверяем оригинальный подписанный пакет издателя,
+        # не подменяя ни код ядра, ни доверенный ключ, ни systemd units.
+        lab.run(f'test "$(cat {INSTALLED}/core-version)" = 5.0.2; install -d -m 0700 {STAGE}')
+        for name in ('check_debian_core.py', 'check_provision_install_web.py'):
+            lab.upload(Path('tests/v5/fixtures') / name, f'{STAGE}/{name}')
+        archive = Path('output/v5-release-candidate-5.0.2/kvn-module-xray-26.10.31.tar.gz')
+        payload = archive.read_bytes()
+        digest = hashlib.sha256(payload).hexdigest()
+        lab.run(f'umask 077; cat > {STAGE}/xray.tar.gz', data=payload, timeout=300)
+        lab.run(f'cd {STAGE}; sha256sum --check --strict', data=f'{digest}  xray.tar.gz\n'.encode(), timeout=120)
+        lab.run(f'cd {INSTALLED}; PYTHONPATH=.:{STAGE} python3 -u {STAGE}/check_provision_install_web.py '
+                f'{STAGE}/xray.tar.gz', timeout=1800, capture=False)
+        return
     stage_candidate(lab)
     # Базовый снимок фазы 2 старше модульной архитектуры.
     lab.run(f'tar -xzf {STAGE}/candidate.tar.gz -C {INSTALLED} v5/modules')
@@ -37,8 +52,9 @@ def main():
               'install -d -m 0755 /var/lib/kvn-v5/acme /var/lib/kvn-v5/site; '
               'systemctl daemon-reload; systemctl enable --now kvn-v5-package.socket kvn-v5-lifecycle.socket '
               'kvn-v5-core-update.socket')
-    for name in ('check_debian_core.py', 'check_provision_install_web.py'):
+    for name in ('check_debian_core.py', 'check_provision_install_web.py', 'refresh_clean_gateway.py'):
         lab.upload(Path('tests/v5/fixtures') / name, f'{STAGE}/{name}')
+    lab.run(f'cd {INSTALLED}; PYTHONPATH=. python3 {STAGE}/refresh_clean_gateway.py')
     with TemporaryDirectory(dir=ROOT, prefix='docker-provision-e2e-') as directory:
         root = Path(directory)
         signer = root / 'signer.pem'

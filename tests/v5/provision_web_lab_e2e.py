@@ -14,7 +14,7 @@ def main():
         raise ValueError('Неизвестный тестовый модуль')
     wait_only = len(sys.argv) >= 3 and sys.argv[2] == '--wait-only'
     port = int(sys.argv[3]) if len(sys.argv) == 4 and wait_only else 22063
-    if port not in (22063, 22067):
+    if port not in (22063, 22067, 22068):
         raise ValueError('Разрешены только выделенные учебные VM')
     lab = Lab(port, ROOT)
     lab.wait()

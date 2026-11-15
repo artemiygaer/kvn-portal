@@ -30,18 +30,22 @@ def request(method, path, body=None):
     return response.status, response.read().decode('utf-8')
 
 
-status, page = request('GET', '/modules')
-assert status == 200
 if not wait_only:
+    status, page = request('GET', '/modules')
+    assert status == 200
     assert 'Подготовить зависимости' in page
-csrf = re.search(r'name="csrf" value="([^"]+)"', page)[1]
-if not wait_only:
+    csrf = re.search(r'name="csrf" value="([^"]+)"', page)[1]
     body = urlencode({'csrf': csrf, 'module': module, 'confirm': 'yes'})
     status, _ = request('POST', '/modules/provision', body)
     assert status == 303
 deadline = time.monotonic() + 1200
+transient = 0
 while time.monotonic() < deadline:
     status, page = request('GET', '/modules')
+    if status in (502, 503, 504) and transient < 3:
+        transient += 1
+        time.sleep(5)
+        continue
     assert status == 200
     if 'Зависимости подготовлены.' in page and f'Подготовка зависимостей: {module}' in page:
         break
@@ -52,5 +56,6 @@ else:
     raise RuntimeError('Не дождались результата фоновой подготовки')
 assert not Path('/sys/class/net/wg0').exists()
 subprocess.run(['systemctl', 'is-active', '--quiet', 'kvn-v5-agent', 'kvn-v5-web', 'kvn-v5-gateway'], check=True)
-print(f'HTTPS → RPC → systemd → подготовка {module}: готово; модуль выключен.', flush=True)
+print(f'HTTPS → RPC → systemd → подготовка {module}: готово; модуль выключен. '
+      f'Временных ошибок шлюза: {transient}.', flush=True)
 connection.close()
