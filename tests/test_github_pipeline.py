@@ -89,7 +89,8 @@ class WorkflowContractTests(unittest.TestCase):
             "tools/docs_check.py",
             "python3 -m unittest discover -s tests -v",
             "python3 -m unittest discover -s tests/v5 -v",
-            "PYTHONPATH=. /usr/bin/python3 -m unittest discover -s tests -v",
+            "sudo env PYTHONPATH=. /usr/bin/python3 -m unittest discover -s tests -v",
+            'GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE"',
         ]:
             self.assertIn(marker, ci)
         for marker in [

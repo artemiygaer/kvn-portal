@@ -16,7 +16,7 @@ from v5.packaging.build_module import build
 
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 22063
-    if port not in (22063, 22065, 22066):
+    if port not in (22063, 22065, 22066, 22067):
         raise ValueError('Разрешены только выделенные учебные VM')
     lab = Lab(port, ROOT)
     lab.wait()
@@ -24,7 +24,7 @@ def main():
     stage_candidate(lab)
     # Базовый снимок фазы 2 старше модульной архитектуры.
     lab.run(f'tar -xzf {STAGE}/candidate.tar.gz -C {INSTALLED} v5/modules')
-    units = ('kvn-v5-provision@.service', 'kvn-v5-core-update@.service',
+    units = ('kvn-v5-provision@.service', 'kvn-v5-core-update.socket', 'kvn-v5-core-update@.service',
              'kvn-v5-package.socket', 'kvn-v5-package@.service',
              'kvn-v5-lifecycle.socket', 'kvn-v5-lifecycle@.service')
     for name in units:
@@ -35,7 +35,8 @@ def main():
             + ' install -d -m 0700 /etc/kvn-v5/packages /var/lib/kvn-v5/packages /var/lib/kvn-v5/modules '
               '/var/lib/kvn-v5/users /var/lib/kvn-v5/tls; '
               'install -d -m 0755 /var/lib/kvn-v5/acme /var/lib/kvn-v5/site; '
-              'systemctl daemon-reload; systemctl enable --now kvn-v5-package.socket kvn-v5-lifecycle.socket')
+              'systemctl daemon-reload; systemctl enable --now kvn-v5-package.socket kvn-v5-lifecycle.socket '
+              'kvn-v5-core-update.socket')
     for name in ('check_debian_core.py', 'check_provision_install_web.py'):
         lab.upload(Path('tests/v5/fixtures') / name, f'{STAGE}/{name}')
     with TemporaryDirectory(dir=ROOT, prefix='docker-provision-e2e-') as directory:

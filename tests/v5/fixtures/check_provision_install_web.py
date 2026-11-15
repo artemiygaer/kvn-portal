@@ -45,6 +45,8 @@ status, _ = request('POST', '/modules/install', urlencode({'csrf': csrf, 'ticket
 assert status == 303
 status, _ = request('POST', '/modules/provision', urlencode({'csrf': csrf, 'module': 'xray', 'confirm': 'yes'}), kind)
 assert status == 303
+status, page = request('GET', '/modules')
+assert status == 200 and 'Подготовка зависимостей запущена' in page, 'Портал не подтвердил запуск подготовки'
 deadline = time.monotonic() + 1200
 while time.monotonic() < deadline:
     status, page = request('GET', '/modules')
