@@ -31,8 +31,8 @@ def request(method, path, body=None, content_type=None):
     if updated:
         jar = SimpleCookie()
         jar.load(updated)
-        if 'session' in jar:
-            cookie = 'session=' + jar['session'].value
+        if '__Host-kvn-v5' in jar:
+            cookie = '__Host-kvn-v5=' + jar['__Host-kvn-v5'].value
     return response.status, response.read().decode('utf-8')
 
 
@@ -54,7 +54,9 @@ assert status == 303
 status, _ = request('POST', '/modules/provision', urlencode({'csrf': csrf, 'module': 'xray', 'confirm': 'yes'}), kind)
 assert status == 303
 status, page = request('GET', '/modules')
-assert status == 200 and 'Подготовка зависимостей запущена' in page, 'Портал не подтвердил запуск подготовки'
+assert status == 200 and 'Подготовка зависимостей запущена' in page, (
+    f'Портал не подтвердил запуск подготовки: HTTP {status}'
+)
 deadline = time.monotonic() + 1200
 while time.monotonic() < deadline:
     status, page = request('GET', '/modules')

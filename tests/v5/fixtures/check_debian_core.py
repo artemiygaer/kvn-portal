@@ -128,11 +128,13 @@ def verify_https(password, *, phase3_app=False, fixture_session=False):
             assert label in body, label
         if 'href="/modules"' in body:
             modules_status, _, modules = request("GET", "/modules", headers={"Cookie": cookie})
-            assert modules_status == 200 and "Модули" in modules and "Ключ издателя ещё не настроен" in modules
+            assert modules_status == 200 and "Модули" in modules
+            warning = "Ключ издателя ещё не настроен" in modules
+            assert warning != Path('/etc/kvn-v5/packages/publisher.json').is_file()
             assert not Path("/var/lib/kvn-v5/packages/registry.sqlite3").exists()
         else:
             assert "Модули не установлены" in body
-        print("Вход по паролю из мастера и все карточки живой сводки: OK")
+        print("Вход по заданному паролю и все карточки живой сводки: OK")
         if phase3_app:
             verify_phase3_app(request, cookie)
     finally:

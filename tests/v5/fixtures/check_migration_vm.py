@@ -107,7 +107,9 @@ def main():
     assert run("/usr/bin/systemctl", "is-active", "kvn-v5-migration.socket").strip() == b"active"
     archive = ROOT / "fixture.kvn"
     source = from_legacy(parse_legacy(decrypt_archive(archive.read_bytes(), PHRASE)))
-    retry = sys.argv[1:] == ["--retry-ports"]
+    flags = set(sys.argv[1:])
+    assert flags <= {"--retry-ports", "--fixture-session", "--import-only"}
+    retry = "--retry-ports" in flags
     if retry:
         assert not password
         rollback_previous_fixture(source)
@@ -115,12 +117,12 @@ def main():
     before_packages = run("/usr/bin/dpkg-query", "-W")
     browser = Browser()
     browser.expect(303, PAGE)
-    if retry or sys.argv[1:] == ["--fixture-session"]:
+    if retry or "--fixture-session" in flags:
         assert not password and (retry or not (PACKAGE_STATE.parent / "users/users.sqlite3").exists())
         browser.cookie = signed_fixture_session()
         print("Повтор HTTPS-проверки: одноразовая подписанная сессия только учебной VM.", flush=True)
     else:
-        assert password and not sys.argv[1:]
+        assert password and not flags.difference({"--import-only"})
         browser.expect(200, "/login")
         browser.expect(303, "/login", {"login": "admin", "password": password})
     browser.expect(200, PAGE)
@@ -151,6 +153,9 @@ def main():
     if raw_before != raw_after:
         print("Сырые строки ss различаются, но протоколы, адреса и порты совпадают.", flush=True)
     print("HTTPS/systemd: v4.2 → preview → commit → экспорт v5 → откат → восстановление; без VPN-слушателей и Docker.", flush=True)
+
+    if "--import-only" in flags:
+        return
 
     run("/usr/bin/apt-get", "install", "-y", "--no-install-recommends", "wireguard-tools", "nftables", timeout=480)
     run("/usr/sbin/modprobe", "wireguard")

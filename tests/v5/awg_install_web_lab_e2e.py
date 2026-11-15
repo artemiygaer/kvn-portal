@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import sys
 from tempfile import TemporaryDirectory
 
 from tests.v5.audit_lab_e2e import INSTALLED, STAGE, stage_candidate
@@ -14,9 +15,22 @@ from v5.packaging.build_module import build
 
 
 def main():
-    lab = Lab(22063, ROOT)
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 22063
+    if port not in (22063, 22069):
+        raise ValueError('Разрешены только выделенные учебные VM')
+    lab = Lab(port, ROOT)
     lab.wait()
     lab.run('test ! -e /usr/bin/awg')
+    if port == 22069:
+        # Свежая установка сохраняет код ядра и настоящий ключ издателя.
+        lab.run(f'install -d -m 0700 {STAGE}')
+        for name in ('check_debian_core.py', 'check_awg_install_web.py'):
+            lab.upload(Path('tests/v5/fixtures') / name, f'{STAGE}/{name}')
+        archive = Path('output/v5-release-candidate-5.0.2/kvn-module-amneziawg-1.0.0.tar.gz')
+        upload(lab, archive, STAGE)
+        lab.run(f'cd {INSTALLED}; PYTHONPATH=.:{STAGE} python3 -u {STAGE}/check_awg_install_web.py '
+                f'{STAGE}/{archive.name}', timeout=2550, capture=False)
+        return
     stage_candidate(lab)
     for name in ('check_debian_core.py', 'check_awg_install_web.py'):
         lab.upload(Path('tests/v5/fixtures') / name, f'{STAGE}/{name}')
