@@ -17,15 +17,16 @@ from v5.packaging.build_module import build
 
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 22063
-    if port not in (22063, 22065, 22066, 22067, 22068):
+    if port not in (22063, 22065, 22066, 22067, 22068, 22069):
         raise ValueError('Разрешены только выделенные учебные VM')
     lab = Lab(port, ROOT)
     lab.wait()
     lab.run('test ! -e /usr/bin/docker')
-    if port == 22068:
+    if port in (22068, 22069):
         # На свежей установке проверяем оригинальный подписанный пакет издателя,
         # не подменяя ни код ядра, ни доверенный ключ, ни systemd units.
-        lab.run(f'test "$(cat {INSTALLED}/core-version)" = 5.0.2; install -d -m 0700 {STAGE}')
+        version = '5.0.2' if port == 22068 else '5.0.3'
+        lab.run(f'test "$(cat {INSTALLED}/core-version)" = {version}; install -d -m 0700 {STAGE}')
         for name in ('check_debian_core.py', 'check_provision_install_web.py'):
             lab.upload(Path('tests/v5/fixtures') / name, f'{STAGE}/{name}')
         archive = Path('output/v5-release-candidate-5.0.2/kvn-module-xray-26.10.31.tar.gz')

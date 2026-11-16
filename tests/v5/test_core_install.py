@@ -14,6 +14,13 @@ from v5.install.preflight import DEFAULT_INSTALL_DIR, InstallIdentity, InstallPr
 
 
 class InstallerPreflightTests(unittest.TestCase):
+    def test_web_service_reports_ready_after_application_preload(self):
+        unit = (Path(__file__).resolve().parents[2] / 'v5/install/systemd/kvn-v5-web.service').read_text()
+        self.assertIn('Type=notify\n', unit)
+        self.assertIn('gunicorn --preload --workers 1 --threads 2', unit)
+        self.assertIn('User=kvn-v5-web\n', unit)
+        self.assertIn('InaccessiblePaths=-/run/docker.sock', unit)
+
     def test_default_root_and_dns_normalization(self):
         self.assertEqual(DEFAULT_INSTALL_DIR, Path("/root/portal"))
         identity = InstallIdentity.parse("2001:db8::1", "Portal.example. portal.example Сайт.example")

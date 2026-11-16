@@ -42,6 +42,12 @@ network namespaces: `PYTHONPATH=. unshare --mount --net --propagation private
 python3 -m tests.v5.tunnel_egress_e2e wireguard` (одной строкой). Это
 дополнительная проверка WireGuard, а не доказательство AWG.
 
+Дополнительно на Debian 13 проверен пакет AmneziaWG издателя: после установки
+через HTTPS модуль 3.1 включён и выключен через панель, UDP/51820 закрыт,
+настройки и существующие ключи после отключения сохранились (exit 0). При
+первом включении состав peers может обновляться из сохранённых прав пользователей;
+это не считается удалением настроек. Тест выполняется только на учебной VM.
+
 Инженерные проверки WSL: architecture/compileall и scoped diff — exit=0;
 106 тестов v5 — exit=0; 39 legacy-тестов — exit=0, 1 явный skip старого
 Docker E2E. Журналы стенда: `output/v5-lab/phase7-debian12-e2e-r3.log`,
