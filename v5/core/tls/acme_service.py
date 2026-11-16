@@ -133,9 +133,18 @@ class AcmeService:
             return AcmeResult("staging_issued", info.not_after)
         return self._activate(identity, material)
 
-    def renew_due(self) -> dict[TLSIdentity, AcmeResult]:
+    def import_pair(self, identity: TLSIdentity, chain: bytes, key: bytes) -> AcmeResult:
+        """Проверить и атомарно применить импортированную пару зарегистрированного имени."""
+        if identity not in self.gateway.identities:
+            raise ValueError("Имя не зарегистрировано на шлюзе")
+        return self._activate(identity, (chain, key))
+
+    def renew_due(self, imported: dict[str, list[str]] | None = None) -> dict[TLSIdentity, AcmeResult]:
         results = {}
         for identity in self.gateway.identities:
+            # Автоматический ACME не заменяет вручную импортированное поколение.
+            if imported and self.gateway.generation(identity) in imported.get(identity.slot, ()):
+                continue
             try:
                 plan = self.client.plan(identity, AcmeMode.PUBLIC)
             except ValueError:

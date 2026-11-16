@@ -1,6 +1,7 @@
 """Первый вход и компактная сводка без Docker, VPN и фоновой истории."""
 
 import hmac
+from io import BytesIO
 import json
 import os
 from pathlib import Path
@@ -21,6 +22,7 @@ from v5.core.packages import PACKAGE_SOCKET
 from v5.core.packages.manifest import MAX_PACKAGE
 from v5.core.release import installed_version
 from v5.core.site.document import MAX_HTML_BYTES, MAX_SITE_FORM, SITE_CSP, UnsafeDocument, validate_html
+from v5.core.tls.certificates import MAX_CHAIN_BYTES, MAX_KEY_BYTES
 
 from .rpc import AgentRejected, AgentUnavailable, CoreUpdateClient, HostClient, LifecycleClient, PackageClient, UsersClient
 from .core_update_routes import register_core_update
@@ -44,6 +46,9 @@ TLS_MESSAGES = {
     "rate_limited": "Сработал лимит CA. Повторите позже.", "acme_timeout": "CA не ответил вовремя",
     "acme_failed": "Ошибка выпуска ACME", "lineage_invalid": "Недопустимое хранилище Certbot",
     "lineage_missing": "Certbot не сохранил пару", "san_mismatch": "Сертификат выпущен для другого имени или IP",
+    "invalid_certificate": "Цепочка сертификатов повреждена или имеет неверный формат",
+    "invalid_key": "Нужен корректный незашифрованный закрытый ключ PEM",
+    "openssl_failed": "Не удалось проверить сертификат средствами OpenSSL",
     "untrusted_chain": "Цепочка сертификата не доверена", "key_mismatch": "Ключ не соответствует сертификату",
     "expires_too_soon": "Сертификат просрочен или скоро истекает", "not_yet_valid": "Срок действия ещё не начался",
     "config_invalid": "Конфигурация nginx не прошла проверку", "apply_rolled_back": "Прежняя конфигурация восстановлена",
@@ -136,8 +141,16 @@ class PortalRequest(Request):
     max_form_memory_size = 128 * 1024
     max_form_parts = 16
 
+    def _get_file_stream(self, total_content_length, content_type, filename=None, content_length=None):
+        if self.path == "/settings/tls/import":
+            # Закрытый ключ не сбрасывается файловым парсером во временный каталог web.
+            return BytesIO()
+        return super()._get_file_stream(total_content_length, content_type, filename, content_length)
+
     @property
     def max_content_length(self):
+        if self.path == "/settings/tls/import":
+            return MAX_CHAIN_BYTES + MAX_KEY_BYTES + 32 * 1024
         if self.path in ("/settings/site/preview", "/settings/site/publish"):
             return MAX_SITE_FORM
         if self.path == "/modules/upload":
@@ -279,6 +292,43 @@ def create_app(config=None, *, client=None, login_budget=None, package_client=No
         except AgentUnavailable:
             tls = None
         return render_template("tls/settings.html", tls=tls, messages=TLS_MESSAGES, csrf=csrf_token())
+
+    @app.post("/settings/tls/import")
+    def tls_import():
+        if session.get("admin") is not True:
+            return redirect(url_for("login"), code=303)
+        require_csrf()
+        if request.form.get("confirm") != "yes":
+            flash("Подтвердите импорт сертификата.")
+            return redirect(url_for("tls_settings"), code=303)
+        try:
+            chain_file, key_file = request.files.get("chain"), request.files.get("key")
+            chain = chain_file.stream.read(MAX_CHAIN_BYTES + 1) if chain_file else b""
+            key = key_file.stream.read(MAX_KEY_BYTES + 1) if key_file else b""
+            if not 1 <= len(chain) <= MAX_CHAIN_BYTES or not 1 <= len(key) <= MAX_KEY_BYTES:
+                flash("Выберите цепочку PEM и закрытый ключ допустимого размера.")
+            else:
+                backend.tls_import(request.form.get("name", ""), chain, key)
+                flash("Сертификат передан на проверку. Обновите страницу для результата.")
+        except AgentRejected as exc:
+            flash("Уже выполняется задача TLS." if exc.code == "tls_busy" else "Не удалось передать сертификат на проверку.")
+        except AgentUnavailable:
+            flash("Служба TLS недоступна.")
+        return redirect(url_for("tls_settings"), code=303)
+
+    @app.post("/settings/tls/diagnose")
+    def tls_diagnose():
+        if session.get("admin") is not True:
+            return redirect(url_for("login"), code=303)
+        require_csrf()
+        try:
+            backend.tls_diagnose(request.form.get("name", ""))
+            flash("Проверка DNS запущена. Обновите страницу для результата.")
+        except AgentRejected as exc:
+            flash("Уже выполняется задача TLS." if exc.code == "tls_busy" else "Выберите зарегистрированное DNS-имя.")
+        except AgentUnavailable:
+            flash("Служба TLS недоступна.")
+        return redirect(url_for("tls_settings"), code=303)
 
     @app.get("/settings/site")
     def site_settings():

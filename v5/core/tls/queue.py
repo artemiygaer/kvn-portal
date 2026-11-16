@@ -1,7 +1,9 @@
 """Короткий RPC ставит одну задачу; долгий ACME выполняет отдельная служба."""
 
 from contextlib import contextmanager
-from dataclasses import dataclass
+import base64
+import binascii
+from dataclasses import dataclass, field
 import fcntl
 import json
 import os
@@ -9,12 +11,13 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 from .acme import ACME_ROOT, AcmeMode, AcmePlan
+from .certificates import MAX_CHAIN_BYTES, MAX_KEY_BYTES
 from .identity import TLSIdentity
 
 
 GATEWAY_ROOT = Path("/etc/kvn-v5/gateway")
 TLS_QUEUE = ACME_ROOT.parent / "tls"
-MAX_JSON = 16384
+MAX_JSON = 256 * 1024
 
 
 def read_json(path: Path, default=None):
@@ -78,6 +81,45 @@ class TLSJob:
         return cls(identity, mode, data["email"])
 
 
+@dataclass(frozen=True, slots=True)
+class TLSImportJob:
+    identity: TLSIdentity
+    chain: bytes = field(repr=False)
+    key: bytes = field(repr=False)
+
+    @classmethod
+    def parse(cls, data, identities: tuple[TLSIdentity, ...]):
+        if (not isinstance(data, dict) or set(data) != {"kind", "name", "chain", "key"}
+                or data["kind"] != "import" or not all(isinstance(data[k], str) for k in ("name", "chain", "key"))):
+            raise ValueError("Некорректные параметры импорта TLS")
+        identity = next((item for item in identities if item.name == data["name"]), None)
+        if identity is None:
+            raise ValueError("Имя не зарегистрировано на шлюзе")
+        try:
+            chain = base64.b64decode(data["chain"], validate=True)
+            key = base64.b64decode(data["key"], validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise ValueError("Некорректная кодировка сертификата") from exc
+        if not 1 <= len(chain) <= MAX_CHAIN_BYTES or not 1 <= len(key) <= MAX_KEY_BYTES:
+            raise ValueError("Некорректный размер сертификата или ключа")
+        return cls(identity, chain, key)
+
+
+@dataclass(frozen=True, slots=True)
+class TLSDNSJob:
+    identity: TLSIdentity
+
+    @classmethod
+    def parse(cls, data, identities: tuple[TLSIdentity, ...]):
+        if (not isinstance(data, dict) or set(data) != {"kind", "name"} or data["kind"] != "dns"
+                or not isinstance(data["name"], str)):
+            raise ValueError("Некорректный запрос DNS")
+        identity = next((item for item in identities if not item.is_ip and item.name == data["name"]), None)
+        if identity is None:
+            raise ValueError("Имя не зарегистрировано на шлюзе")
+        return cls(identity)
+
+
 class QueueBusy(RuntimeError):
     pass
 
@@ -104,6 +146,21 @@ class TLSQueue:
                 raise QueueBusy
             _write_json(self.pending, {"name": job.identity.name, "mode": job.mode.value, "email": job.email})
 
+    def submit_import(self, job: TLSImportJob) -> None:
+        with self.exclusive():
+            if self.pending.exists() or self.pending.is_symlink():
+                raise QueueBusy
+            # Очередь и файл имеют root-only права; web не получает доступ к ключу после отправки.
+            _write_json(self.pending, {"kind": "import", "name": job.identity.name,
+                                      "chain": base64.b64encode(job.chain).decode("ascii"),
+                                      "key": base64.b64encode(job.key).decode("ascii")})
+
+    def submit_dns(self, job: TLSDNSJob) -> None:
+        with self.exclusive():
+            if self.pending.exists() or self.pending.is_symlink():
+                raise QueueBusy
+            _write_json(self.pending, {"kind": "dns", "name": job.identity.name})
+
     def take(self, identities: tuple[TLSIdentity, ...]) -> TLSJob | None:
         """Вызывать только внутри exclusive, убрать сигнал .path до сетевых операций."""
         try:
@@ -112,6 +169,10 @@ class TLSQueue:
             return None
         finally:
             self.pending.unlink(missing_ok=True)
+        if isinstance(data, dict) and data.get("kind") == "import":
+            return TLSImportJob.parse(data, identities)
+        if isinstance(data, dict) and data.get("kind") == "dns":
+            return TLSDNSJob.parse(data, identities)
         return TLSJob.parse(data, identities)
 
     def snapshot(self) -> dict:

@@ -13,7 +13,8 @@
 <section class="panel">
   <h2>{{ item.authority }}</h2>
   <p>{% if result.active_expires_at %}Активен до <time datetime="{{ result.active_expires_at }}">{{ result.active_expires_at }}</time>{% else %}Сертификат не применён{% endif %}</p>
-  {% for mode, label in [('public', 'Публичный выпуск'), ('staging', 'Проверочный выпуск')] %}
+  {% if result.dns %}<p>DNS: {% if result.dns.status == 'match' %}IP сервера найден{% elif result.dns.status == 'mismatch' %}IP сервера не найден{% elif result.dns.status == 'timeout' %}истекло время ожидания{% else %}проверка недоступна{% endif %}{% if result.dns.addresses %} — {{ result.dns.addresses | join(', ') }}{% endif %}{% if result.dns.truncated %} (список сокращён){% endif %}</p>{% endif %}
+  {% for mode, label in [('public', 'Публичный выпуск'), ('staging', 'Проверочный выпуск'), ('import', 'Импорт сертификата')] %}
     {% set entry = result.get(mode) %}
     {% if entry %}<p>{{ label }}: {{ messages.get(entry.status, 'Ошибка TLS') }}</p>{% endif %}
   {% endfor %}
@@ -32,6 +33,28 @@
     <button type="submit"{% if tls.busy %} disabled{% endif %}>Запустить выпуск</button>
   </form>
   <p><a href="{{ url_for('tls_settings') }}">Обновить статус</a></p>
+</section>
+<section class="panel">
+  <h2>Проверка DNS</h2>
+  <p>Проверяются зарегистрированные имена с сервера. Результат не гарантирует доступность у другого провайдера.</p>
+  <form method="post" action="{{ url_for('tls_diagnose') }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>DNS-имя <select name="name" required>{% for item in tls.names if not item.is_ip %}<option value="{{ item.name }}">{{ item.authority }}</option>{% endfor %}</select></label>
+    <button type="submit"{% if tls.busy or not tls.names | rejectattr('is_ip') | list %} disabled{% endif %}>Проверить DNS</button>
+  </form>
+</section>
+<section class="panel">
+  <h2>Импорт собственного сертификата</h2>
+  <p>Загрузите доверенную полную цепочку и соответствующий незашифрованный ключ PEM. Несовпадение имени, срока или пары не заменит действующий сертификат.</p>
+  {% if tls.import_ready is sameas false %}<p role="alert">Шлюз ещё не подготовлен для загрузки сертификатов. Дождитесь обновления конфигурации и обновите страницу; если сообщение не исчезает, проверьте службу TLS.</p>{% endif %}
+  <form method="post" action="{{ url_for('tls_import') }}" enctype="multipart/form-data">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Имя или IP <select name="name" required>{% for item in tls.names %}<option value="{{ item.name }}">{{ item.authority }}</option>{% endfor %}</select></label>
+    <label>Цепочка PEM <input type="file" name="chain" accept=".pem,.crt,.cer" required></label>
+    <label>Закрытый ключ PEM <input type="file" name="key" accept=".pem,.key" required></label>
+    <label><input type="checkbox" name="confirm" value="yes" required> Подтверждаю проверку и применение пары</label>
+    <button type="submit"{% if tls.busy or tls.import_ready is sameas false %} disabled{% endif %}>Проверить и применить</button>
+  </form>
 </section>
 {% else %}<p role="alert">Служба TLS недоступна.</p>{% endif %}
 {% endblock %}

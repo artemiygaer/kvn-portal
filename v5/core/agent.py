@@ -22,7 +22,9 @@ from .packages.manifest import PackageError
 from .packages.status import package_status
 from .site.document import MAX_HTML_BYTES, SiteStore, UnsafeDocument
 from .tls.gateway import SITE_ROOT
-from .tls.queue import QueueBusy, TLSJob, TLSQueue, registry
+from .tls.certificates import MAX_CHAIN_BYTES, MAX_KEY_BYTES
+from .tls.queue import QueueBusy, TLSDNSJob, TLSImportJob, TLSJob, TLSQueue, registry
+from .tls.transaction import read_gateway_config
 
 MAX_REQUEST = 4096
 PEER = struct.Struct("3i")
@@ -40,6 +42,19 @@ def site_body_size(request) -> int | None:
     return size if type(size) is int and 1 <= size <= MAX_HTML_BYTES else None
 
 
+def tls_import_body_size(request) -> int | None:
+    if (not isinstance(request, dict) or set(request) != {"version", "method", "params"}
+            or type(request["version"]) is not int or request["version"] != CORE_API_VERSION
+            or request["method"] != "tls.import" or not isinstance(request["params"], dict)
+            or set(request["params"]) != {"name", "chain_size", "key_size"}
+            or not isinstance(request["params"]["name"], str)):
+        return None
+    chain, key = request["params"]["chain_size"], request["params"]["key_size"]
+    if type(chain) is not int or type(key) is not int or not (1 <= chain <= MAX_CHAIN_BYTES and 1 <= key <= MAX_KEY_BYTES):
+        return None
+    return chain + key
+
+
 class AgentApplication:
     def __init__(self, web_uid: int, status=None, tls: TLSQueue | None = None, tls_registry=registry,
                  site: SiteStore | None = None, packages=None, journal=None, observer=None, history=None):
@@ -53,19 +68,39 @@ class AgentApplication:
         self.observer = observer
         self.history = history
 
-    def _tls_dispatch(self, method, params):
+    def _tls_dispatch(self, method, params, body):
         try:
             identities, _ = self.tls_registry()
         except (OSError, ValueError, RecursionError):
             return {"ok": False, "error": "tls_unavailable"}
         try:
-            if method == "tls.status" and params == {}:
+            if method == "tls.status" and params == {} and body is None:
                 state = self.tls.snapshot()
+                try:
+                    config = read_gateway_config(Path('/etc/kvn-v5/gateway/nginx.conf'))
+                    state['import_ready'] = (b'location = /settings/tls/import {' in config
+                                             and b'client_body_buffer_size 176k;' in config)
+                except (OSError, ValueError):
+                    state['import_ready'] = False
                 state["names"] = [{"name": item.name, "authority": item.authority, "slot": item.slot,
                                    "is_ip": item.is_ip} for item in identities]
                 return {"ok": True, "result": state}
-            if method == "tls.issue":
+            if method == "tls.issue" and body is None:
                 self.tls.submit(TLSJob.parse(params, identities))
+                return {"ok": True, "result": {"queued": True}}
+            if method == "tls.diagnose" and body is None and set(params) == {"name"}:
+                self.tls.submit_dns(TLSDNSJob.parse({"kind": "dns", "name": params["name"]}, identities))
+                return {"ok": True, "result": {"queued": True}}
+            if method == "tls.import":
+                request = {"version": CORE_API_VERSION, "method": method, "params": params}
+                size = tls_import_body_size(request)
+                if size is None or not isinstance(body, bytes) or len(body) != size:
+                    return {"ok": False, "error": "invalid_request"}
+                identity = next((item for item in identities if item.name == params["name"]), None)
+                if identity is None:
+                    raise ValueError("Имя не зарегистрировано")
+                split = params["chain_size"]
+                self.tls.submit_import(TLSImportJob(identity, body[:split], body[split:]))
                 return {"ok": True, "result": {"queued": True}}
         except QueueBusy:
             return {"ok": False, "error": "tls_busy"}
@@ -104,8 +139,8 @@ class AgentApplication:
         if (type(request["version"]) is not int or request["version"] != CORE_API_VERSION
                 or not isinstance(request["method"], str) or not isinstance(request["params"], dict)):
             return {"ok": False, "error": "invalid_request"}
-        if self.tls is not None and request["method"] in ("tls.status", "tls.issue"):
-            result = self._tls_dispatch(request["method"], request["params"])
+        if self.tls is not None and request["method"] in ("tls.status", "tls.issue", "tls.import", "tls.diagnose"):
+            result = self._tls_dispatch(request["method"], request["params"], body)
             audit.outcome(request, result)
             return result
         if self.site is not None and request["method"] in ("site.status", "site.publish", "site.reset"):
@@ -127,6 +162,11 @@ class AgentApplication:
                 return {"ok": False, "error": "invalid_request"}
             try:
                 result = self.observer.snapshot(params.get("session"))
+                from v5.core.observability.listeners import listeners
+                try:
+                    result["listeners"], result["listeners_partial"] = listeners()
+                except (OSError, ValueError, SubprocessError):
+                    result["listeners"], result["listeners_partial"] = [], True
                 return {"ok": True, "result": {key: value for key, value in result.items() if key != "boot_id"}}
             except (OSError, ValueError, IndexError):
                 return {"ok": False, "error": "observe_unavailable"}
@@ -175,7 +215,9 @@ class RequestHandler(socketserver.StreamRequestHandler):
                 else:
                     request = json.loads(line)
                     size = site_body_size(request) if self.server.application.site is not None else None
-                    # Только публикация читает отдельное ограниченное тело, остальные методы — одну строку.
+                    if size is None and self.server.application.tls is not None:
+                        size = tls_import_body_size(request)
+                    # Читаем отдельное тело только для двух явно ограниченных операций.
                     body = self.rfile.read(size + 1) if size is not None else None
                     response = self.server.application.dispatch(uid, request, body=body)
         except (OSError, ValueError, RecursionError):

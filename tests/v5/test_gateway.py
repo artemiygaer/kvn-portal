@@ -46,7 +46,8 @@ class GatewayRenderingTests(unittest.TestCase):
         self.assertIn("listen [::]:443 ssl default_server ipv6only=on;", config)
         self.assertIn("listen 8443 ssl default_server reuseport;", config)
         self.assertIn("listen 127.0.0.1:8443 ssl reuseport;", config)
-        self.assertEqual(config.count("proxy_pass http://portal;"), 15 * (len(names) + 1))
+        self.assertEqual(config.count("proxy_pass http://portal;"), 16 * (len(names) + 1))
+        self.assertEqual(config.count("location = /settings/tls/import {"), len(names) + 1)
         self.assertEqual(config.count("location = /modules {"), len(names) + 1)
         self.assertEqual(config.count('location ~ "^/modules/[a-z_]+$" {'), len(names) + 1)
         self.assertEqual(config.count("location = /observability/history {"), len(names) + 1)
@@ -64,7 +65,7 @@ class GatewayRenderingTests(unittest.TestCase):
         self.assertEqual(config.count("limit_req zone=kvn_sub_ip"), len(names) + 1)
         self.assertEqual(config.count("client_max_body_size 136k;"), len(names) + 1)
         self.assertEqual(config.count("location = /modules/upload {"), len(names) + 1)
-        self.assertEqual(config.count("proxy_request_buffering off;"), 2 * (len(names) + 1))
+        self.assertEqual(config.count("proxy_request_buffering off;"), 3 * (len(names) + 1))
         self.assertEqual(config.count("location / { return 404; }"), len(names))
         self.assertIn("sandbox allow-top-navigation-by-user-activation", config)
         self.assertEqual(admin_hosts(names), ["127.0.0.1:8443", "localhost:8443", "portal.example:8443",

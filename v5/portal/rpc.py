@@ -32,6 +32,13 @@ class HostClient:
     def tls_issue(self, name: str, mode: str, email: str) -> dict:
         return self._request("tls.issue", {"name": name, "mode": mode, "email": email})
 
+    def tls_import(self, name: str, chain: bytes, key: bytes) -> dict:
+        return self._request("tls.import", {"name": name, "chain_size": len(chain), "key_size": len(key)},
+                             body=chain + key, timeout=8)
+
+    def tls_diagnose(self, name: str) -> dict:
+        return self._request("tls.diagnose", {"name": name})
+
     def site_status(self) -> dict:
         return self._request("site.status", {})
 

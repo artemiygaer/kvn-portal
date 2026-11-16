@@ -1,0 +1,56 @@
+"""Большой запрос импорта только на изолированной VM; ключи синтетические."""
+
+import http.client
+from pathlib import Path
+import re
+import ssl
+import time
+
+from check_debian_core import signed_fixture_session
+
+
+def main():
+    assert Path('/var/lib/cloud/data/instance-id').read_text().strip() == 'kvn-v5-isolated-001'
+    config = Path('/etc/kvn-v5/gateway/nginx.conf')
+    for _ in range(150):
+        if 'location = /settings/tls/import {' in config.read_text():
+            break
+        time.sleep(2)
+    else:
+        raise AssertionError('Обновление конфигурации nginx не выполнено')
+    context = ssl.create_default_context(cafile='/etc/kvn-v5/gateway/bootstrap.crt')
+    cookie = signed_fixture_session()
+
+    def request(method, path, body=None, content_type=None):
+        conn = http.client.HTTPSConnection('127.0.0.1', 8443, context=context, timeout=45)
+        headers = {'Cookie': cookie}
+        if method == 'POST':
+            headers.update({'Origin': 'https://127.0.0.1:8443', 'Content-Type': content_type})
+        try:
+            conn.request(method, path, body, headers)
+            response = conn.getresponse()
+            return response.status, response.read().decode()
+        finally:
+            conn.close()
+
+    code, page = request('GET', '/settings/tls')
+    assert code == 200
+    token = re.search(r'name="csrf" value="([^"]+)"', page)[1]
+    boundary = b'KVNLargeTLSFixture'
+    chunks = []
+    for name, value, filename in (('csrf', token.encode(), None), ('name', b'portal.example', None),
+                                  ('confirm', b'yes', None), ('chain', b'A' * 32000, 'chain.pem'),
+                                  ('key', b'fake-key', 'key.pem')):
+        header = f'Content-Disposition: form-data; name="{name}"'
+        if filename:
+            header += f'; filename="{filename}"'
+        chunks.append(b'--' + boundary + b'\r\n' + header.encode() + b'\r\n\r\n' + value + b'\r\n')
+    body = b''.join(chunks) + b'--' + boundary + b'--\r\n'
+    code, _ = request('POST', '/settings/tls/import', body,
+                      'multipart/form-data; boundary=' + boundary.decode())
+    assert code == 303, f'Большой запрос отклонён до проверки: HTTP {code}'
+    print('HTTPS: nginx принял ограниченный запрос импорта больше 4 КиБ.', flush=True)
+
+
+if __name__ == '__main__':
+    main()

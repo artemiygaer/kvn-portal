@@ -1,6 +1,6 @@
 [Unit]
 Description=KVN v5: выпуск TLS по запросу
-After=kvn-v5-gateway.service network-online.target
+After=kvn-v5-gateway.service kvn-v5-web.service network-online.target
 Wants=network-online.target
 
 [Service]

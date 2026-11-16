@@ -65,6 +65,14 @@ def _portal_proxy(host: str) -> str:
             '    proxy_set_header X-Forwarded-Host "";\n'
             "    proxy_connect_timeout 3s;\n"
             "    proxy_read_timeout 10s;\n"
+            '    location = /settings/tls/import {\n'
+            '        client_max_body_size 176k;\n'
+            '        client_body_buffer_size 176k;\n'
+            '        proxy_http_version 1.1;\n'
+            '        proxy_request_buffering off;\n'
+            '        access_log off;\n'
+            '        proxy_pass http://portal;\n'
+            '    }\n'
             '    location ~ "^/settings/site/(preview|publish)$" {\n'
             f"        client_max_body_size {MAX_SITE_FORM // 1024}k;\n"
             "        proxy_pass http://portal;\n"

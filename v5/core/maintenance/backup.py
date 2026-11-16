@@ -13,6 +13,7 @@ import tarfile
 
 from v5.core.private_files import private_directory, read_private, write_private
 from v5.core.tls.controller import GatewayController
+from v5.core.tls import imported
 from v5.core.tls.queue import registry
 from v5.core.tls.transaction import CertificateStore, read_gateway_config
 
@@ -27,6 +28,7 @@ REQUIRED = frozenset({
     "gateway/bootstrap.key", "site/index.html",
 })
 OPTIONAL = ("packages/publisher.json", "core/publisher.json", "core/install-location.json")
+OPTIONAL_STATE = ("tls/imported.json",)
 
 
 def read_owned(path: Path, mode: int | tuple[int, ...], *, gid=None, maximum=MAX_FILE) -> bytes:
@@ -76,13 +78,23 @@ def collect(install: Path, config: Path, state: Path, web_gid: int) -> dict[str,
         pin = config / name
         if pin.exists() or pin.is_symlink():
             files[name] = read_owned(pin, 0o600)
+    for name in OPTIONAL_STATE:
+        marker = state / name
+        if marker.exists() or marker.is_symlink():
+            imported.load(marker)
+            files[name] = read_owned(marker, 0o600)
     if nginx != read_gateway_config(gateway / "nginx.conf") or identities != read_owned(gateway / "identities.json", 0o600):
         raise ValueError("Конфигурация TLS менялась во время снимка. Повторите команду.")
+    for name in OPTIONAL_STATE:
+        marker = state / name
+        current = read_owned(marker, 0o600) if marker.exists() or marker.is_symlink() else None
+        if current != files.get(name):
+            raise ValueError("Источник сертификата менялся во время снимка. Повторите команду.")
     return files
 
 
 def _allowed(name: str) -> bool:
-    return name in REQUIRED or name in OPTIONAL or CERT.fullmatch(name) is not None
+    return name in REQUIRED or name in OPTIONAL or name in OPTIONAL_STATE or CERT.fullmatch(name) is not None
 
 
 def encode(files: dict[str, bytes]) -> bytes:

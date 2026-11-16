@@ -18,6 +18,8 @@ class FixtureStatus:
 
     def __init__(self):
         self.tls_issues = []
+        self.tls_imports = []
+        self.tls_diagnostics = []
         self.site_uploads = []
         self.site_resets = 0
 
@@ -37,6 +39,14 @@ class FixtureStatus:
 
     def tls_issue(self, name, mode, email):
         self.tls_issues.append((name, mode, email))
+        return {"queued": True}
+
+    def tls_import(self, name, chain, key):
+        self.tls_imports.append((name, chain, key))
+        return {"queued": True}
+
+    def tls_diagnose(self, name):
+        self.tls_diagnostics.append(name)
         return {"queued": True}
 
     def site_status(self):
@@ -133,6 +143,42 @@ class PortalTests(unittest.TestCase):
                                           headers={'Origin': ORIGIN}).status_code, 303)
         self.assertEqual(self.status.tls_issues[-1], ('portal.example', 'staging', ''))
         self.assertIn('необязательно'.encode(), settings.data)
+
+    def test_tls_import_requires_login_origin_csrf_confirmation_and_bounded_files(self):
+        route = '/settings/tls/import'
+        self.assertEqual(self.client.post(route, base_url=ORIGIN, headers={'Origin': ORIGIN}).status_code, 303)
+        credentials = {'login': 'admin', 'password': PASSWORD, 'csrf': self.login_token()}
+        self.client.post('/login', base_url=ORIGIN, data=credentials, headers={'Origin': ORIGIN})
+        settings = self.client.get('/settings/tls', base_url=ORIGIN)
+        csrf = re.search(rb'name="csrf" value="([^"<>]+)"', settings.data)[1].decode()
+
+        def submit(token=csrf, confirm='yes', origin=ORIGIN, key=b'secret-fixture'):
+            return self.client.post(route, base_url=ORIGIN, headers={'Origin': origin}, data={
+                'csrf': token, 'confirm': confirm, 'name': 'portal.example',
+                'chain': (io.BytesIO(b'chain-fixture'), 'chain.pem'), 'key': (io.BytesIO(key), 'key.pem')})
+
+        self.assertEqual(submit(origin='https://bad.example').status_code, 403)
+        self.assertEqual(submit(token='bad').status_code, 403)
+        self.assertEqual(submit(confirm='no').status_code, 303)
+        self.assertEqual(submit(key=b'x' * (16 * 1024 + 1)).status_code, 303)
+        self.assertEqual(self.status.tls_imports, [])
+        self.assertEqual(submit().status_code, 303)
+        self.assertEqual(self.status.tls_imports, [('portal.example', b'chain-fixture', b'secret-fixture')])
+        page = self.client.get('/settings/tls', base_url=ORIGIN)
+        self.assertNotIn(b'secret-fixture', page.data)
+
+    def test_dns_diagnostics_requires_authenticated_csrf(self):
+        credentials = {'login': 'admin', 'password': PASSWORD, 'csrf': self.login_token()}
+        self.client.post('/login', base_url=ORIGIN, data=credentials, headers={'Origin': ORIGIN})
+        page = self.client.get('/settings/tls', base_url=ORIGIN)
+        csrf = re.search(rb'name="csrf" value="([^"<>]+)"', page.data)[1].decode()
+        route = '/settings/tls/diagnose'
+        data = {'csrf': 'wrong', 'name': 'portal.example'}
+        self.assertEqual(self.client.post(route, base_url=ORIGIN, data=data, headers={'Origin': ORIGIN}).status_code, 403)
+        self.assertEqual(self.status.tls_diagnostics, [])
+        data['csrf'] = csrf
+        self.assertEqual(self.client.post(route, base_url=ORIGIN, data=data, headers={'Origin': ORIGIN}).status_code, 303)
+        self.assertEqual(self.status.tls_diagnostics, ['portal.example'])
 
     def test_site_preview_is_sandboxed_and_publish_and_reset_are_guarded(self):
         settings = "/settings/site"

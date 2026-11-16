@@ -22,6 +22,26 @@ def openssl(*arguments: str) -> None:
 
 
 class TLSIdentityTests(unittest.TestCase):
+    def test_import_location_limits_body_and_disables_proxy_buffering(self):
+        config = render_gateway((TLSIdentity('portal.example', False),), ipv6=False)
+        block = config.split('location = /settings/tls/import {', 1)[1].split('}', 1)[0]
+        self.assertIn('client_max_body_size 176k;', block)
+        self.assertIn('client_body_buffer_size 176k;', block)
+        self.assertIn('proxy_request_buffering off;', block)
+
+    def test_gateway_reconciliation_uses_compare_and_swap_and_verifies_rollback(self):
+        controller = GatewayController(Path('/fixture/nginx.conf'), Mock(), (), ipv6=False)
+        loaded = Mock()
+        with patch.object(controller, '_snapshot', return_value=(b'old', {}, Mock())), \
+             patch.object(controller, '_pairs', return_value=()), \
+             patch.object(controller, '_render', return_value=b'new'), \
+             patch('v5.core.tls.controller.publish_gateway') as publish:
+            self.assertTrue(controller.reconcile_config(check=Mock(), reload=Mock(), verify_loaded=loaded))
+            self.assertEqual(publish.call_args.kwargs['expected'], b'old')
+            publish.call_args.kwargs['verify_live']()
+            publish.call_args.kwargs['verify_restored']()
+        self.assertEqual(loaded.call_args_list, [unittest.mock.call(b'new'), unittest.mock.call(b'old')])
+
     def test_gateway_module_actions_keep_timeout_after_future_core_updates(self):
         config = render_gateway((TLSIdentity('portal.example', False),), ipv6=False)
         self.assertIn('location ~ "^/modules/[a-z_]+$"', config)
@@ -305,6 +325,20 @@ class CertificateTests(unittest.TestCase):
         self.assertEqual(manager._activate(identity, self.one).status, "unchanged")
         gateway.generation.return_value = "old"
         self.assertEqual(manager._activate(identity, self.one).status, "active")
+
+    def test_automatic_renewal_does_not_replace_imported_generation(self):
+        identity = TLSIdentity("one.example", False)
+        digest = "a" * 64
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            gateway = Mock(identities=(identity,))
+            gateway.generation.return_value = digest
+            client = Mock(spec=CertbotClient)
+            client.plan.side_effect = lambda name, mode: AcmePlan(name, mode, root=root)
+            manager = AcmeService(gateway, client)
+            self.assertEqual(manager.renew_due({identity.slot: [digest]}), {})
+            client.plan.assert_not_called()
+            client.renew.assert_not_called()
 
 
 class GatewayTransactionTests(unittest.TestCase):

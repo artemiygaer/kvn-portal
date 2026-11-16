@@ -17,7 +17,7 @@ OPERATIONS = frozenset({
     "lifecycle.initialize_hysteria", "lifecycle.initialize_mtproto", "lifecycle.change_mtproto",
     "users.create", "users.grant", "users.retry", "users.rotate", "users.revoke",
     "migration.preview", "migration.commit", "migration.rollback", "migration.export",
-    "tls.issue", "site.publish", "site.reset",
+    "tls.issue", "tls.import", "tls.diagnose", "site.publish", "site.reset",
     "maintenance.backup", "maintenance.reset_admin",
     "maintenance.core_update", "maintenance.core_recover",
     "provision.prepare",

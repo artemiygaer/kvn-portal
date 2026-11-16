@@ -17,6 +17,50 @@ from v5.portal.rpc import HostClient
 
 
 class AgentContractTests(unittest.TestCase):
+    def test_tls_import_is_bounded_registered_and_secret_free_in_response(self):
+        identity = TLSIdentity("portal.example", False)
+        chain, key = b"synthetic-chain", b"synthetic-secret-key"
+        with tempfile.TemporaryDirectory() as directory:
+            queue = TLSQueue(Path(directory))
+            app = AgentApplication(123, tls=queue, tls_registry=lambda: ((identity,), False))
+            request = {"version": 1, "method": "tls.import", "params": {
+                "name": identity.name, "chain_size": len(chain), "key_size": len(key)}}
+            self.assertEqual(app.dispatch(124, request, body=chain + key)["error"], "forbidden")
+            self.assertEqual(app.dispatch(123, {**request, "params": {**request["params"], "name": "evil.example"}},
+                                          body=chain + key)["error"], "invalid_request")
+            self.assertEqual(app.dispatch(123, request, body=chain + key + b"x")["error"], "invalid_request")
+            self.assertEqual(app.dispatch(123, {**request, "params": {**request["params"], "key_size": 16385}},
+                                          body=chain + key)["error"], "invalid_request")
+            result = app.dispatch(123, request, body=chain + key)
+            self.assertEqual(result, {"ok": True, "result": {"queued": True}})
+            self.assertNotIn(key.decode(), json.dumps(result))
+            self.assertEqual(queue.pending.stat().st_mode & 0o777, 0o600)
+            self.assertNotIn(key.decode(), json.dumps(app.dispatch(123, {"version": 1, "method": "tls.status", "params": {}})))
+            with queue.exclusive():
+                job = queue.take((identity,))
+            self.assertEqual((job.identity, job.chain, job.key), (identity, chain, key))
+            self.assertNotIn(key.decode(), repr(job))
+            self.assertFalse(queue.pending.exists())
+
+    @unittest.skipUnless(hasattr(socket, "SO_PEERCRED"), "Требуется Linux SO_PEERCRED")
+    def test_tls_import_over_real_socket_never_returns_key(self):
+        identity = TLSIdentity("portal.example", False)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            queue = TLSQueue(root)
+            app = AgentApplication(os.getuid(), tls=queue, tls_registry=lambda: ((identity,), False))
+            with AgentServer(root / "agent.sock", app) as server:
+                thread = threading.Thread(target=server.handle_request, daemon=True)
+                thread.start()
+                result = HostClient(root / "agent.sock").tls_import(identity.name, b"chain", b"private-fixture")
+                thread.join(3)
+                self.assertFalse(thread.is_alive())
+            self.assertEqual(result, {"queued": True})
+            self.assertNotIn("private-fixture", json.dumps(result))
+            with queue.exclusive():
+                job = queue.take((identity,))
+            self.assertEqual(job.key, b"private-fixture")
+
     def test_dispatch_is_closed_and_strict(self):
         app = AgentApplication(123)
         request = {"version": 1, "method": "health", "params": {}}

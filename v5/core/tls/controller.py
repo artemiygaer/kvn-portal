@@ -74,6 +74,18 @@ class GatewayController:
         _, records, _ = self._snapshot()
         return self._render(records, network, self._pairs(records))
 
+    def reconcile_config(self, *, check: Callable[[Path], None], reload: Callable[[], None],
+                         verify_loaded: Callable[[bytes], None]) -> bool:
+        """Обновить генератор без изменения маршрутов и сертификатов с проверяемым откатом."""
+        current, records, network = self._snapshot()
+        candidate = self._render(records, network, self._pairs(records))
+        if candidate == current:
+            return False
+        publish_gateway(self.config, candidate, check=check, reload=reload,
+                        verify_live=lambda: verify_loaded(candidate),
+                        verify_restored=lambda: verify_loaded(current), expected=current)
+        return True
+
     def replace_routes(self, plan: NetworkPlan, *, check: Callable[[Path], None], reload: Callable[[], None],
                        verify_live: Callable[[], None], verify_restored: Callable[[], None],
                        verify_loaded: Callable[[bytes], None] = lambda _: None,

@@ -11,6 +11,15 @@
 <p role="alert" class="alert">Агент наблюдения недоступен.</p>
 {% else %}
 <p>Снимок: {{ date(data.captured_at) }}</p>
+<section class="panel"><h2>Слушающие порты</h2>
+<p>Только локальные TCP/UDP-сокеты. Правила перенаправления, в том числе Docker NAT, здесь могут не отображаться; «неизвестно» означает, что владелец недоступен.</p>
+{% if data.listeners_partial %}<p role="status">Список портов недоступен или неполон.</p>{% endif %}
+{% if data.listeners %}
+<div class="table-scroll" tabindex="0" role="region" aria-label="Слушающие порты"><table>
+<thead><tr><th scope="col">Протокол</th><th scope="col">Адрес</th><th scope="col">Порт</th><th scope="col">Владелец</th></tr></thead>
+<tbody>{% for row in data.listeners %}<tr><td>{{ row.protocol|upper }}</td><td>{{ row.address }}</td><td>{{ row.port }}</td><td>{% for owner in row.owners %}{{ owner.name }} (PID {{ owner.pid }}){% if not loop.last %}, {% endif %}{% else %}неизвестно{% endfor %}</td></tr>{% endfor %}</tbody>
+</table></div>
+{% elif not data.listeners_partial %}<p>Слушающих портов не обнаружено.</p>{% endif %}</section>
 <section class="panel"><h2>Сеть сервера</h2>
 {% if data.network %}
 <p>Всего: {{ data.network.received_bytes }} / {{ data.network.sent_bytes }} Б (RX / TX).
