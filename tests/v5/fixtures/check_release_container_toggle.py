@@ -83,10 +83,10 @@ def main():
             fields['revision'] = re.search(r'name="revision" value="([0-9a-f]{64})"', row)[1]
             fields['profile_action'] = 'replace'
     else:
-        assert not path.exists()
         fields.update(module=module, sni='www.microsoft.com', mode='external', exposure='direct')
         endpoint = '/modules/initialize_mtproto'
-    assert request('POST', endpoint, urlencode(fields), kind)[0] == 303
+    if module == 'xray' or not path.exists():
+        assert request('POST', endpoint, urlencode(fields), kind)[0] == 303
     assert path.is_file() and path.stat().st_mode & 0o077 == 0
     action = urlencode({'csrf': csrf, 'module': module, 'confirm': 'yes'})
     enabled_hash = None

@@ -27,9 +27,12 @@ def main():
         for name in ('check_debian_core.py', 'check_awg_install_web.py'):
             lab.upload(Path('tests/v5/fixtures') / name, f'{STAGE}/{name}')
         archive = Path('output/v5-release-candidate-5.0.2/kvn-module-amneziawg-1.0.0.tar.gz')
-        upload(lab, archive, STAGE)
+        resume = len(sys.argv) > 2 and sys.argv[2] == '--resume'
+        if not resume:
+            upload(lab, archive, STAGE)
+        argument = '--resume' if resume else f'{STAGE}/{archive.name}'
         lab.run(f'cd {INSTALLED}; PYTHONPATH=.:{STAGE} python3 -u {STAGE}/check_awg_install_web.py '
-                f'{STAGE}/{archive.name}', timeout=2550, capture=False)
+                f'{argument}', timeout=2550, capture=False)
         return
     stage_candidate(lab)
     for name in ('check_debian_core.py', 'check_awg_install_web.py'):

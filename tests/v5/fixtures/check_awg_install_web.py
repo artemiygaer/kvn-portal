@@ -35,18 +35,19 @@ def request(method, path, body=None, content_type=None):
 status, page = request('GET', '/modules')
 assert status == 200
 csrf = re.search(r'name="csrf" value="([^"]+)"', page)[1]
-boundary = b'KVNAwgInstallBoundary'
-archive = Path(sys.argv[1]).read_bytes()
-body = (b'--' + boundary + b'\r\nContent-Disposition: form-data; name="csrf"\r\n\r\n' + csrf.encode()
-        + b'\r\n--' + boundary + b'\r\nContent-Disposition: form-data; name="package"; filename="module.tar.gz"'
-        + b'\r\nContent-Type: application/octet-stream\r\n\r\n' + archive + b'\r\n--' + boundary + b'--\r\n')
-status, page = request('POST', '/modules/upload', body, 'multipart/form-data; boundary=' + boundary.decode())
-assert status == 200 and 'Пакет проверен' in page
-form = re.search(r'<form[^>]+action="/modules/install"[^>]*>(.*?)</form>', page, re.S)[1]
-ticket = re.search(r'name="ticket" value="([0-9a-f]{64})"', form)[1]
 kind = 'application/x-www-form-urlencoded'
-status, _ = request('POST', '/modules/install', urlencode({'csrf': csrf, 'ticket': ticket}), kind)
-assert status == 303
+if sys.argv[1] != '--resume':
+    boundary = b'KVNAwgInstallBoundary'
+    archive = Path(sys.argv[1]).read_bytes()
+    body = (b'--' + boundary + b'\r\nContent-Disposition: form-data; name="csrf"\r\n\r\n' + csrf.encode()
+            + b'\r\n--' + boundary + b'\r\nContent-Disposition: form-data; name="package"; filename="module.tar.gz"'
+            + b'\r\nContent-Type: application/octet-stream\r\n\r\n' + archive + b'\r\n--' + boundary + b'--\r\n')
+    status, page = request('POST', '/modules/upload', body, 'multipart/form-data; boundary=' + boundary.decode())
+    assert status == 200 and 'Пакет проверен' in page
+    form = re.search(r'<form[^>]+action="/modules/install"[^>]*>(.*?)</form>', page, re.S)[1]
+    ticket = re.search(r'name="ticket" value="([0-9a-f]{64})"', form)[1]
+    status, _ = request('POST', '/modules/install', urlencode({'csrf': csrf, 'ticket': ticket}), kind)
+    assert status == 303
 status, _ = request('POST', '/modules/provision',
                     urlencode({'csrf': csrf, 'module': 'amneziawg', 'confirm': 'yes'}), kind)
 assert status == 303
