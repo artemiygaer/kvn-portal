@@ -79,7 +79,7 @@ def change(config: Path, gid: int, login: str, password: str, *, activate) -> No
         raise
 
 
-def wait_login(config: Path, *, timeout=30) -> None:
+def wait_login(config: Path, *, timeout=90) -> None:
     context = ssl.create_default_context(cadata=read_owned(
         config / "gateway/bootstrap.crt", (0o600, 0o644)).decode("ascii"))
     deadline = time.monotonic() + timeout

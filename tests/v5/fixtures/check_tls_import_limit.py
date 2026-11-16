@@ -1,6 +1,7 @@
 """Большой запрос импорта только на изолированной VM; ключи синтетические."""
 
 import http.client
+import json
 from pathlib import Path
 import re
 import ssl
@@ -54,10 +55,25 @@ def main():
             header += f'; filename="{filename}"'
         chunks.append(b'--' + boundary + b'\r\n' + header.encode() + b'\r\n\r\n' + value + b'\r\n')
     body = b''.join(chunks) + b'--' + boundary + b'--\r\n'
+    results = Path('/var/lib/kvn-v5/tls/results.json')
+    try:
+        before = json.loads(results.read_text()).get('dns-portal.example', {}).get('import', {}).get('updated_at')
+    except (FileNotFoundError, ValueError):
+        before = None
     code, _ = request('POST', '/settings/tls/import', body,
                       'multipart/form-data; boundary=' + boundary.decode())
     assert code == 303, f'Большой запрос отклонён до проверки: HTTP {code}'
-    print('HTTPS: nginx принял ограниченный запрос импорта больше 4 КиБ.', flush=True)
+    for _ in range(150):
+        try:
+            entry = json.loads(results.read_text()).get('dns-portal.example', {}).get('import', {})
+            if entry.get('updated_at') != before and entry.get('status') in ('invalid_certificate', 'invalid_key'):
+                break
+        except (FileNotFoundError, ValueError):
+            pass
+        time.sleep(2)
+    else:
+        raise AssertionError('Служба TLS не подтвердила проверку синтетической пары')
+    print('HTTPS: запрос более 4 КиБ дошёл до проверки TLS и некорректная пара отклонена.', flush=True)
 
 
 if __name__ == '__main__':
