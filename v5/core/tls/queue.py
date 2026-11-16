@@ -172,7 +172,7 @@ class TLSQueue:
                 raise QueueBusy
             _write_json(self.pending, {"kind": "prepare"})
 
-    def take(self, identities: tuple[TLSIdentity, ...]) -> TLSJob | None:
+    def take(self, identities: tuple[TLSIdentity, ...]) -> TLSJob | TLSImportJob | TLSDNSJob | TLSPrepareJob | None:
         """Вызывать только внутри exclusive, убрать сигнал .path до сетевых операций."""
         try:
             data = read_json(self.pending)

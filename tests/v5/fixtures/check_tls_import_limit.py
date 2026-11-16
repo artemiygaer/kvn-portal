@@ -10,6 +10,7 @@ import time
 from urllib.parse import urlencode
 
 from check_debian_core import signed_fixture_session
+from v5.core.tls.probe import verify_gateway_revision
 
 
 def main():
@@ -38,13 +39,14 @@ def main():
                           'application/x-www-form-urlencoded')
         assert code == 303
         for _ in range(150):
-            if ('location = /settings/tls/import {' in config.read_text()
-                    and subprocess.run(['/usr/bin/systemctl', 'is-active', '--quiet', 'kvn-v5-tls.service'],
-                                       check=False).returncode != 0):
+            state = subprocess.run(['/usr/bin/systemctl', 'show', '-p', 'ActiveState', '--value',
+                                    'kvn-v5-tls.service'], check=True, capture_output=True).stdout.strip()
+            if 'location = /settings/tls/import {' in config.read_text() and state == b'inactive':
                 break
             time.sleep(2)
         else:
             raise AssertionError('Подготовка конфигурации nginx не выполнена')
+    verify_gateway_revision(config.read_bytes(), Path('/etc/kvn-v5/gateway/bootstrap.crt'))
     boundary = b'KVNLargeTLSFixture'
     chunks = []
     for name, value, filename in (('csrf', token.encode(), None), ('name', b'portal.example', None),

@@ -7,6 +7,7 @@ import socket
 import tempfile
 import threading
 import unittest
+from unittest.mock import Mock, patch
 
 from v5.core.agent import AgentApplication, AgentServer, MAX_REQUEST
 from v5.core.host_status import HostStatus
@@ -17,6 +18,18 @@ from v5.portal.rpc import HostClient
 
 
 class AgentContractTests(unittest.TestCase):
+    def test_tls_prepare_rejects_untrusted_uid_parameters_and_pending_update(self):
+        identity = TLSIdentity('portal.example', False)
+        with tempfile.TemporaryDirectory() as directory:
+            queue = TLSQueue(Path(directory))
+            app = AgentApplication(123, tls=queue, tls_registry=lambda: ((identity,), False))
+            request = {'version': 1, 'method': 'tls.prepare', 'params': {}}
+            self.assertEqual(app.dispatch(124, request)['error'], 'forbidden')
+            self.assertEqual(app.dispatch(123, {**request, 'params': {'command': 'id'}})['error'], 'invalid_request')
+            with patch('v5.core.agent.Path', return_value=Mock(exists=Mock(return_value=True))):
+                self.assertEqual(app.dispatch(123, request)['error'], 'core_update_busy')
+            self.assertFalse(queue.pending.exists())
+
     def test_tls_import_is_bounded_registered_and_secret_free_in_response(self):
         identity = TLSIdentity("portal.example", False)
         chain, key = b"synthetic-chain", b"synthetic-secret-key"
