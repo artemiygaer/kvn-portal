@@ -22,9 +22,9 @@ class AwgRepositoryTests(TestCase):
 
     def test_only_isolated_pinned_ppa_and_two_packages(self):
         stage = Path('/var/tmp') / ('apt-' + 'a' * 32)
-        for system in (Debian('12', 'bookworm'), Debian('13', 'trixie')):
+        for system, suite in ((Debian('12', 'bookworm'), 'focal'), (Debian('13', 'trixie'), 'noble')):
             result = sources(system, stage)
-            self.assertEqual(result.count('https://ppa.launchpadcontent.net/amnezia/ppa/ubuntu noble main'), 1)
+            self.assertEqual(result.count(f'https://ppa.launchpadcontent.net/amnezia/ppa/ubuntu {suite} main'), 1)
             self.assertIn(f'signed-by={stage}/amnezia-ppa.asc', result)
             self.assertIn(system.codename + '-security', result)
         for bad in (Path('/tmp/apt-' + 'a' * 32), Path('/var/tmp/apt-injection')):

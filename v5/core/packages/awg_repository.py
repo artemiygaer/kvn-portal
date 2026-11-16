@@ -42,13 +42,14 @@ ig==
 
 
 def sources(system: Debian, stage: Path) -> str:
-    """Использовать только заранее закреплённый noble и отдельный локальный ключ."""
+    """Использовать совместимый закреплённый выпуск PPA и отдельный ключ."""
     if (not isinstance(stage, Path) or stage.parent != WORK_ROOT
             or not re.fullmatch(r'apt-[a-f0-9]{32}', stage.name, re.ASCII)):
         raise ProvisionError('invalid_provision_stage')
     base = debian_sources(system)
+    suite = 'focal' if system.version == '12' else 'noble'
     return (base + f'deb [signed-by={stage / "amnezia-ppa.asc"}] '
-            'https://ppa.launchpadcontent.net/amnezia/ppa/ubuntu noble main\n')
+            f'https://ppa.launchpadcontent.net/amnezia/ppa/ubuntu {suite} main\n')
 
 
 def preferences() -> str:

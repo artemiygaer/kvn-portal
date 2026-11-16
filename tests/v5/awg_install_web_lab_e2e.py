@@ -16,12 +16,12 @@ from v5.packaging.build_module import build
 
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 22063
-    if port not in (22063, 22069):
+    if port not in (22063, 22068, 22069, 22070):
         raise ValueError('Разрешены только выделенные учебные VM')
     lab = Lab(port, ROOT)
     lab.wait()
     lab.run('test ! -e /usr/bin/awg')
-    if port == 22069:
+    if port in (22068, 22069, 22070):
         # Свежая установка сохраняет код ядра и настоящий ключ издателя.
         lab.run(f'install -d -m 0700 {STAGE}')
         for name in ('check_debian_core.py', 'check_awg_install_web.py'):

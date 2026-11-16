@@ -29,6 +29,14 @@ def main():
     status, page = call('GET', '/maintenance/update')
     assert status == 200, status
     csrf = re.search(r'name="csrf" value="([^"]+)"', page)[1]
+    # На учебной VM старые завершённые прогоны могут занять все три места.
+    # Освобождаем одно место через тот же интерфейс, что доступен администратору.
+    discard = re.search(r'<form[^>]+action="/maintenance/update/discard"[^>]*>(.*?)</form>', page, re.S)
+    if discard:
+        old_ticket = re.search(r'name="ticket" value="([0-9a-f]{64})"', discard[1])[1]
+        old_body = urlencode({'csrf': csrf, 'confirm': 'yes', 'ticket': old_ticket})
+        status, _ = call('POST', '/maintenance/update/discard', old_body, 'application/x-www-form-urlencoded')
+        assert status == 303, status
     boundary = b'KVNCoreUpdateFixtureBoundary'
     archive = Path(sys.argv[1]).read_bytes()
     body = (b'--' + boundary + b'\r\nContent-Disposition: form-data; name="csrf"\r\n\r\n' + csrf.encode()
