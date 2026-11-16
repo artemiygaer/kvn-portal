@@ -91,6 +91,12 @@ class AgentApplication:
             if method == "tls.diagnose" and body is None and set(params) == {"name"}:
                 self.tls.submit_dns(TLSDNSJob.parse({"kind": "dns", "name": params["name"]}, identities))
                 return {"ok": True, "result": {"queued": True}}
+            if method == "tls.prepare" and body is None and params == {}:
+                pending = Path('/usr/local/lib/.kvn-v5-core/pending')
+                if pending.exists() or pending.is_symlink():
+                    return {"ok": False, "error": "core_update_busy"}
+                self.tls.submit_prepare()
+                return {"ok": True, "result": {"queued": True}}
             if method == "tls.import":
                 request = {"version": CORE_API_VERSION, "method": method, "params": params}
                 size = tls_import_body_size(request)
@@ -139,7 +145,7 @@ class AgentApplication:
         if (type(request["version"]) is not int or request["version"] != CORE_API_VERSION
                 or not isinstance(request["method"], str) or not isinstance(request["params"], dict)):
             return {"ok": False, "error": "invalid_request"}
-        if self.tls is not None and request["method"] in ("tls.status", "tls.issue", "tls.import", "tls.diagnose"):
+        if self.tls is not None and request["method"] in ("tls.status", "tls.issue", "tls.import", "tls.diagnose", "tls.prepare"):
             result = self._tls_dispatch(request["method"], request["params"], body)
             audit.outcome(request, result)
             return result

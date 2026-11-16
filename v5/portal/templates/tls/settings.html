@@ -46,7 +46,13 @@
 <section class="panel">
   <h2>Импорт собственного сертификата</h2>
   <p>Загрузите доверенную полную цепочку и соответствующий незашифрованный ключ PEM. Несовпадение имени, срока или пары не заменит действующий сертификат.</p>
-  {% if tls.import_ready is sameas false %}<p role="alert">Шлюз ещё не подготовлен для загрузки сертификатов. Дождитесь обновления конфигурации и обновите страницу; если сообщение не исчезает, проверьте службу TLS.</p>{% endif %}
+  {% if tls.import_ready is sameas false %}
+  <p role="alert">Шлюз ещё не подготовлен для загрузки сертификатов. Дождитесь окончания обновления ядра, затем запустите подготовку и обновите страницу.</p>
+  <form method="post" action="{{ url_for('tls_prepare') }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button type="submit"{% if tls.busy %} disabled{% endif %}>Подготовить HTTPS-шлюз</button>
+  </form>
+  {% endif %}
   <form method="post" action="{{ url_for('tls_import') }}" enctype="multipart/form-data">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label>Имя или IP <select name="name" required>{% for item in tls.names %}<option value="{{ item.name }}">{{ item.authority }}</option>{% endfor %}</select></label>

@@ -39,6 +39,9 @@ class HostClient:
     def tls_diagnose(self, name: str) -> dict:
         return self._request("tls.diagnose", {"name": name})
 
+    def tls_prepare(self) -> dict:
+        return self._request("tls.prepare", {})
+
     def site_status(self) -> dict:
         return self._request("site.status", {})
 

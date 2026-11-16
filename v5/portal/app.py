@@ -330,6 +330,21 @@ def create_app(config=None, *, client=None, login_budget=None, package_client=No
             flash("Служба TLS недоступна.")
         return redirect(url_for("tls_settings"), code=303)
 
+    @app.post("/settings/tls/prepare")
+    def tls_prepare():
+        if session.get("admin") is not True:
+            return redirect(url_for("login"), code=303)
+        require_csrf()
+        try:
+            backend.tls_prepare()
+            flash("Подготовка HTTPS-шлюза запущена. Обновите страницу для проверки результата.")
+        except AgentRejected as exc:
+            flash("Дождитесь завершения обновления ядра или операции TLS."
+                  if exc.code in ("tls_busy", "core_update_busy") else "Не удалось подготовить HTTPS-шлюз.")
+        except AgentUnavailable:
+            flash("Служба TLS недоступна.")
+        return redirect(url_for("tls_settings"), code=303)
+
     @app.get("/settings/site")
     def site_settings():
         if session.get("admin") is not True:

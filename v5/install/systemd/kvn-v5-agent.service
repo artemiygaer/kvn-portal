@@ -8,7 +8,6 @@ Group=kvn-v5-web
 WorkingDirectory=/usr/local/lib/kvn-v5
 Environment=PYTHONDONTWRITEBYTECODE=1
 ExecStart=/usr/bin/python3 -m v5.core.agent --socket /run/kvn-v5-agent/control.sock --web-uid @WEB_UID@
-ExecStartPost=/usr/bin/systemctl --no-block start kvn-v5-tls.service
 RuntimeDirectory=kvn-v5-agent
 RuntimeDirectoryMode=0750
 UMask=0007

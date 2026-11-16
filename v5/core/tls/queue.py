@@ -120,6 +120,11 @@ class TLSDNSJob:
         return cls(identity)
 
 
+@dataclass(frozen=True, slots=True)
+class TLSPrepareJob:
+    """Явное безопасное обновление конфигурации шлюза после обновления ядра."""
+
+
 class QueueBusy(RuntimeError):
     pass
 
@@ -161,6 +166,12 @@ class TLSQueue:
                 raise QueueBusy
             _write_json(self.pending, {"kind": "dns", "name": job.identity.name})
 
+    def submit_prepare(self) -> None:
+        with self.exclusive():
+            if self.pending.exists() or self.pending.is_symlink():
+                raise QueueBusy
+            _write_json(self.pending, {"kind": "prepare"})
+
     def take(self, identities: tuple[TLSIdentity, ...]) -> TLSJob | None:
         """Вызывать только внутри exclusive, убрать сигнал .path до сетевых операций."""
         try:
@@ -173,6 +184,8 @@ class TLSQueue:
             return TLSImportJob.parse(data, identities)
         if isinstance(data, dict) and data.get("kind") == "dns":
             return TLSDNSJob.parse(data, identities)
+        if data == {"kind": "prepare"}:
+            return TLSPrepareJob()
         return TLSJob.parse(data, identities)
 
     def snapshot(self) -> dict:

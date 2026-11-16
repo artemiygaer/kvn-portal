@@ -20,6 +20,7 @@ class FixtureStatus:
         self.tls_issues = []
         self.tls_imports = []
         self.tls_diagnostics = []
+        self.tls_prepares = 0
         self.site_uploads = []
         self.site_resets = 0
 
@@ -47,6 +48,10 @@ class FixtureStatus:
 
     def tls_diagnose(self, name):
         self.tls_diagnostics.append(name)
+        return {"queued": True}
+
+    def tls_prepare(self):
+        self.tls_prepares += 1
         return {"queued": True}
 
     def site_status(self):
@@ -143,6 +148,21 @@ class PortalTests(unittest.TestCase):
                                           headers={'Origin': ORIGIN}).status_code, 303)
         self.assertEqual(self.status.tls_issues[-1], ('portal.example', 'staging', ''))
         self.assertIn('необязательно'.encode(), settings.data)
+
+    def test_import_warns_while_gateway_config_is_not_ready(self):
+        credentials = {'login': 'admin', 'password': PASSWORD, 'csrf': self.login_token()}
+        self.client.post('/login', base_url=ORIGIN, data=credentials, headers={'Origin': ORIGIN})
+        original = self.status.tls_status
+        self.status.tls_status = lambda: {**original(), 'import_ready': False}
+        page = self.client.get('/settings/tls', base_url=ORIGIN)
+        self.assertIn('Шлюз ещё не подготовлен'.encode(), page.data)
+        self.assertIn('disabled>Проверить и применить'.encode(), page.data)
+        csrf = re.search(rb'name="csrf" value="([^"<>]+)"', page.data)[1].decode()
+        self.assertEqual(self.client.post('/settings/tls/prepare', base_url=ORIGIN,
+                                         data={'csrf': 'bad'}, headers={'Origin': ORIGIN}).status_code, 403)
+        self.assertEqual(self.client.post('/settings/tls/prepare', base_url=ORIGIN,
+                                         data={'csrf': csrf}, headers={'Origin': ORIGIN}).status_code, 303)
+        self.assertEqual(self.status.tls_prepares, 1)
 
     def test_tls_import_requires_login_origin_csrf_confirmation_and_bounded_files(self):
         route = '/settings/tls/import'

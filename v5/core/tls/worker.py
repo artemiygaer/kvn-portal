@@ -10,7 +10,7 @@ from .certificates import CertificateError, validate_pair
 from .controller import GatewayController
 from . import imported
 from .dns import diagnose
-from .queue import GATEWAY_ROOT, QueueBusy, TLSDNSJob, TLSImportJob, TLSQueue, read_json, registry
+from .queue import GATEWAY_ROOT, QueueBusy, TLSDNSJob, TLSImportJob, TLSPrepareJob, TLSQueue, read_json, registry
 from .transaction import CertificateStore, GatewayApplyError, _pair_digest
 from .probe import check_nginx, reload_nginx, verify_gateway_revision
 
@@ -33,6 +33,10 @@ def run(*, renew: bool) -> None:
             job = queue.take(identities)
             if job is None and not renew:
                 return
+            if isinstance(job, TLSPrepareJob):
+                if not renew:
+                    return
+                job = None
             service = AcmeService(gateway)
             imports = imported.load()
             records = read_json(queue.results, {})

@@ -4,7 +4,9 @@ import http.client
 from pathlib import Path
 import re
 import ssl
+import subprocess
 import time
+from urllib.parse import urlencode
 
 from check_debian_core import signed_fixture_session
 
@@ -12,12 +14,6 @@ from check_debian_core import signed_fixture_session
 def main():
     assert Path('/var/lib/cloud/data/instance-id').read_text().strip() == 'kvn-v5-isolated-001'
     config = Path('/etc/kvn-v5/gateway/nginx.conf')
-    for _ in range(150):
-        if 'location = /settings/tls/import {' in config.read_text():
-            break
-        time.sleep(2)
-    else:
-        raise AssertionError('Обновление конфигурации nginx не выполнено')
     context = ssl.create_default_context(cafile='/etc/kvn-v5/gateway/bootstrap.crt')
     cookie = signed_fixture_session()
 
@@ -36,6 +32,18 @@ def main():
     code, page = request('GET', '/settings/tls')
     assert code == 200
     token = re.search(r'name="csrf" value="([^"]+)"', page)[1]
+    if 'location = /settings/tls/import {' not in config.read_text():
+        code, _ = request('POST', '/settings/tls/prepare', urlencode({'csrf': token}),
+                          'application/x-www-form-urlencoded')
+        assert code == 303
+        for _ in range(150):
+            if ('location = /settings/tls/import {' in config.read_text()
+                    and subprocess.run(['/usr/bin/systemctl', 'is-active', '--quiet', 'kvn-v5-tls.service'],
+                                       check=False).returncode != 0):
+                break
+            time.sleep(2)
+        else:
+            raise AssertionError('Подготовка конфигурации nginx не выполнена')
     boundary = b'KVNLargeTLSFixture'
     chunks = []
     for name, value, filename in (('csrf', token.encode(), None), ('name', b'portal.example', None),

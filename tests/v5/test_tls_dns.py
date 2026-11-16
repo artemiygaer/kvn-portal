@@ -8,7 +8,7 @@ from unittest import TestCase
 from v5.core.agent import AgentApplication
 from v5.core.tls.dns import diagnose
 from v5.core.tls.identity import TLSIdentity
-from v5.core.tls.queue import TLSQueue
+from v5.core.tls.queue import TLSPrepareJob, TLSQueue
 
 
 class DNSDiagnosticsTests(TestCase):
@@ -37,3 +37,10 @@ class DNSDiagnosticsTests(TestCase):
             self.assertEqual(app.dispatch(123, request)['error'], 'tls_busy')
             with queue.exclusive():
                 self.assertEqual(queue.take((server, name)).identity, name)
+
+    def test_prepare_queue_is_fixed_and_cannot_contain_parameters(self):
+        with TemporaryDirectory() as directory:
+            queue = TLSQueue(Path(directory))
+            queue.submit_prepare()
+            with queue.exclusive():
+                self.assertIsInstance(queue.take(()), TLSPrepareJob)
