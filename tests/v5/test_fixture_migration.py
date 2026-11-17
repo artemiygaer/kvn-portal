@@ -4,8 +4,8 @@ import importlib.util
 from pathlib import Path
 import unittest
 
-from tools.kvnlib.core.migration import parse_migration
-from tools.kvnlib.runtime.migration import decrypt_migration, MigrationCryptoError
+from v5.core.migration.legacy import parse_legacy
+from v5.core.migration.crypto import decrypt_archive, ArchiveError
 
 
 FILE = Path(__file__).resolve().parent / "fixtures" / "make_v42_fixture.py"
@@ -17,9 +17,9 @@ SPEC.loader.exec_module(FIXTURE)
 class SyntheticFixtureTests(unittest.TestCase):
     def test_v42_archive_is_encrypted_and_excludes_portal_secrets(self):
         encrypted = FIXTURE.build_fixture()
-        payload = decrypt_migration(encrypted, "only-a-synthetic-passphrase")
+        payload = decrypt_archive(encrypted, "only-a-synthetic-passphrase")
         self.assertNotIn(b"synthetic-portal-secret", payload)
         self.assertNotIn(b"synthetic-github-secret", payload)
-        self.assertTrue(parse_migration(payload)["users"])
-        with self.assertRaises(MigrationCryptoError):
-            decrypt_migration(encrypted, "not-the-synthetic-passphrase")
+        self.assertTrue(parse_legacy(payload).users)
+        with self.assertRaises(ArchiveError):
+            decrypt_archive(encrypted, "not-the-synthetic-passphrase")
