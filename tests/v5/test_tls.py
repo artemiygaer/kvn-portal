@@ -11,7 +11,8 @@ from v5.core.tls.acme import AcmeMode, AcmePlan, require_certbot_version
 from v5.core.tls.acme_service import AcmeError, AcmeService, CertbotClient
 from v5.core.tls.certificates import CertificateError, validate_pair
 from v5.core.tls.controller import GatewayController
-from v5.core.tls.gateway import render_gateway
+from v5.core.tls.gateway import render_gateway, _portal_proxy, admin_hosts
+from v5.core.tls.access import PortalAccess
 from v5.core.tls.http01 import render_http01
 from v5.core.tls.identity import TLSIdentity
 from v5.core.tls.transaction import CertificateStore, GatewayApplyError, StoredPair, publish_gateway
@@ -22,6 +23,17 @@ def openssl(*arguments: str) -> None:
 
 
 class TLSIdentityTests(unittest.TestCase):
+    def test_custom_port_and_path_keep_protected_proxy_routes(self):
+        access = PortalAccess.parse('9443', 'panel')
+        proxy = _portal_proxy('portal.example:9443', access.prefix)
+        self.assertIn('location = /panel/maintenance/console/ws', proxy)
+        self.assertIn('location = /panel/modules/upload', proxy)
+        self.assertIn('rewrite ^/panel(/.*)$ $1 break;', proxy)
+        self.assertIn('proxy_set_header X-Forwarded-Prefix /panel;', proxy)
+        self.assertIn('location / { return 404; }', proxy)
+        self.assertIn('portal.example:9443', admin_hosts((TLSIdentity('portal.example', False),), access))
+        self.assertIn('127.0.0.1:8443', admin_hosts((), access))
+
     def test_import_location_limits_body_and_disables_proxy_buffering(self):
         config = render_gateway((TLSIdentity('portal.example', False),), ipv6=False)
         block = config.split('location = /settings/tls/import {', 1)[1].split('}', 1)[0]

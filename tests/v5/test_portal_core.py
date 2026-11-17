@@ -80,6 +80,14 @@ class PortalTests(unittest.TestCase):
         self.assertEqual(page.status_code, 200)
         return re.search(rb'name="csrf" value="([^"]+)"', page.data).group(1).decode()
 
+    def test_proxy_prefix_is_preserved_in_portal_links(self):
+        page = self.client.get('/login', base_url=ORIGIN, headers={'X-Forwarded-Prefix': '/panel'})
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(b'/panel/static/', page.data)
+        self.assertIn(b'href="/panel/"', page.data)
+        redirect = self.client.get('/', base_url=ORIGIN, headers={'X-Forwarded-Prefix': '/panel'})
+        self.assertEqual(redirect.headers['Location'], '/panel/login')
+
     def test_password_format_is_bounded(self):
         self.assertTrue(verify_admin_password(PASSWORD, self.digest))
         self.assertFalse(verify_admin_password(PASSWORD, self.digest.replace("32768", "1048576")))

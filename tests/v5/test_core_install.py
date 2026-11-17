@@ -11,9 +11,60 @@ from unittest.mock import Mock, patch
 
 from v5.install import setup
 from v5.install.preflight import DEFAULT_INSTALL_DIR, InstallIdentity, InstallPreflightError, check_ports, reject_legacy
+from v5.core.tls.access import PortalAccess
 
 
 class InstallerPreflightTests(unittest.TestCase):
+    def test_portal_address_accepts_safe_path_and_rejects_unsafe_values(self):
+        self.assertEqual(PortalAccess.parse('9443', 'gaer'), PortalAccess(9443, '/gaer'))
+        self.assertEqual(PortalAccess.parse('9443', '/one/two/'), PortalAccess(9443, '/one/two'))
+        self.assertEqual(PortalAccess.parse('8443', '/'), PortalAccess())
+        for port, path in (('443', '/gaer'), ('10443', '/gaer'), ('70000', '/gaer'),
+                           ('8443', '/../x'), ('8443', '/a/b/c/d/e'), (True, '/gaer')):
+            with self.subTest(port=port, path=path), self.assertRaises(ValueError):
+                PortalAccess.parse(port, path)
+
+    def test_suggests_public_ip_without_overriding_manual_value(self):
+        ask = Mock(side_effect=['', 'portal.example', 'operator'])
+        secret = Mock(return_value='синтетический пароль')
+        identity, login, _ = setup.identity_prompt(ask, secret, suggested_ip='8.8.8.8')
+        self.assertEqual((identity.ip, identity.names, login), ('8.8.8.8', ('portal.example',), 'operator'))
+        self.assertIn('8.8.8.8', ask.call_args_list[0].args[0])
+        ask = Mock(side_effect=['1.1.1.1', '', ''])
+        identity, login, _ = setup.identity_prompt(ask, secret, suggested_ip='8.8.8.8')
+        self.assertEqual((identity.ip, login), ('1.1.1.1', 'admin'))
+
+    def test_public_ip_detection_rejects_non_public_or_oversized_response(self):
+        response = Mock(status=200)
+        connection = Mock()
+        connection.getresponse.return_value = response
+        with patch.object(setup.http.client, 'HTTPSConnection', return_value=connection):
+            for content, expected in ((b'8.8.8.8\n', '8.8.8.8'), (b'192.168.1.1', None),
+                                      (b'x' * 65, None)):
+                response.read.return_value = content
+                self.assertEqual(setup.detect_public_ipv4(), expected)
+
+    def test_initial_certificate_uses_no_email_and_keeps_bootstrap_on_failure(self):
+        identity = InstallIdentity.parse('8.8.8.8', 'portal.example')
+        queue = Mock()
+        queue.snapshot.return_value = {'results': {}}
+        with patch.multiple(setup, install_dependencies=Mock(), install_runtime=Mock(),
+                            TLSQueue=Mock(return_value=queue), run=Mock()):
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                setup.issue_initial_certificates(identity)
+            self.assertEqual(queue.submit.call_count, 2)
+            for call in queue.submit.call_args_list:
+                self.assertEqual(call.args[0].email, '')
+            self.assertIn('не получен', output.getvalue())
+            setup.install_runtime.assert_called_once()
+
+    def test_certificate_dependency_failure_leaves_installation_accessible(self):
+        identity = InstallIdentity.parse('8.8.8.8', 'portal.example')
+        with patch.object(setup, 'install_dependencies', side_effect=OSError('нет сети')):
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                setup.issue_initial_certificates(identity)
+        self.assertIn('SSH-туннель', output.getvalue())
+
     def test_web_service_reports_ready_after_application_preload(self):
         unit = (Path(__file__).resolve().parents[2] / 'v5/install/systemd/kvn-v5-web.service').read_text()
         self.assertIn('Type=notify\n', unit)
@@ -82,7 +133,7 @@ class InstallerPreflightTests(unittest.TestCase):
                 os.umask(previous)
 
     def test_cancel_does_not_install_or_hash_password(self):
-        ask = Mock(side_effect=["", "192.0.2.8", "test.example", "", "нет"])
+        ask = Mock(side_effect=["", "192.0.2.8", "test.example", "", "", "", "нет"])
         secret = Mock(return_value="синтетический пароль")
         with patch.multiple(setup, check_platform=Mock(), reject_legacy=Mock(), preflight_new=Mock(),
                             read_existing=Mock(return_value=None), provision=Mock(), hash_admin_password=Mock()):

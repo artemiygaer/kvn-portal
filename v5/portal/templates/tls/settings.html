@@ -3,7 +3,7 @@
 {% block header %}<a href="{{ url_for('dashboard') }}">К обзору</a>{% endblock %}
 {% block body %}
 <h1>Сертификаты HTTPS</h1>
-<p>Для каждого зарегистрированного имени сертификат используется на 443 и 8443. Для выпуска нужен доступ извне на TCP/80.</p>
+<p>Для каждого зарегистрированного имени сертификат используется для сайта и панели. Для выпуска нужен доступ извне на TCP/80.</p>
 {% for notice in get_flashed_messages() %}<p role="status" class="badge">{{ notice }}</p>{% endfor %}
 {% if tls %}
 {% if tls.busy %}<p role="status" class="badge">Задача TLS выполняется.</p>{% endif %}

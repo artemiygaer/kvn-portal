@@ -69,7 +69,7 @@
             screen.hidden = false;
             terminal.open(screen);
             fit.fit();
-            const target = new URL("/maintenance/console/ws", window.location.href);
+            const target = new URL("ws", form.action);
             target.protocol = "wss:";
             const ws = new WebSocket(target);
             channel = ws;

@@ -22,7 +22,7 @@ if (form && box && label && bar) {
       }
     };
     request.onload = () => {
-      if (request.status >= 200 && request.status < 400) window.location.assign("/maintenance/update");
+      if (request.status >= 200 && request.status < 400) window.location.assign(form.action.replace(/\/upload$/, ""));
       else {
         label.textContent = "Не удалось загрузить пакет. Проверьте размер и повторите.";
         button.disabled = false;

@@ -9,6 +9,7 @@ import subprocess
 import time
 
 from .certificates import MAX_CHAIN_BYTES, SYSTEM_CA
+from .access import load_access
 from .transaction import StoredPair
 
 
@@ -61,8 +62,9 @@ def verify_pair(pair: StoredPair, *, ca_file: Path = SYSTEM_CA) -> None:
     address = "::1" if identity.is_ip and ":" in identity.name else "127.0.0.2"
 
     def check() -> None:
+        access = load_access()
         _probe(address, 443, identity.name, identity.authority, "/", context, expected)
-        _probe(address, 8443, identity.name, f"{identity.authority}:8443", "/login", context, expected)
+        _probe(address, access.port, identity.name, f"{identity.authority}:{access.port}", access.prefix + "/login", context, expected)
 
     _until(check)
 

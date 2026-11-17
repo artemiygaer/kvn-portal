@@ -187,6 +187,9 @@ def create_app(config=None, *, client=None, login_budget=None, package_client=No
         path = Path(os.environ.get("KVN_V5_WEB_CONFIG", "/etc/kvn-v5/web/config.json"))
         config = json.loads(path.read_text(encoding="utf-8"))
     app = Flask(__name__)
+    # Прокси очищает пользовательский заголовок и задаёт собственный префикс.
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=0, x_proto=0, x_host=0, x_port=0, x_prefix=1)
     app.request_class = PortalRequest
     app.config.update(
         SECRET_KEY=config["session_key"],

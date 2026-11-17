@@ -14,6 +14,7 @@ import time
 from v5.core.console import AGENT_UNIT, WEB_SOCKET, WEB_UNIT
 from v5.core.credentials import LOGIN, hash_admin_password
 from v5.core.tls.gateway import admin_hosts
+from v5.core.tls.access import load_access
 from v5.core.tls.queue import registry
 
 from .backup import read_owned
@@ -60,7 +61,7 @@ def change(config: Path, gid: int, login: str, password: str, *, activate) -> No
     except FileNotFoundError:
         previous = None
     body = json.dumps({"login": login, "password_hash": hash_admin_password(password),
-                       "session_key": secrets.token_hex(32), "allowed_hosts": admin_hosts(identities),
+                       "session_key": secrets.token_hex(32), "allowed_hosts": admin_hosts(identities, load_access()),
                        "agent_socket": AGENT_SOCKET}).encode("ascii")
     _replace(path, body, gid)
     try:

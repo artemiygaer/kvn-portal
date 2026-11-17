@@ -13,6 +13,7 @@ import tarfile
 
 from v5.core.private_files import private_directory, read_private, write_private
 from v5.core.tls.controller import GatewayController
+from v5.core.tls.access import load_access
 from v5.core.tls import imported
 from v5.core.tls.queue import registry
 from v5.core.tls.transaction import CertificateStore, read_gateway_config
@@ -28,6 +29,7 @@ REQUIRED = frozenset({
     "gateway/bootstrap.key", "site/index.html",
 })
 OPTIONAL = ("packages/publisher.json", "core/publisher.json", "core/install-location.json")
+OPTIONAL_PUBLIC = ("access.json",)
 OPTIONAL_STATE = ("tls/imported.json",)
 
 
@@ -78,6 +80,11 @@ def collect(install: Path, config: Path, state: Path, web_gid: int) -> dict[str,
         pin = config / name
         if pin.exists() or pin.is_symlink():
             files[name] = read_owned(pin, 0o600)
+    for name in OPTIONAL_PUBLIC:
+        path = config / name
+        if path.exists() or path.is_symlink():
+            load_access(path)
+            files[name] = read_owned(path, 0o644)
     for name in OPTIONAL_STATE:
         marker = state / name
         if marker.exists() or marker.is_symlink():
@@ -94,7 +101,7 @@ def collect(install: Path, config: Path, state: Path, web_gid: int) -> dict[str,
 
 
 def _allowed(name: str) -> bool:
-    return name in REQUIRED or name in OPTIONAL or name in OPTIONAL_STATE or CERT.fullmatch(name) is not None
+    return name in REQUIRED or name in OPTIONAL or name in OPTIONAL_PUBLIC or name in OPTIONAL_STATE or CERT.fullmatch(name) is not None
 
 
 def encode(files: dict[str, bytes]) -> bytes:

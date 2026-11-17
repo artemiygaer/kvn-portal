@@ -9,6 +9,7 @@ from v5.core.network.gateway_state import HEADER as NETWORK_HEADER, decode_route
 from v5.core.network.plan import NetworkPlan
 
 from .gateway import render_gateway
+from .access import load_access
 from .identity import TLSIdentity
 from .transaction import CertificateStore, StoredPair, publish_gateway, read_gateway_config
 
@@ -56,7 +57,7 @@ class GatewayController:
         if network.routes:
             metadata += NETWORK_HEADER + encode_routes(network.routes) + b"\n"
         return metadata + render_gateway(self.identities, ipv6=self.ipv6, pairs=active,
-                                         network=network).encode("utf-8")
+                                         network=network, access=load_access()).encode("utf-8")
 
     def active(self) -> tuple[StoredPair, ...]:
         _, records, _ = self._snapshot()

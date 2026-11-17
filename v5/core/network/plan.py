@@ -5,10 +5,15 @@ from ipaddress import IPv4Address, IPv6Address, ip_address
 
 from v5.core.contracts import validate_module_id
 from v5.core.tls.identity import dns_name
+from v5.core.tls.access import load_access
 
 CORE_TCP = frozenset({80, 443, 8443})
 SITE_BACKEND_PORT = 10443
 RESERVED_TCP = CORE_TCP | {SITE_BACKEND_PORT}
+
+
+def reserved_tcp():
+    return RESERVED_TCP | {load_access().port}
 MAX_SNI_ROUTES = 64
 MAX_PUBLICATIONS = 64
 OWN_SITE_MODULES = frozenset({"xray", "telemt", "mtg"})
@@ -74,7 +79,7 @@ class Publication:
                     or self.redirect.address.version != self.public.address.version
                     or self.redirect.address.is_unspecified or self.redirect.address.is_loopback
                     or self.redirect.port == self.public.port
-                    or (self.redirect.protocol == "tcp" and self.redirect.port in RESERVED_TCP)):
+                    or (self.redirect.protocol == "tcp" and self.redirect.port in reserved_tcp())):
                 raise NetworkConflict("invalid_redirect_target")
 
 
@@ -93,7 +98,7 @@ class Route:
             raise NetworkConflict("invalid_sni") from exc
         object.__setattr__(self, "sni", canonical)
         if (not isinstance(self.backend, Binding) or self.backend.protocol != "tcp"
-                or not self.backend.address.is_loopback or self.backend.port in RESERVED_TCP
+                or not self.backend.address.is_loopback or self.backend.port in reserved_tcp()
                 or type(self.self_steal) is not bool):
             raise NetworkConflict("invalid_sni_backend")
 
@@ -159,7 +164,7 @@ def build_plan(modules, *, site_names=(), occupied=()) -> NetworkPlan:
             routes[route.sni] = ManagedRoute(item.module, route)
         for entry in item.publications:
             binding = entry.public
-            if binding.protocol == "tcp" and binding.port in RESERVED_TCP:
+            if binding.protocol == "tcp" and binding.port in reserved_tcp():
                 raise NetworkConflict("core_port_conflict")
             if any(binding.overlaps(other) for other in used):
                 raise NetworkConflict("unmanaged_port_conflict")

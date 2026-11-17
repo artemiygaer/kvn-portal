@@ -5,9 +5,9 @@
 дополнительных модулей и Docker нет. Нужные модули устанавливаются, включаются
 и отключаются через панель; конфигурация при отключении сохраняется.
 
-Актуальный выпуск: **v5.0.4**. Версия v5 устанавливается начисто и не
-обновляет существующую установку v4.2; для переноса пользователей используйте
-экспорт и импорт `.kvn`.
+Актуальный выпуск: **v5.0.5**. Версия v5 устанавливается начисто и не
+обновляет существующую установку v4.2. Перенос пользователей между порталами v5
+выполняется через экспорт и импорт `.kvn`.
 
 ## Установка и обновление
 
@@ -25,8 +25,8 @@
   work=$(mktemp -d)
   cd "$work"
   curl --disable -fL --proto '=https' --proto-redir '=https' -o kvn-portal-v5-installer.tar.gz \
-    https://github.com/artemiygaer/kvn-portal/releases/download/v5.0.4/kvn-portal-v5-installer.tar.gz
-  echo '775c5771c2db64d1aa2b6f09d94acaa02a21c3b7add8a704add73f2cb60fac32  kvn-portal-v5-installer.tar.gz' | sha256sum -c -
+    https://github.com/artemiygaer/kvn-portal/releases/download/v5.0.5/kvn-portal-v5-installer.tar.gz
+  echo '14ac867c33239c7be2bfb2843b60359459b09d73bfa44438672ffa33a8f18e5b  kvn-portal-v5-installer.tar.gz' | sha256sum -c -
   tar -xzf kvn-portal-v5-installer.tar.gz --no-same-owner --no-same-permissions
   bash v5/install/install.sh
 )
@@ -42,7 +42,7 @@
 
 - Мониторинг сервера, SSH-сессий и процессов; история по запросу.
 - Публичная страница на TCP/80 и HTTPS TCP/443, администрирование по HTTPS на
-  TCP/8443. Поддерживаются IP и несколько имён с отдельными сертификатами.
+  выбранном порту (по умолчанию 8443) и пути. Поддерживаются IP и несколько имён с отдельными сертификатами.
 - Управление модулями Xray, WireGuard, AmneziaWG, Hysteria2, Telemt и MTG;
   установка модуля сама по себе не включает сервис и не открывает его порты.
 - Импорт зашифрованного `.kvn` из версии 4.2. Интерактивная root-консоль и

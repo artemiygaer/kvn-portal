@@ -12,6 +12,7 @@ from v5.core.packages.manifest import MAX_PACKAGE
 from v5.core.site.document import MAX_SITE_FORM, SITE_CSP
 
 from .acme import ACME_ROOT
+from .access import PortalAccess
 from .http01 import render_http01, safe_path
 from .identity import TLSIdentity
 from .transaction import StoredPair
@@ -22,8 +23,8 @@ SITE_ROOT = ACME_ROOT.parent / "site"
 _PORTS = (443, 8443)
 
 
-def admin_hosts(identities: Iterable[TLSIdentity]) -> list[str]:
-    return list(dict.fromkeys(("127.0.0.1:8443", "localhost:8443", *(f"{item.authority}:8443" for item in identities))))
+def admin_hosts(identities: Iterable[TLSIdentity], access: PortalAccess = PortalAccess()) -> list[str]:
+    return list(dict.fromkeys(("127.0.0.1:8443", "localhost:8443", *(f"{item.authority}:{access.port}" for item in identities))))
 
 
 def _listen(port: int, family: int, *, default: bool, loopback: bool = False) -> str:
@@ -45,7 +46,7 @@ def _http_routes(pairs: tuple[StoredPair, ...], port: int) -> str:
     for item in pairs:
         identity = item.metadata.identity
         host = identity.authority
-        suffixes = ("", ":443") if port == 443 else (":8443",)
+        suffixes = ("", ":443") if port == 443 else (f":{port}",)
         sni = "" if identity.is_ip else identity.name
         entries.extend(f'    "{sni}|{host}{suffix}" "{identity.slot}";' for suffix in suffixes)
     return (f'map "$ssl_server_name|$http_host" $kvn_tls_{port} {{\n    default "";\n'
@@ -57,8 +58,8 @@ def _fallback(port: int, family: int, *, loopback: bool) -> str:
             + "    ssl_reject_handshake on;\n}\n")
 
 
-def _portal_proxy(host: str) -> str:
-    return (f"    proxy_set_header Host {host};\n"
+def _portal_proxy(host: str, prefix: str = "") -> str:
+    routes = (f"    proxy_set_header Host {host};\n"
             "    proxy_set_header X-KVN-Client-IP $remote_addr;\n"
             "    proxy_set_header X-Forwarded-Proto https;\n"
             '    proxy_set_header X-Forwarded-For "";\n'
@@ -159,9 +160,20 @@ def _portal_proxy(host: str) -> str:
             "        proxy_pass http://portal;\n"
             "    }\n"
             "    location / { proxy_pass http://portal; }\n")
+    if not prefix:
+        return routes + '    proxy_set_header X-Forwarded-Prefix "";\n'
+    # Сохраняем специфические ограничения upload и WebSocket при изменении пути.
+    routes = routes.replace('location = /', f'location = {prefix}/')
+    routes = routes.replace('location ^~ /', f'location ^~ {prefix}/')
+    routes = routes.replace('location ~ "^/', f'location ~ "^{prefix}/')
+    routes = routes.replace('location / {', f'location {prefix}/ {{')
+    routes = routes.replace('proxy_pass http://', f'rewrite ^{prefix}(/.*)$ $1 break; proxy_pass http://')
+    return (routes + f'    proxy_set_header X-Forwarded-Prefix {prefix};\n'
+            + f'    location = {prefix} {{ return 308 {prefix}/; }}\n'
+            + '    location / { return 404; }\n')
 
 
-def _vhost(pair: StoredPair, port: int, *, ipv6: bool, site_root: str, loopback: bool) -> str:
+def _vhost(pair: StoredPair, port: int, *, ipv6: bool, site_root: str, loopback: bool, access: PortalAccess) -> str:
     identity = pair.metadata.identity
     if identity.is_ip:
         families = (6,) if ":" in identity.name else (4,)
@@ -182,13 +194,13 @@ def _vhost(pair: StoredPair, port: int, *, ipv6: bool, site_root: str, loopback:
                       "    location = /index.html { try_files /index.html =404; }\n",
                       "    location / { return 404; }\n"))
     else:
-        lines.append(_portal_proxy(f"{identity.authority}:8443"))
+        lines.append(_portal_proxy(f"{identity.authority}:{port}", access.prefix))
     return "".join((*lines, "}\n"))
 
 
 def render_gateway(identities: Iterable[TLSIdentity], *, ipv6: bool, pairs: Iterable[StoredPair] = (),
                    webroot: Path = ACME_ROOT / "webroot", site_root: Path = SITE_ROOT,
-                   network: NetworkPlan | None = None) -> str:
+                   network: NetworkPlan | None = None, access: PortalAccess = PortalAccess()) -> str:
     names = tuple(identities)
     active = tuple(pairs)
     active_names = [pair.metadata.identity for pair in active]
@@ -207,13 +219,13 @@ def render_gateway(identities: Iterable[TLSIdentity], *, ipv6: bool, pairs: Iter
     www = safe_path(site_root)
     tls = []
     if active:
-        for port in _PORTS:
+        for port in (443, access.port):
             loopback = bool(stream) and port == 443
             tls.append(_http_routes(active, port))
             for family in (4, 6) if (ipv6 or loopback and 6 in ip_families) else (4,):
                 if family not in ip_families:
                     tls.append(_fallback(port, family, loopback=loopback))
-            tls.extend(_vhost(pair, port, ipv6=ipv6, site_root=www, loopback=loopback) for pair in active)
+            tls.extend(_vhost(pair, port, ipv6=ipv6, site_root=www, loopback=loopback, access=access) for pair in active)
     source = TEMPLATE.read_text(encoding="utf-8")
     if source.count("@STREAM@") != 1:
         raise ValueError("Некорректный шаблон nginx")
