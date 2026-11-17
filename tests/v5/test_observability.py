@@ -17,6 +17,7 @@ from v5.core.lifecycle.rpc import Application as LifecycleApplication
 from v5.core.lifecycle.controller import LifecycleError
 from v5.core.release import SERVICES, TRIGGERS, UNIT_FILES
 from v5.core.tls.gateway import _portal_proxy, _vhost
+from v5.core.tls.access import PortalAccess
 from v5.core.tls.identity import TLSIdentity
 from v5.core.agent import AgentApplication
 from v5.portal.app import create_app
@@ -231,8 +232,8 @@ class ObservationHistoryTests(TestCase):
         self.assertIn("proxy_read_timeout 45s;", proxy)
         pair = SimpleNamespace(metadata=SimpleNamespace(identity=TLSIdentity("example.test", False)),
                                chain=Path("/fixture/cert.pem"), key=Path("/fixture/key.pem"))
-        public = _vhost(pair, 443, ipv6=False, site_root="/fixture/site", loopback=False)
-        admin = _vhost(pair, 8443, ipv6=False, site_root="/fixture/site", loopback=False)
+        public = _vhost(pair, 443, ipv6=False, site_root="/fixture/site", loopback=False, access=PortalAccess())
+        admin = _vhost(pair, 8443, ipv6=False, site_root="/fixture/site", loopback=False, access=PortalAccess())
         self.assertNotIn("/observability", public)
         self.assertNotIn("proxy_pass http://portal", public)
         self.assertIn("location = /observability/history", admin)
