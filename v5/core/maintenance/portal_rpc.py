@@ -18,6 +18,7 @@ from v5.core.release import installed_version, stable_version
 
 from .core_github import GitHubCore
 from .portal_store import LIFETIME, PortalUpdateStore, TICKET, UpdateStoreError
+from .ssh_accounts import SCHEMAS as SSH_SCHEMAS
 
 SOCKET = "/run/kvn-v5-core-update.sock"
 _PEER = struct.Struct("3i")
@@ -26,6 +27,34 @@ _METHODS = {"core.status": frozenset(), "core.upload": frozenset({"size"}),
             "core.discard": frozenset({"ticket"}), "core.reconcile": frozenset({"ticket"}),
             "core.provision_status": frozenset(), "core.provision_start": frozenset({"module"}),
             "core.forwarding_status": frozenset(), "core.forwarding_enable": frozenset({"module"})}
+_METHODS.update({f"ssh.{action}": fields for action, fields in SSH_SCHEMAS.items()})
+
+
+def _ssh_accounts(action, params):
+    # Не расширяем права RPC-службы и не меняем набор unit-файлов подписанного архива.
+    # Секреты передаются только по одноразовому stdin, не в аргументах или журнале.
+    command = ["/usr/bin/systemd-run", "--quiet", "--pipe", "--wait", "--collect", "--unit=kvn-v5-ssh-account",
+               "--working-directory=/usr/local/lib/kvn-v5",
+               "-p", "Type=exec", "-p", "RuntimeMaxSec=22s", "-p", "UMask=0077",
+               "-p", "ProtectSystem=strict", "-p", "ReadWritePaths=/etc /home",
+               "-p", "ReadOnlyPaths=/etc/kvn-v5 /etc/systemd /etc/ssh",
+               "-p", "StateDirectory=kvn-v5/ssh-accounts", "-p", "StateDirectoryMode=0700",
+               "-p", "NoNewPrivileges=yes", "-p", "PrivateTmp=yes",
+               "-p", "PrivateNetwork=yes", "-p", "RestrictAddressFamilies=AF_UNIX",
+               "-p", "ProtectKernelTunables=yes", "-p", "ProtectKernelModules=yes",
+               "-p", "ProtectControlGroups=yes", "-p", "MemoryMax=64M", "-p", "TasksMax=8",
+               "-p", "CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_FSETID CAP_SETUID CAP_SETGID CAP_AUDIT_WRITE",
+               "-p", "InaccessiblePaths=/root -/run/user -/run/docker.sock -/run/containerd/containerd.sock -/run/systemd/private -/run/dbus/system_bus_socket",
+               "/usr/bin/python3", "-B", "-m", "v5.core.maintenance.ssh_accounts"]
+    try:
+        result = subprocess.run(command, input=json.dumps({"action": action, "params": params}).encode("ascii"),
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=True, timeout=25)
+        response = json_object(result.stdout)
+    except (OSError, ValueError, subprocess.SubprocessError, PackageError):
+        raise UpdateStoreError("ssh_unavailable") from None
+    if response.get("ok") is True and isinstance(response.get("result"), dict):
+        return response["result"]
+    raise UpdateStoreError(response.get("error", "ssh_unavailable"))
 
 
 def _forwarding_status():
@@ -137,7 +166,8 @@ def _start_provision(ticket):
 class PortalUpdateApplication:
     def __init__(self, uid, store, *, github=None, launch=_start, probe=_job_active,
                  provision=None, provision_launch=_start_provision, provision_probe=_provision_active,
-                 forwarding_status=_forwarding_status, forwarding_enable=_enable_forwarding):
+                 forwarding_status=_forwarding_status, forwarding_enable=_enable_forwarding,
+                 ssh_accounts=_ssh_accounts):
         self.uid, self.store = uid, store
         self.github = github if github is not None else GitHubCore()
         self.launch = launch
@@ -145,6 +175,7 @@ class PortalUpdateApplication:
         self.provision = provision if provision is not None else ProvisionJournal()
         self.provision_launch, self.provision_probe = provision_launch, provision_probe
         self.forwarding_status, self.forwarding_enable = forwarding_status, forwarding_enable
+        self.ssh_accounts = ssh_accounts
 
     def dispatch(self, request, stream):
         if (not isinstance(request, dict) or set(request) != {"version", "method", "params"}
@@ -156,6 +187,14 @@ class PortalUpdateApplication:
         method, params = request["method"], request["params"]
         if method != "core.upload" and stream.read(1):
             raise UpdateStoreError("invalid_request")
+        if method.startswith("ssh."):
+            ok = False
+            try:
+                reply = self.ssh_accounts(method.removeprefix("ssh."), params)
+                ok = True
+                return reply
+            finally:
+                audit.record(method, ok)
         if method == "core.status":
             records = self.store.records()
             current = installed_version(self.store.live)

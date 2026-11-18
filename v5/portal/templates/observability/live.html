@@ -7,6 +7,7 @@
 <p>На узком экране таблицы прокручиваются по горизонтали.</p>
 <a class="button secondary" href="{{ url_for('observability', session=selected) }}">Обновить</a>
 <a class="button secondary" href="{{ url_for('observation_history') }}">История и её настройка</a>
+<a class="button" href="{{ url_for('ssh_accounts') }}">SSH-учётки</a>
 {% if data is none %}
 <p role="alert" class="alert">Агент наблюдения недоступен.</p>
 {% else %}

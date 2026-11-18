@@ -20,7 +20,7 @@
         <a href="{{ url_for('tls_settings') }}"{% if view == 'tls_settings' %} aria-current="page"{% endif %}>HTTPS</a>
         <a href="{{ url_for('site_settings') }}"{% if view.startswith('site_') %} aria-current="page"{% endif %}>Публичная страница</a>
         <a href="{{ url_for('logs') }}"{% if view == 'logs' %} aria-current="page"{% endif %}>Журнал</a>
-        <a href="{{ url_for('observability') }}"{% if view in ('observability', 'observation_history') %} aria-current="page"{% endif %}>SSH и процессы</a>
+        <a href="{{ url_for('observability') }}"{% if view in ('observability', 'observation_history', 'ssh_accounts') %} aria-current="page"{% endif %}>SSH и процессы</a>
         <a href="{{ url_for('maintenance') }}"{% if view == 'maintenance' %} aria-current="page"{% endif %}>Обслуживание</a>
       </nav>
       {% if session.get('csrf') %}

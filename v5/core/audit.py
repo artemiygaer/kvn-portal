@@ -25,6 +25,7 @@ OPERATIONS = frozenset({
     "lifecycle.change_tunnel",
     "lifecycle.change_hysteria",
     "console.authorize", "console.attach",
+    "ssh.create", "ssh.password", "ssh.disable", "ssh.enable", "ssh.delete",
 })
 UNITS = {
     "gateway": "kvn-v5-gateway.service", "agent": "kvn-v5-agent.service",

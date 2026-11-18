@@ -85,7 +85,7 @@ class HostClient:
                         send_failed = True
                 elif body is not None:
                     connection.sendall(body)
-                if body is not None or method.startswith(("package.", "lifecycle.", "users.", "core.")):
+                if body is not None or method.startswith(("package.", "lifecycle.", "users.", "core.", "ssh.")):
                     try:
                         connection.shutdown(socket.SHUT_WR)
                     except OSError:
@@ -101,7 +101,7 @@ class HostClient:
             if response.get("ok") is False:
                 error = response.get("error")
                 if error in ("tls_busy", "tls_unavailable", "site_invalid", "site_unavailable", "invalid_request") or (
-                    method.startswith(("package.", "lifecycle.", "users.", "core.")) and isinstance(error, str)
+                    method.startswith(("package.", "lifecycle.", "users.", "core.", "ssh.")) and isinstance(error, str)
                     and re.fullmatch("[a-z0-9_]{1,64}", error)
                 ):
                     raise AgentRejected(error)
@@ -133,6 +133,9 @@ class PackageClient(HostClient):
 
 
 class CoreUpdateClient(HostClient):
+    def ssh_accounts(self, action, **params):
+        return self._request(f"ssh.{action}", params, timeout=27)
+
     def forwarding_status(self) -> dict:
         return self._request("core.forwarding_status", {}, timeout=12)
 

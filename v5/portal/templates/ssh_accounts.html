@@ -1,0 +1,81 @@
+{% extends 'base.html' %}
+{% block title %}SSH-учётки · KVN Portal{% endblock %}
+{% macro hidden(action, login='') -%}
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<input type="hidden" name="action" value="{{ action }}">
+{% if login %}<input type="hidden" name="login" value="{{ login }}">{% endif %}
+{%- endmacro %}
+{% macro admin() -%}
+<label>Пароль администратора портала <input type="password" name="admin_password" autocomplete="current-password" maxlength="256" required></label>
+{%- endmacro %}
+{% block body %}
+<h1>SSH-учётки</h1>
+<p><a href="{{ url_for('observability') }}">К SSH-сеансам и процессам</a></p>
+<p>Здесь показаны только локальные пользователи, созданные панелью. У них нет sudo и доступа к панели. Настройки входа OpenSSH не меняются.</p>
+{% for category, message in get_flashed_messages(with_categories=true) %}
+<p class="{{ 'alert' if category == 'error' else 'badge' }}" role="{{ 'alert' if category == 'error' else 'status' }}">{{ message }}</p>
+{% endfor %}
+{% if rows is none %}
+<p class="alert" role="alert">Служба управления SSH-учётками недоступна.</p>
+{% else %}
+<section class="panel">
+  <h2>Создать учётную запись</h2>
+  <form method="post" action="{{ url_for('ssh_accounts') }}">
+    {{ hidden('create') }}
+    <label>Логин <input name="login" pattern="[a-z][a-z0-9_\-]{0,31}" maxlength="32" autocomplete="off" required></label>
+    <label>Пароль пользователя <input type="password" name="password" minlength="12" maxlength="128" autocomplete="new-password"></label>
+    <label>Публичный ключ Ed25519 <input name="key" maxlength="512" autocomplete="off" placeholder="ssh-ed25519 …"></label>
+    <p>Задайте пароль, ключ или оба. Если указан только ключ, пароль для входа не выдаётся. Вход по паролю зависит от текущих настроек OpenSSH.</p>
+    {{ admin() }}
+    <button type="submit">Создать пользователя</button>
+  </form>
+</section>
+<section class="panel">
+  <h2>Управление</h2>
+  <p>Блокировка запрещает новые входы, но не завершает действующие сеансы. Удаление доступно после блокировки и сохраняет домашний каталог в закрытом архиве на сервере.</p>
+  {% for row in rows %}
+  <article class="module-item">
+    <h3>{{ row.login }} <span class="badge">UID {{ row.uid }}</span></h3>
+    {% if row.status == 'active' %}
+    <p><span class="badge">Вход разрешён</span></p>
+    <details>
+      <summary>Сменить пароль</summary>
+      <form method="post" action="{{ url_for('ssh_accounts') }}">
+        {{ hidden('password', row.login) }}
+        <label>Новый пароль <input type="password" name="password" minlength="12" maxlength="128" autocomplete="new-password" required></label>
+        {{ admin() }}
+        <button type="submit">Сменить пароль</button>
+      </form>
+    </details>
+    <details>
+      <summary>Заблокировать вход</summary>
+      <form method="post" action="{{ url_for('ssh_accounts') }}">
+        {{ hidden('disable', row.login) }}{{ admin() }}
+        <button class="secondary" type="submit">Заблокировать</button>
+      </form>
+    </details>
+    {% elif row.status == 'disabled' %}
+    <p><span class="badge">Вход заблокирован</span></p>
+    <details>
+      <summary>Разблокировать вход</summary>
+      <form method="post" action="{{ url_for('ssh_accounts') }}">
+        {{ hidden('enable', row.login) }}{{ admin() }}
+        <button type="submit">Разблокировать</button>
+      </form>
+    </details>
+    <details>
+      <summary>Удалить учётную запись</summary>
+      <form method="post" action="{{ url_for('ssh_accounts') }}">
+        {{ hidden('delete', row.login) }}{{ admin() }}
+        <label><input type="checkbox" name="confirm" value="yes" required> Удалить учётку, сохранив её файлы</label>
+        <button class="secondary" type="submit">Удалить</button>
+      </form>
+    </details>
+    {% else %}
+    <p class="alert">Учётная запись изменена вне панели. Действия недоступны.</p>
+    {% endif %}
+  </article>
+  {% else %}<p>Управляемых SSH-учёток пока нет.</p>{% endfor %}
+</section>
+{% endif %}
+{% endblock %}

@@ -33,6 +33,7 @@ from .migration_routes import register_migration
 from .log_routes import register_logs
 from .observability_routes import register_observability
 from .security import LoginBudget
+from .ssh_accounts_routes import register_ssh_accounts
 from .user_routes import register_users
 
 PORTAL_CSP = "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
@@ -243,6 +244,18 @@ def create_app(config=None, *, client=None, login_budget=None, package_client=No
         token = session.get("csrf", "")
         if not token or not hmac.compare_digest(token.encode(), request.form.get("csrf", "").encode()):
             abort(403)
+
+    def verify_ssh_admin(password):
+        address = request.headers.get("X-KVN-Client-IP", request.remote_addr or "local")
+        if not budget.allow(address) or not budget.scrypt_slot.acquire(blocking=False):
+            return False
+        try:
+            valid = verify_admin_password(password, config["password_hash"])
+        finally:
+            budget.scrypt_slot.release()
+        if valid:
+            budget.clear(address)
+        return valid
 
     @app.route("/login", methods=["GET", "POST"])
     def login():
@@ -608,5 +621,6 @@ def create_app(config=None, *, client=None, login_budget=None, package_client=No
     register_logs(app, backend)
     register_observability(app, backend, lifecycle, csrf_token, require_csrf)
     register_core_update(app, core_updates, csrf_token, require_csrf, PORTAL_CSP)
+    register_ssh_accounts(app, core_updates, csrf_token, require_csrf, verify_ssh_admin)
     install_console_routes(app, console, csrf_token, require_csrf, PORTAL_CSP)
     return app

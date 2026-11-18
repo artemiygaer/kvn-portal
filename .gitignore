@@ -54,6 +54,7 @@ kvn-vpn-backup-*.tar
 release-manifest.json
 publication-manifest.json
 SHA256SUMS
+!v5/portal/static/vendor/xterm/SHA256SUMS
 !portal/wheels/SHA256SUMS
 !portal/app/static/vendor/xterm/SHA256SUMS
 

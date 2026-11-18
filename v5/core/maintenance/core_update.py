@@ -26,6 +26,7 @@ _NEW_UNITS = frozenset((AGENT_UNIT, SOCKET_UNIT, WEB_UNIT, WEB_SOCKET_UNIT, "kvn
                         "kvn-v5-provision@.service", "kvn-v5-forwarding.service"))
 _BUSY = ("kvn-v5-package@*.service", "kvn-v5-lifecycle@*.service", "kvn-v5-migration@*.service",
          "kvn-v5-socket-observer@*.service", "kvn-v5-core-update@*.service",
+         "kvn-v5-ssh-account.service",
          "kvn-v5-tls.service", "kvn-v5-tls-renew.service", "kvn-v5-module-tls-sync.service",
          "kvn-v5-provision@*.service", "kvn-v5-forwarding.service")
 
