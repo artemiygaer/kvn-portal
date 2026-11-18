@@ -34,7 +34,7 @@ def watch_http80():
             try:
                 conn.request("GET", "/", headers={"Host": "portal.example", "Connection": "close"})
                 reply = conn.getresponse()
-                key = "ok" if reply.status == 308 and reply.getheader("Location") == "https://portal.example/" else "fail"
+                key = "ok" if reply.status == 200 and reply.getheader("Content-Security-Policy") else "fail"
                 counts[key] += 1
             except (OSError, http.client.HTTPException):
                 counts["fail"] += 1
@@ -49,7 +49,7 @@ def watch_http80():
     finally:
         stop.set()
         thread.join(5)
-        print(f"TCP/80 со стороны WSL: {counts['ok']} ответов 308, {counts['fail']} ошибок.", flush=True)
+        print(f"TCP/80 со стороны WSL: {counts['ok']} ответов 200, {counts['fail']} ошибок.", flush=True)
     if not counts["ok"] or counts["fail"]:
         raise RuntimeError("Непрерывность HTTP/80 не подтверждена")
 

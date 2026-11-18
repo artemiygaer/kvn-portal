@@ -36,7 +36,11 @@ class Observer:
         except (OSError, ValueError, SubprocessError):
             return fallback, True
 
-    def snapshot(self, session_id=None):
+    def ssh_snapshot(self):
+        summary = self.snapshot(include_processes=False)
+        return {key: summary[key] for key in ("captured_at", "ssh", "ssh_partial")}
+
+    def snapshot(self, session_id=None, *, include_processes=True):
         current = self.clock()
         if self._cache is None or current - self._cache[0] >= 2:
             proc_source, session_source, socket_source = self.sources
@@ -67,6 +71,8 @@ class Observer:
             }
             self._previous_processes, self._previous_tcp = proc, tcp
         _, proc, sessions, previous_processes, elapsed, uptime, summary = self._cache
+        if not include_processes:
+            return dict(summary)
         visible, confirmed = None, None
         if session_id is not None:
             row = next((item for item in sessions if item.id == session_id), None)

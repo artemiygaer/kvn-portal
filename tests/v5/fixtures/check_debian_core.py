@@ -73,7 +73,8 @@ def verify_http01():
 
     try:
         for name in ("portal.example", "www.portal.example", "192.0.2.8"):
-            assert request("GET", "/login?x=1", name + ":80")[:2] == (308, f"https://{name}/login?x=1")
+            assert request("GET", "/", name + ":80")[0] == 200
+            assert request("GET", "/login?x=1", name + ":80")[0] == 404
         assert request("GET", "/", "unknown.example")[0] == 421
         challenge = "/.well-known/acme-challenge/"
         assert request("GET", challenge + token.name, "portal.example")[0] == 404
@@ -86,7 +87,7 @@ def verify_http01():
         assert request("GET", challenge + link.name, "portal.example")[0] in (403, 404)
         token.unlink()
         assert request("GET", challenge + token.name, "portal.example")[0] == 404
-        print("TCP/80: два имени и IP, HTTP-01, 308, отказ чужому Host, POST и симлинку: OK")
+        print("TCP/80: два имени и IP, HTTP-01, публичная страница, отказ чужому Host, POST и симлинку: OK")
     finally:
         conn.close()
         token.unlink(missing_ok=True)

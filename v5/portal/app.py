@@ -8,7 +8,7 @@ from pathlib import Path
 import secrets
 import threading
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from flask import Flask, Request, Response, abort, flash, make_response, redirect, render_template, request, session, url_for
 
@@ -18,6 +18,7 @@ from v5.core.lifecycle import LIFECYCLE_SOCKET
 from v5.core.migration import MAX_MIGRATION_FORM
 from v5.core.maintenance import UPDATE_SOCKET
 from v5.core.maintenance.core_bundle import MAX_BUNDLE
+from v5.core.maintenance.ssh_accounts import MAX_TRANSFER as MAX_SSH_TRANSFER
 from v5.core.packages import PACKAGE_SOCKET
 from v5.core.packages.manifest import MAX_PACKAGE
 from v5.core.release import installed_version
@@ -160,6 +161,8 @@ class PortalRequest(Request):
             return MAX_BUNDLE + 128 * 1024
         if self.path == "/users/migration/preview":
             return MAX_MIGRATION_FORM
+        if self.path == "/users/migration/ssh-accounts":
+            return MAX_SSH_TRANSFER + 4096
         return 4096
 
 
@@ -285,8 +288,19 @@ def create_app(config=None, *, client=None, login_budget=None, package_client=No
         if session.get("admin") is not True:
             return redirect(url_for("login"), code=303)
         installed, status_error = package_snapshot()
+        ssh_rows, ssh_partial = None, False
+        try:
+            snapshot = backend.observe_ssh()
+            if isinstance(snapshot, dict) and isinstance(snapshot.get("ssh"), list):
+                ssh_rows = [{**row, "connected_at": datetime.fromtimestamp(row["started_at"], timezone.utc)
+                             .strftime("%d.%m.%Y %H:%M:%S UTC")}
+                            for row in snapshot["ssh"]]
+                ssh_partial = snapshot.get("ssh_partial", False)
+        except (AgentUnavailable, AttributeError, KeyError, TypeError, ValueError, OverflowError, OSError):
+            pass
         return render_template("dashboard.html", status=cache.get(), csrf=csrf_token(),
-                               modules_total=len(MODULE_IDS), installed=installed, package_error=status_error)
+                               modules_total=len(MODULE_IDS), installed=installed, package_error=status_error,
+                               ssh_rows=ssh_rows, ssh_partial=ssh_partial)
 
     @app.route("/settings/tls", methods=["GET", "POST"])
     def tls_settings():

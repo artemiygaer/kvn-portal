@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Обновление ядра · KVN Portal{% endblock %}
+{% block title %}Обновление ядра{% endblock %}
 {% block body %}
 <h1>Обновление ядра</h1>
 <p>Сначала загрузите и проверьте подписанный пакет. Применение запускается отдельно; настройки и модули сохраняются.</p>
@@ -20,7 +20,7 @@
 </section>
 <section class="panel">
   <h2>Ручная загрузка</h2>
-  <p>Выберите штатный подписанный <code>kvn-portal-v5-update.tar</code> из выпуска v5.</p>
+  <p>Выберите подписанный пакет <code>portal-v5-update.tar</code> из выпуска v5.</p>
   <form method="post" enctype="multipart/form-data" action="{{ url_for('core_update_action', action='upload') }}" data-core-upload>
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label>Пакет ядра <input type="file" name="bundle" accept=".tar" required></label>

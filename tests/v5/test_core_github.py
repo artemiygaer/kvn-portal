@@ -10,7 +10,7 @@ from unittest import TestCase
 from unittest.mock import Mock
 
 from tests.v5.test_core_update import artifact, publisher
-from v5.core.maintenance.core_bundle import NAME, build
+from v5.core.maintenance.core_bundle import NAME, PUBLIC_NAME, build
 from v5.core.maintenance.core_github import GitHubCore
 from v5.core.maintenance.portal_store import PortalUpdateStore, UpdateStoreError
 
@@ -69,6 +69,19 @@ class GitHubCoreTests(TestCase):
             with self.subTest(tag=tag), self.assertRaises(UpdateStoreError):
                 GitHubCore(source).prepare(self.store, tag)
             self.assertEqual(self.store.records(), [])
+
+    def test_prefers_neutral_asset_and_accepts_legacy_name(self):
+        source = Source(self.raw)
+        legacy = source.metadata["assets"][0]
+        neutral = {**legacy, "name": PUBLIC_NAME, "id": 456}
+        for assets in ([neutral, legacy], [neutral], [legacy]):
+            with self.subTest(assets=assets):
+                source.metadata["assets"] = assets
+                self.assertEqual(GitHubCore(source).prepare(self.store, "v5.0.1")["version"], "5.0.1")
+                self.assertTrue(source.urls[-1][0].endswith(str(assets[0]["id"])))
+        source.metadata["assets"] = [neutral, neutral, legacy]
+        with self.assertRaisesRegex(UpdateStoreError, "core_github_asset_missing"):
+            GitHubCore(source).prepare(self.store, "v5.0.1")
 
     def test_rejects_urls_prereleases_and_duplicate_assets(self):
         source = Source(self.raw)

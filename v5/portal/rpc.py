@@ -60,6 +60,9 @@ class HostClient:
     def observe_live(self, session_id: str | None = None) -> dict:
         return self._request("observe.live", {"session": session_id} if session_id else {}, timeout=9)
 
+    def observe_ssh(self) -> dict:
+        return self._request("observe.ssh", {}, timeout=4)
+
     def observe_history(self, hours: int) -> dict:
         return self._request("observe.history", {"hours": hours}, timeout=8)
 
@@ -69,7 +72,7 @@ class HostClient:
         maximum = (512 * 1024 if method in {"users.profiles", "users.subscription"}
                    else 2 * 1024 * 1024 if method == "observe.history"
                    else 256 * 1024 if method == "observe.live"
-                   else 32768 if method in {"tls.status", "users.list", "users.config", "lifecycle.plan"} else 8192)
+                   else 32768 if method in {"tls.status", "users.list", "users.config", "lifecycle.plan", "ssh.export", "observe.ssh"} else 8192)
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
                 connection.settimeout(self.timeout if timeout is None else timeout)
@@ -134,7 +137,7 @@ class PackageClient(HostClient):
 
 class CoreUpdateClient(HostClient):
     def ssh_accounts(self, action, **params):
-        return self._request(f"ssh.{action}", params, timeout=27)
+        return self._request(f"ssh.{action}", params, timeout=115 if action in ("import", "export") else 27)
 
     def forwarding_status(self) -> dict:
         return self._request("core.forwarding_status", {}, timeout=12)

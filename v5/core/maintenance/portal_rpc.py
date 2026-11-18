@@ -18,7 +18,7 @@ from v5.core.release import installed_version, stable_version
 
 from .core_github import GitHubCore
 from .portal_store import LIFETIME, PortalUpdateStore, TICKET, UpdateStoreError
-from .ssh_accounts import SCHEMAS as SSH_SCHEMAS
+from .ssh_accounts import MAX_REQUEST as SSH_MAX_REQUEST, SCHEMAS as SSH_SCHEMAS
 
 SOCKET = "/run/kvn-v5-core-update.sock"
 _PEER = struct.Struct("3i")
@@ -33,9 +33,10 @@ _METHODS.update({f"ssh.{action}": fields for action, fields in SSH_SCHEMAS.items
 def _ssh_accounts(action, params):
     # Не расширяем права RPC-службы и не меняем набор unit-файлов подписанного архива.
     # Секреты передаются только по одноразовому stdin, не в аргументах или журнале.
+    runtime = 105 if action in ("export", "import") else 22
     command = ["/usr/bin/systemd-run", "--quiet", "--pipe", "--wait", "--collect", "--unit=kvn-v5-ssh-account",
                "--working-directory=/usr/local/lib/kvn-v5",
-               "-p", "Type=exec", "-p", "RuntimeMaxSec=22s", "-p", "UMask=0077",
+               "-p", "Type=exec", "-p", f"RuntimeMaxSec={runtime}s", "-p", "UMask=0077",
                "-p", "ProtectSystem=strict", "-p", "ReadWritePaths=/etc /home",
                "-p", "ReadOnlyPaths=/etc/kvn-v5 /etc/systemd /etc/ssh",
                "-p", "StateDirectory=kvn-v5/ssh-accounts", "-p", "StateDirectoryMode=0700",
@@ -48,7 +49,7 @@ def _ssh_accounts(action, params):
                "/usr/bin/python3", "-B", "-m", "v5.core.maintenance.ssh_accounts"]
     try:
         result = subprocess.run(command, input=json.dumps({"action": action, "params": params}).encode("ascii"),
-                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=True, timeout=25)
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=True, timeout=runtime + 3)
         response = json_object(result.stdout)
     except (OSError, ValueError, subprocess.SubprocessError, PackageError):
         raise UpdateStoreError("ssh_unavailable") from None
@@ -282,10 +283,13 @@ class PortalUpdateApplication:
             if uid != self.uid:
                 raise UpdateStoreError("forbidden")
             with connection.makefile("rb") as stream:
-                line = stream.readline(4097)
-                if len(line) > 4096 or not line.endswith(b"\n"):
+                line = stream.readline(SSH_MAX_REQUEST + 1)
+                if len(line) > SSH_MAX_REQUEST or not line.endswith(b"\n"):
                     raise UpdateStoreError("invalid_request")
-                result = self.dispatch(json_object(line), stream)
+                request = json_object(line)
+                if len(line) > 4096 and request.get("method") != "ssh.import":
+                    raise UpdateStoreError("invalid_request")
+                result = self.dispatch(request, stream)
             response = {"ok": True, "result": result}
         except (PackageError, UpdateStoreError, ProvisionError, LifecycleError) as exc:
             code = str(exc)

@@ -66,7 +66,7 @@ def public_core():
         conn = http.client.HTTPConnection(address, 80, timeout=8)
         try:
             conn.request("GET", "/", headers={"Host": "portal.example"})
-            assert conn.getresponse().status == 308
+            assert conn.getresponse().status == 200
         finally:
             conn.close()
 

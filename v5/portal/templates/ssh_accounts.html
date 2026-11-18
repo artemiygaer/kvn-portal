@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}SSH-учётки · KVN Portal{% endblock %}
+{% block title %}SSH-пользователи{% endblock %}
 {% macro hidden(action, login='') -%}
 <input type="hidden" name="csrf" value="{{ csrf }}">
 <input type="hidden" name="action" value="{{ action }}">
@@ -8,8 +8,19 @@
 {% macro admin() -%}
 <label>Пароль администратора портала <input type="password" name="admin_password" autocomplete="current-password" maxlength="256" required></label>
 {%- endmacro %}
+{% macro password_form(login) -%}
+<details>
+  <summary>Сменить пароль</summary>
+  <form method="post" action="{{ url_for('ssh_accounts') }}">
+    {{ hidden('password', login) }}
+    <label>Новый пароль <input type="password" name="password" minlength="12" maxlength="128" autocomplete="new-password" required></label>
+    {{ admin() }}
+    <button type="submit">Сменить пароль</button>
+  </form>
+</details>
+{%- endmacro %}
 {% block body %}
-<h1>SSH-учётки</h1>
+<h1>SSH-пользователи</h1>
 <p><a href="{{ url_for('observability') }}">К SSH-сеансам и процессам</a></p>
 <p>Здесь показаны только локальные пользователи, созданные панелью. У них нет sudo и доступа к панели. Настройки входа OpenSSH не меняются.</p>
 {% for category, message in get_flashed_messages(with_categories=true) %}
@@ -31,22 +42,37 @@
   </form>
 </section>
 <section class="panel">
+  <h2>Перенос SSH-пользователей</h2>
+  <p>Файл JSON содержит имена, прежние статусы и одиночные публичные ключи Ed25519 без опций. Пароли, хеши и файлы из домашних каталогов не переносятся.</p>
+  <details>
+    <summary>Экспортировать список</summary>
+    <form method="post" action="{{ url_for('ssh_accounts_transfer') }}">
+      {{ hidden('export') }}{{ admin() }}
+      <button type="submit">Скачать JSON</button>
+    </form>
+  </details>
+  <details>
+    <summary>Импортировать список</summary>
+    <form method="post" action="{{ url_for('ssh_accounts_transfer') }}" enctype="multipart/form-data">
+      {{ hidden('import') }}
+      <label>Файл SSH-пользователей <input type="file" name="archive" accept=".json,application/json" required></label>
+      <p>Новые учётки отключены до явного включения. Существующие не заменяются.</p>
+      {{ admin() }}
+      <button type="submit">Импортировать</button>
+    </form>
+  </details>
+</section>
+<section class="panel">
   <h2>Управление</h2>
   <p>Блокировка запрещает новые входы, но не завершает действующие сеансы. Удаление доступно после блокировки и сохраняет домашний каталог в закрытом архиве на сервере.</p>
   {% for row in rows %}
   <article class="module-item">
     <h3>{{ row.login }} <span class="badge">UID {{ row.uid }}</span></h3>
+    {% if row.status != 'changed' %}
+    <p><span class="badge{% if row.status == 'active' %} badge-ok{% endif %}">{{ 'Включён' if row.status == 'active' else 'Отключён' }}</span></p>
+    {{ password_form(row.login) }}
+    {% endif %}
     {% if row.status == 'active' %}
-    <p><span class="badge">Вход разрешён</span></p>
-    <details>
-      <summary>Сменить пароль</summary>
-      <form method="post" action="{{ url_for('ssh_accounts') }}">
-        {{ hidden('password', row.login) }}
-        <label>Новый пароль <input type="password" name="password" minlength="12" maxlength="128" autocomplete="new-password" required></label>
-        {{ admin() }}
-        <button type="submit">Сменить пароль</button>
-      </form>
-    </details>
     <details>
       <summary>Заблокировать вход</summary>
       <form method="post" action="{{ url_for('ssh_accounts') }}">
@@ -55,7 +81,6 @@
       </form>
     </details>
     {% elif row.status == 'disabled' %}
-    <p><span class="badge">Вход заблокирован</span></p>
     <details>
       <summary>Разблокировать вход</summary>
       <form method="post" action="{{ url_for('ssh_accounts') }}">

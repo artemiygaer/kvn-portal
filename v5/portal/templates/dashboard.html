@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Обзор · KVN Portal{% endblock %}
+{% block title %}Обзор сервера{% endblock %}
 {% block body %}
 <div class="page-heading">
   <div><p class="eyebrow">Ядро v5</p><h1>Обзор сервера</h1><p>Снимок обновляется при открытии страницы. История настраивается отдельно.</p></div>
@@ -15,6 +15,24 @@
   <div class="panel"><dt>Сеть · отправлено</dt><dd>{{ '%.1f'|format(status.network.sent_bytes / 1048576) }} МиБ</dd></div>
 </dl>
 {% else %}<p role="status" class="alert">Агент недоступен. Попробуйте обновить страницу позже.</p>{% endif %}
+<section class="panel">
+  <div class="section-heading"><h2>Активные SSH-сеансы</h2>{% if ssh_rows is not none %}<span class="badge">{{ ssh_rows | length }}</span>{% endif %}</div>
+  {% if ssh_rows is none %}<p role="status">Не удалось получить список SSH-сеансов.</p>
+  {% else %}
+  {% if ssh_partial %}<p role="status">Список подключений может быть неполным.</p>{% endif %}
+  {% if ssh_rows %}
+  <div class="table-scroll" tabindex="0" role="region" aria-label="Активные SSH-сеансы"><table>
+    <thead><tr><th scope="col">Пользователь</th><th scope="col">IP</th><th scope="col">Подключение</th><th scope="col">В сети</th></tr></thead>
+    <tbody>{% for row in ssh_rows %}
+      {% set elapsed = row.age_seconds %}
+      <tr><td>{{ row.user }}</td><td><code>{{ row.ip or '—' }}</code></td><td>{{ row.connected_at }}</td>
+        <td>{% if elapsed >= 86400 %}{{ elapsed // 86400 }} д {% endif %}{% if elapsed >= 3600 %}{{ (elapsed // 3600) % 24 }} ч {% endif %}{% if elapsed >= 60 %}{{ (elapsed // 60) % 60 }} мин{% else %}{{ elapsed }} с{% endif %}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% else %}<p>Активные SSH-сеансы не обнаружены.</p>{% endif %}
+  {% endif %}
+  <a class="button secondary" href="{{ url_for('observability') }}">Подробнее о сеансах</a>
+</section>
 <div class="overview-grid">
   <section class="panel">
     <div class="section-heading"><h2>Модули</h2>{% if not package_error %}<span class="badge">{{ installed | length }} из {{ modules_total }}</span>{% endif %}</div>

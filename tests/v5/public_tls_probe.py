@@ -27,8 +27,8 @@ def _http(address, identity):
     try:
         connection.request("GET", "/", headers={"Host": identity.authority, "Connection": "close"})
         response = connection.getresponse()
-        if response.status != 308 or response.getheader("Location") != f"https://{identity.authority}/":
-            raise RuntimeError(f"HTTP/80: для {identity.name} не подтверждён редирект на публичный HTTPS")
+        if response.status != 200 or not response.getheader("Content-Security-Policy"):
+            raise RuntimeError(f"HTTP/80: для {identity.name} не подтверждена публичная страница")
     finally:
         connection.close()
 

@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}Публичная страница · KVN Portal{% endblock %}
+{% block title %}Публичная страница{% endblock %}
 {% block header %}<a href="{{ url_for('dashboard') }}">К обзору</a>{% endblock %}
 {% block body %}
 <h1>Публичная страница</h1>
-<p>Отображается на HTTPS/443 для всех имён с активным сертификатом. Адрес панели не меняется.</p>
+<p>Отображается по HTTP/80 и, если есть доверенный сертификат, по HTTPS/443. Адрес панели не меняется.</p>
 {% for notice in get_flashed_messages() %}<p role="status" class="badge">{{ notice }}</p>{% endfor %}
 {% if site %}
 <section class="panel">

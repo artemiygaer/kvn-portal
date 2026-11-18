@@ -161,6 +161,13 @@ class AgentApplication:
                 return {"ok": True, "result": {"entries": self.journal(params["source"])}}
             except (OSError, ValueError, SubprocessError):
                 return {"ok": False, "error": "journal_unavailable"}
+        if self.observer is not None and request["method"] == "observe.ssh":
+            if request["params"] or body is not None:
+                return {"ok": False, "error": "invalid_request"}
+            try:
+                return {"ok": True, "result": self.observer.ssh_snapshot()}
+            except (OSError, ValueError, IndexError):
+                return {"ok": False, "error": "observe_unavailable"}
         if self.observer is not None and request["method"] == "observe.live":
             params = request["params"]
             if (set(params) - {"session"} or ("session" in params and not session_id(params["session"]))
@@ -241,12 +248,27 @@ class AgentServer(socketserver.UnixStreamServer):
         os.chmod(path, 0o660)
 
 
+def _refresh_public_site(site, tls, gateway_file):
+    try:
+        site.refresh_default()
+    except OSError:
+        pass
+    try:
+        if b"return 308 https://$kvn_public_authority$request_uri;" in read_gateway_config(gateway_file):
+            tls.submit_prepare()
+    except (OSError, ValueError, QueueBusy):
+        # Очередь уже обрабатывается либо шлюз ещё не настроен.
+        pass
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--socket", type=Path, required=True)
     parser.add_argument("--web-uid", type=int, required=True)
     options = parser.parse_args()
-    with AgentServer(options.socket, AgentApplication(options.web_uid, tls=TLSQueue(), site=SiteStore(SITE_ROOT),
+    tls, site = TLSQueue(), SiteStore(SITE_ROOT)
+    _refresh_public_site(site, tls, Path("/etc/kvn-v5/gateway/nginx.conf"))
+    with AgentServer(options.socket, AgentApplication(options.web_uid, tls=tls, site=site,
                                                      packages=package_status, journal=audit.recent,
                                                      observer=Observer(), history=History(OBSERVATION_DIRECTORY))) as server:
         server.serve_forever()

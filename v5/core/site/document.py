@@ -14,8 +14,16 @@ MAX_HTML_BYTES = 128 * 1024
 MAX_SITE_FORM = MAX_HTML_BYTES + 8 * 1024
 SITE_CSP = ("default-src 'none'; style-src 'unsafe-inline'; img-src data:; "
             "base-uri 'none'; form-action 'none'; sandbox allow-top-navigation-by-user-activation")
-DEFAULT_SITE = ("<!doctype html><html lang=\"ru\"><head><meta charset=\"utf-8\"><title>KVN</title></head>"
+_OLD_DEFAULT = ("<!doctype html><html lang=\"ru\"><head><meta charset=\"utf-8\"><title>KVN</title></head>"
                 "<body><main><h1>Добро пожаловать</h1><p>Сервер KVN работает.</p></main></body></html>\n").encode()
+DEFAULT_SITE = ("""<!doctype html><html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Служебный узел</title>
+<style>body{font:1rem/1.6 system-ui,sans-serif;background:#f5f6f8;color:#252832;margin:0;padding:clamp(1rem,6vw,4rem)}
+main{max-width:36rem;margin:12vh auto 0}h1{font-size:clamp(1.5rem,5vw,2rem);line-height:1.2}</style></head>
+<body><main><h1>Служебный узел</h1>
+<p>Этот узел используется для служебных сетевых задач и проверки доступности HTTP/HTTPS.</p>
+</main></body></html>
+""").encode()
 _TAGS = frozenset("html head title body main nav header footer section article aside div span h1 h2 h3 h4 h5 h6 "
                   "p a img picture figure figcaption strong em b i s u small code pre blockquote time dl dt dd "
                   "ul ol li br hr table caption thead tbody tfoot tr td th meta style".split())
@@ -132,12 +140,20 @@ class SiteStore:
         self.directory = directory
 
     def status(self) -> dict:
+        return {"customized": self._read(len(DEFAULT_SITE) + 1) != DEFAULT_SITE}
+
+    def _read(self, limit: int) -> bytes:
         fd = os.open(self.directory / "index.html", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         with os.fdopen(fd, "rb") as stream:
             attrs = os.fstat(stream.fileno())
             if not stat.S_ISREG(attrs.st_mode) or attrs.st_uid != os.geteuid() or attrs.st_mode & 0o022:
                 raise OSError("Недопустимый файл публичной страницы")
-            return {"customized": stream.read(len(DEFAULT_SITE) + 1) != DEFAULT_SITE}
+            return stream.read(limit)
+
+    def refresh_default(self) -> None:
+        # Меняем только точную копию прежней штатной страницы.
+        if self._read(len(_OLD_DEFAULT) + 1) == _OLD_DEFAULT:
+            self.reset()
 
     def _replace(self, validated: bytes) -> None:
         candidate = None

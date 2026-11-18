@@ -20,9 +20,11 @@ LOGIN = re.compile(r"[a-z][a-z0-9_-]{0,31}", re.ASCII)
 MARK = re.compile(r"kvn-ssh-[0-9a-f]{32}", re.ASCII)
 HOME = Path("/home")
 MAX_ACCOUNTS = 48
-MAX_REQUEST = 4096
+MAX_TRANSFER = 16 * 1024
+MAX_REQUEST = MAX_TRANSFER + 1024
 SCHEMAS = {"list": set(), "create": {"login", "password", "key"}, "password": {"login", "password"},
-           "disable": {"login"}, "enable": {"login"}, "delete": {"login"}}
+           "disable": {"login"}, "enable": {"login"}, "delete": {"login"},
+           "export": set(), "import": {"archive"}}
 
 
 class AccountError(ValueError):
@@ -96,6 +98,48 @@ with os.fdopen(fd, 'wb') as stream:
         raise AccountError("ssh_key_install_failed")
 
 
+def _export_key(account):
+    # Не читаем файлы из home от root. Переносим только одиночный ключ без ограничивающих опций.
+    code = """import os, sys, stat
+flags = os.O_DIRECTORY | os.O_NOFOLLOW
+home = os.open(sys.argv[1], flags)
+directory = os.open('.ssh', flags, dir_fd=home)
+fd = os.open('authorized_keys', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+attrs = os.fstat(fd)
+if (stat.S_ISREG(attrs.st_mode) and attrs.st_uid == os.getuid() and
+    not any(os.fstat(item).st_mode & 0o022 for item in (home, directory, fd))):
+    with os.fdopen(fd, 'rb') as stream:
+        sys.stdout.buffer.write(stream.read(513))
+"""
+    try:
+        result = subprocess.run(["/usr/bin/python3", "-I", "-c", code, account.pw_dir],
+                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                user=account.pw_uid, group=account.pw_gid, extra_groups=[],
+                                timeout=3, cwd="/", env={"LC_ALL": "C.UTF-8"})
+        if result.returncode or len(result.stdout) > 512:
+            return ""
+        return _public_key(result.stdout.decode("utf-8").strip("\r\n")).decode("ascii").strip()
+    except (AccountError, UnicodeError, OSError, subprocess.SubprocessError):
+        return ""
+
+
+def parse_transfer(archive):
+    if (not isinstance(archive, dict) or archive.keys() != {"format", "accounts"}
+            or archive["format"] != "ssh-accounts/v1" or not isinstance(archive["accounts"], list)
+            or len(archive["accounts"]) > MAX_ACCOUNTS):
+        raise AccountError("ssh_archive_invalid")
+    result = {}
+    for row in archive["accounts"]:
+        if not isinstance(row, dict) or row.keys() != {"login", "status", "key"}:
+            raise AccountError("ssh_archive_invalid")
+        name = _login(row["login"])
+        key = row["key"]
+        if name in result or row["status"] not in ("active", "disabled") or not isinstance(key, str):
+            raise AccountError("ssh_archive_invalid")
+        result[name] = _public_key(key).decode("ascii").strip() if key else ""
+    return result
+
+
 class Accounts:
     def __init__(self, root=ROOT):
         self.root = root
@@ -142,13 +186,13 @@ class Accounts:
             return "active"
         raise AccountError("ssh_account_changed")
 
-    def create(self, rows, name, password, key):
+    def create(self, rows, name, password, key, *, disabled=False):
         if len(rows) >= MAX_ACCOUNTS:
             raise AccountError("ssh_limit")
         if not isinstance(password, str) or not isinstance(key, str):
             raise AccountError("invalid_request")
         public = _public_key(key) if key else None
-        if password or not public:
+        if not disabled and (password or not public):
             _password(password)
         self.check_home()
         if name in rows or os.path.lexists(HOME / name):
@@ -171,9 +215,12 @@ class Accounts:
             self.account(name, row)
             if public:
                 _key_for(account, public)
-            self.set_password(name, password or secrets.token_urlsafe(32))
+            if not disabled:
+                self.set_password(name, password or secrets.token_urlsafe(32))
             rows[name] = row
             self.save(rows)
+            if disabled:
+                return
             if not _run("/usr/sbin/usermod", "-e", "-1", "--", name):
                 raise AccountError("ssh_operation_failed")
             if self.status(name) != "active":
@@ -190,8 +237,23 @@ class Accounts:
             raise
 
     @staticmethod
-    def set_password(name, password):
-        if not _run("/usr/sbin/chpasswd", data=f"{name}:{_password(password)}\n".encode()):
+    def set_password(name, password, *, disabled=False):
+        password = _password(password)
+        flags = ()
+        if disabled:
+            # Сохраняем блокировку shadow при смене пароля: аккаунт не включается ни на миг.
+            try:
+                hashed = subprocess.run(["/usr/bin/openssl", "passwd", "-6", "-stdin"],
+                                        input=(password + "\n").encode(), stdout=subprocess.PIPE,
+                                        stderr=subprocess.DEVNULL, timeout=5, check=True,
+                                        env={"LC_ALL": "C.UTF-8"}).stdout.strip()
+                if not re.fullmatch(rb"\$6\$[./0-9A-Za-z]{1,16}\$[./0-9A-Za-z]{86}", hashed):
+                    raise ValueError
+            except (ValueError, OSError, subprocess.SubprocessError):
+                raise AccountError("ssh_operation_failed") from None
+            password = "!" + hashed.decode("ascii")
+            flags = ("--encrypted",)
+        if not _run("/usr/sbin/chpasswd", *flags, data=f"{name}:{password}\n".encode()):
             raise AccountError("ssh_operation_failed")
 
     @staticmethod
@@ -227,16 +289,34 @@ class Accounts:
         if not isinstance(action, str) or action not in SCHEMAS or not isinstance(params, dict) or params.keys() != SCHEMAS[action]:
             raise AccountError("invalid_request")
         rows = self.load()
-        if action == "list":
+        if action in ("list", "export"):
             result = []
             for name, row in sorted(rows.items()):
                 try:
-                    self.account(name, row)
+                    account = self.account(name, row)
                     status = self.status(name)
                 except AccountError:
                     status = "changed"
-                result.append({"login": name, "uid": row["uid"], "status": status})
+                if action == "list":
+                    result.append({"login": name, "uid": row["uid"], "status": status})
+                elif status != "changed":
+                    result.append({"login": name, "status": status, "key": _export_key(account)})
+            if action == "export":
+                return {"format": "ssh-accounts/v1", "accounts": result}
             return {"accounts": result}
+        if action == "import":
+            incoming = parse_transfer(params["archive"])
+            added, skipped, failed = [], [], []
+            for name, key in incoming.items():
+                try:
+                    self.create(rows, name, "", key, disabled=True)
+                except AccountError as exc:
+                    (skipped if str(exc) in ("ssh_name_taken", "ssh_limit") else failed).append(name)
+                except (OSError, ValueError, KeyError):
+                    failed.append(name)
+                else:
+                    added.append(name)
+            return {"added": added, "skipped": skipped, "failed": failed}
         name = _login(params["login"])
         if action == "create":
             self.create(rows, name, params["password"], params["key"])
@@ -246,14 +326,16 @@ class Accounts:
         account = self.account(name, rows[name])
         status = self.status(name)
         if action == "password":
-            if status != "active":
-                raise AccountError("ssh_account_disabled")
-            self.set_password(name, params["password"])
+            self.set_password(name, params["password"], disabled=status == "disabled")
         elif action == "delete":
             if status != "disabled":
                 raise AccountError("ssh_disable_first")
             self.delete(rows, name, account)
         elif status != ("disabled" if action == "disable" else "active"):
+            if action == "enable" and not _shadow(name)[0].removeprefix("!").startswith("$"):
+                if not _export_key(account):
+                    raise AccountError("ssh_credentials_required")
+                self.set_password(name, secrets.token_urlsafe(32), disabled=True)
             flags = ("-L", "-e", "1") if action == "disable" else ("-U", "-e", "-1")
             if not _run("/usr/sbin/usermod", *flags, "--", name) or self.status(name) == status:
                 raise AccountError("ssh_operation_failed")

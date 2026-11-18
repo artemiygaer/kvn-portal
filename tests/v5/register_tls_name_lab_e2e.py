@@ -25,7 +25,7 @@ def main():
             timeout=180, capture=False)
     result = lab.run('curl --fail --silent --output /dev/null --write-out "%{http_code}" '
                      '--header "Host: fifth.portal.example" http://127.0.0.1/', timeout=30)
-    assert result.stdout == b'308', result.stdout
+    assert result.stdout == b'200', result.stdout
     lab.run('systemctl is-active --quiet kvn-v5-agent kvn-v5-web kvn-v5-gateway')
     print('На отдельной VM новое имя отвечает на HTTP, портал и агент работают.', flush=True)
 

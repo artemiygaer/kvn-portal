@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}KVN Portal{% endblock %}</title>
+  <title>{% block title %}Панель управления{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='portal.css') }}">
 </head>
 <body>
   <a class="skip-link" href="#main">К содержимому</a>
   <header class="topbar">
     <div class="topbar-inner">
-      <a class="brand" href="{{ url_for('dashboard') }}"><span class="brand-mark" aria-hidden="true">K</span> KVN Portal</a>
+      <a class="brand" href="{{ url_for('dashboard') }}">Панель управления</a>
       {% if session.get('admin') is sameas true %}
       <nav aria-label="Основная навигация">
         {% set view = request.endpoint or '' %}
@@ -20,7 +20,8 @@
         <a href="{{ url_for('tls_settings') }}"{% if view == 'tls_settings' %} aria-current="page"{% endif %}>HTTPS</a>
         <a href="{{ url_for('site_settings') }}"{% if view.startswith('site_') %} aria-current="page"{% endif %}>Публичная страница</a>
         <a href="{{ url_for('logs') }}"{% if view == 'logs' %} aria-current="page"{% endif %}>Журнал</a>
-        <a href="{{ url_for('observability') }}"{% if view in ('observability', 'observation_history', 'ssh_accounts') %} aria-current="page"{% endif %}>SSH и процессы</a>
+        <a href="{{ url_for('ssh_accounts') }}"{% if view == 'ssh_accounts' %} aria-current="page"{% endif %}>SSH-пользователи</a>
+        <a href="{{ url_for('observability') }}"{% if view in ('observability', 'observation_history') %} aria-current="page"{% endif %}>SSH и процессы</a>
         <a href="{{ url_for('maintenance') }}"{% if view == 'maintenance' %} aria-current="page"{% endif %}>Обслуживание</a>
       </nav>
       {% if session.get('csrf') %}

@@ -215,7 +215,7 @@ def render_gateway(identities: Iterable[TLSIdentity], *, ipv6: bool, pairs: Iter
     if network and any(item.route.self_steal and TLSIdentity(item.route.sni, False) not in active_names
                        for item in network.routes):
         raise ValueError("Для self-steal нужен действующий сертификат этого имени")
-    http01 = render_http01(names, webroot=webroot, ipv6=ipv6)
+    http01 = render_http01(names, webroot=webroot, site_root=site_root, ipv6=ipv6)
     www = safe_path(site_root)
     tls = []
     if active:

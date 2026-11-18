@@ -273,7 +273,7 @@ def wait_ready(authority: str, timeout=180):
                 try:
                     with_http.request("GET", "/", headers={"Host": authority})
                     response = with_http.getresponse()
-                    if response.status == 308 and response.getheader("Location") == f"https://{authority}/":
+                    if response.status == 200 and response.getheader("Content-Security-Policy"):
                         return
                 finally:
                     with_http.close()

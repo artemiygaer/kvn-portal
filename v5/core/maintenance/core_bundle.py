@@ -10,6 +10,7 @@ from v5.core.private_files import private_directory
 from v5.core.release import ARCHIVE, MANIFEST, MAX_ARCHIVE, SIGNATURE, read_asset
 
 NAME = "kvn-portal-v5-update.tar"
+PUBLIC_NAME = "portal-v5-update.tar"
 MAX_BUNDLE = MAX_ARCHIVE + 128 * 1024
 LIMITS = {ARCHIVE: MAX_ARCHIVE, MANIFEST: 4096, SIGNATURE: 64}
 ORDER = (MANIFEST, SIGNATURE, ARCHIVE)

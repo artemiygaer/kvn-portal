@@ -7,7 +7,7 @@ import time
 from v5.core.packages.github import GitHubPackages, _API, _Download, _META_LIMIT, _REPO, _release_tag
 from v5.core.packages.manifest import SHA256, json_object
 
-from .core_bundle import MAX_BUNDLE, NAME
+from .core_bundle import MAX_BUNDLE, NAME, PUBLIC_NAME
 from .portal_store import UpdateStoreError
 
 
@@ -49,7 +49,10 @@ class GitHubCore:
                 or not _release_tag(release.get("tag_name"))
                 or tag is not None and tag != release["tag_name"] or not isinstance(release.get("assets"), list)):
             raise UpdateStoreError("core_github_metadata")
-        matches = [item for item in release["assets"] if isinstance(item, dict) and item.get("name") == NAME]
+        assets = [item for item in release["assets"] if isinstance(item, dict)]
+        # Старое имя остаётся допустимым для уже опубликованных выпусков.
+        matches = ([item for item in assets if item.get("name") == PUBLIC_NAME]
+                   or [item for item in assets if item.get("name") == NAME])
         if len(matches) != 1:
             raise UpdateStoreError("core_github_asset_missing")
         asset = matches[0]

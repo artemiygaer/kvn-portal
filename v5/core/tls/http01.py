@@ -1,4 +1,4 @@
-"""Выделенный HTTP-вход: только зарегистрированные Host, ACME и редирект."""
+"""Выделенный HTTP-вход: только зарегистрированные Host, ACME и публичная страница."""
 
 from collections.abc import Iterable
 from pathlib import Path
@@ -6,6 +6,7 @@ import re
 
 from .acme import ACME_ROOT
 from .identity import TLSIdentity
+from v5.core.site.document import SITE_CSP
 
 
 _SAFE_PATH = re.compile(r"(?:/[a-zA-Z0-9_-][a-zA-Z0-9_.-]*)+\Z", re.ASCII)
@@ -18,7 +19,7 @@ def safe_path(path: Path) -> str:
 
 
 def render_http01(identities: Iterable[TLSIdentity], *, webroot: Path = ACME_ROOT / "webroot",
-                  ipv6: bool = True) -> str:
+                  site_root: Path = ACME_ROOT.parent / "site", ipv6: bool = True) -> str:
     """Сгенерировать фрагмент контекста http, без доступа к панели и VPN."""
     names = tuple(identities)
     if not 1 <= len(names) <= 32 or any(not isinstance(item, TLSIdentity) for item in names):
@@ -26,6 +27,7 @@ def render_http01(identities: Iterable[TLSIdentity], *, webroot: Path = ACME_ROO
     if len(set(names)) != len(names):
         raise ValueError("Повтор имени HTTP")
     web_path = safe_path(webroot)
+    site_path = safe_path(site_root)
     if type(ipv6) is not bool or (not ipv6 and any(item.is_ip and ":" in item.name for item in names)):
         raise ValueError("Для HTTP-01 по IPv6 требуется IPv6-слушатель")
     entries = "\n".join(f'    "{item.authority}{suffix}" "{item.authority}";'
@@ -51,6 +53,15 @@ def render_http01(identities: Iterable[TLSIdentity], *, webroot: Path = ACME_ROO
         "        try_files $uri =404;\n"
         "    }\n"
         "    location /.well-known/acme-challenge/ { return 404; }\n"
-        "    location / { return 308 https://$kvn_public_authority$request_uri; }\n"
+        f"    root {site_path};\n"
+        f"    disable_symlinks on from={site_path};\n"
+        "    charset utf-8;\n"
+        "    default_type text/html;\n"
+        f'    add_header Content-Security-Policy "{SITE_CSP}" always;\n'
+        "    add_header X-Content-Type-Options nosniff always;\n"
+        "    add_header Referrer-Policy no-referrer always;\n"
+        "    location = / { try_files /index.html =404; }\n"
+        "    location = /index.html { try_files /index.html =404; }\n"
+        "    location / { return 404; }\n"
         "}\n"
     )

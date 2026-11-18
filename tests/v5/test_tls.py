@@ -181,7 +181,8 @@ class HTTP01Tests(unittest.TestCase):
         self.assertIn("listen [::]:80 default_server", configuration)
         self.assertIn("try_files $uri =404;", configuration)
         self.assertIn("disable_symlinks on", configuration)
-        self.assertIn("return 308 https://$kvn_public_authority$request_uri;", configuration)
+        self.assertIn("location = / { try_files /index.html =404; }", configuration)
+        self.assertIn("location / { return 404; }", configuration)
         self.assertNotIn("proxy_pass", configuration)
         self.assertNotIn(":8443", configuration)
 

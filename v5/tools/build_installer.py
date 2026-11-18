@@ -108,16 +108,39 @@ def main():
     parser.add_argument("--publisher-pin", type=Path, help="JSON только с публичным ключом и закреплённым SHA-256")
     parser.add_argument("--version", help="Стабильная версия ядра без v")
     parser.add_argument("--signing-key", type=Path, help="Ed25519-ключ издателя; не включается в архив")
+    parser.add_argument("--public-names", action="store_true", help="Выдать файлы с нейтральными именами для публикации")
     args = parser.parse_args()
     if args.signing_key and not (args.version and args.publisher_pin):
         parser.error("Для подписи укажите --version и --publisher-pin")
-    digest = build(args.directory / NAME, args.publisher_pin, version=args.version)
+    if args.public_names:
+        with TemporaryDirectory(dir=args.directory, prefix=".publish-core-") as directory:
+            _emit(Path(directory), args, args.directory)
+    else:
+        _emit(args.directory, args, None)
+
+
+def _emit(directory: Path, args, public_dir: Path | None) -> None:
+    from v5.core.maintenance.core_bundle import NAME as BUNDLE
+
+    build(directory / NAME, args.publisher_pin, version=args.version)
+    names = (NAME,)
     if args.signing_key:
-        sign_release(args.directory / NAME, args.signing_key, args.publisher_pin, args.version)
-        from v5.core.maintenance.core_bundle import NAME as BUNDLE
-        with (args.directory / BUNDLE).open("rb") as artifact:
-            print(f"{hashlib.file_digest(artifact, 'sha256').hexdigest()}  {BUNDLE}")
-    print(f"{digest}  {NAME}")
+        sign_release(directory / NAME, args.signing_key, args.publisher_pin, args.version)
+        names += (MANIFEST, SIGNATURE, BUNDLE)
+    linked = []
+    try:
+        for name in names:
+            output = name.removeprefix("kvn-") if public_dir is not None else name
+            path = directory / name
+            if public_dir is not None:
+                os.link(path, public_dir / output)
+                linked.append(public_dir / output)
+            with path.open("rb") as artifact:
+                print(f"{hashlib.file_digest(artifact, 'sha256').hexdigest()}  {output}")
+    except BaseException:
+        for path in linked:
+            path.unlink()
+        raise
 
 
 if __name__ == "__main__":

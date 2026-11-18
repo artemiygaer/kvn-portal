@@ -1,11 +1,11 @@
-# KVN Portal
+# Портал управления Debian
 
 Лёгкий портал управления и наблюдения за сервером Debian 12/13 с подключаемыми
 модулями. Новая версия v5 предназначена для чистой установки; после неё
 дополнительных модулей и Docker нет. Нужные модули устанавливаются, включаются
 и отключаются через панель; конфигурация при отключении сохраняется.
 
-Актуальный выпуск: **v5.0.6**. Версия v5 устанавливается начисто и не
+Актуальный выпуск: [**v5.0.7**](https://github.com/artemiygaer/kvn-portal/releases/tag/v5.0.7). Версия v5 устанавливается начисто и не
 обновляет существующую установку v4.2. Перенос пользователей между порталами v5
 выполняется через экспорт и импорт `.kvn`.
 
@@ -24,25 +24,26 @@
   umask 077
   work=$(mktemp -d)
   cd "$work"
-  curl --disable -fL --proto '=https' --proto-redir '=https' -o kvn-portal-v5-installer.tar.gz \
-    https://github.com/artemiygaer/kvn-portal/releases/download/v5.0.6/kvn-portal-v5-installer.tar.gz
-  echo '0a8d27949e772c7a31833e5533d1eba7b5573658c7f40aa16068a688d0cd235e  kvn-portal-v5-installer.tar.gz' | sha256sum -c -
-  tar -xzf kvn-portal-v5-installer.tar.gz --no-same-owner --no-same-permissions
+  curl --disable -fL --proto '=https' --proto-redir '=https' -o portal-v5-installer.tar.gz \
+    https://github.com/artemiygaer/kvn-portal/releases/download/v5.0.7/portal-v5-installer.tar.gz
+  echo '735772a74c03b6a6e1ce4d08d7364e496010877b9971d96fd114af8f6d81f7da  portal-v5-installer.tar.gz' | sha256sum -c -
+  tar -xzf portal-v5-installer.tar.gz --no-same-owner --no-same-permissions
   bash v5/install/install.sh
 )
 ```
 
 Если `curl` отсутствует, сначала установите пакеты `curl` и `ca-certificates`.
 
-Последующее обновление портала и установка модулей доступны в интерфейсе:
-подписанный архив получают из GitHub или загружают вручную, затем отдельно
-подтверждают применение. При аварии остаётся восстановление по SSH.
+Обновление с предыдущих v5: «Обслуживание → Обновление ядра». Загрузите
+релиз из GitHub или вручную выберите `portal-v5-update.tar`, затем
+подтвердите применение. [Аварийное обновление по SSH](v5/install/README.md#обновление-ядра-v5).
 
 ## Возможности
 
-- Мониторинг сервера, SSH-сессий и процессов; история по запросу.
-- [Управление локальными SSH-учётками](v5/DEPLOY.md#ssh-учётки) без назначения sudo.
-- Публичная страница на TCP/80 и HTTPS TCP/443, администрирование по HTTPS на
+- Мониторинг сервера, SSH-сеансов и процессов. В обзоре видны IP, время
+  подключения и длительность активных SSH-сеансов.
+- [Управление и перенос локальных SSH-пользователей](v5/DEPLOY.md#ssh-пользователи) без назначения sudo.
+- Нейтральная публичная страница на HTTP без редиректа и HTTPS с сертификатом; администрирование по HTTPS на
   выбранном порту (по умолчанию 8443) и пути. Поддерживаются IP и несколько имён с отдельными сертификатами.
 - Управление модулями Xray, WireGuard, AmneziaWG, Hysteria2, Telemt и MTG;
   установка модуля сама по себе не включает сервис и не открывает его порты.
