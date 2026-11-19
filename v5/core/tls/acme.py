@@ -5,6 +5,7 @@ from enum import StrEnum
 from ipaddress import ip_address
 from pathlib import Path
 import re
+from urllib.parse import urlsplit
 
 from .identity import TLSIdentity
 
@@ -19,12 +20,40 @@ _EMAIL = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.+\-]{0,63}@[A-Za-z0-9][A-Za-z0-9.\-
 class AcmeMode(StrEnum):
     PUBLIC = "public"
     STAGING = "staging"
+    ZEROSSL = "zerossl"
 
     @property
     def endpoint(self) -> str:
+        if self is AcmeMode.ZEROSSL:
+            return "https://acme.zerossl.com/v2/DV90"
         if self is AcmeMode.STAGING:
             return "https://acme-staging-v02.api.letsencrypt.org/directory"
         return "https://acme-v02.api.letsencrypt.org/directory"
+
+
+def acme_command(mode: AcmeMode, action: str, root: Path, executable: Path) -> list[str]:
+    environment = root / mode.value
+    return [str(executable), action, "--non-interactive", "--no-directory-hooks",
+            "--config-dir", str(environment / "config"), "--work-dir", str(environment / "work"),
+            "--logs-dir", str(environment / "logs"), "--server", mode.endpoint]
+
+
+def acme_contact(email: str) -> list[str]:
+    if not isinstance(email, str) or (email and not _EMAIL.fullmatch(email)):
+        raise ValueError("Укажите корректный контактный email ACME")
+    return ["--email", email] if email else ["--register-unsafely-without-email"]
+
+
+def zerossl_ready(root: Path = ACME_ROOT) -> bool:
+    url = urlsplit(AcmeMode.ZEROSSL.endpoint)
+    directory = root / AcmeMode.ZEROSSL.value / "config" / "accounts" / (url.netloc + url.path)
+    try:
+        # Используем отдельную область Certbot только для одной локальной учётной записи.
+        accounts = [p for p in directory.iterdir() if re.fullmatch(r"[0-9a-f]{32}", p.name)]
+        return len(accounts) == 1 and all((accounts[0] / name).is_file() and not (accounts[0] / name).is_symlink()
+                                           for name in ("private_key.json", "regr.json", "meta.json"))
+    except OSError:
+        return False
 
 
 def require_certbot_version(output: str) -> None:
@@ -45,6 +74,8 @@ class AcmePlan:
             raise ValueError("Недопустимое окружение ACME")
         if self.identity.is_ip and not ip_address(self.identity.name).is_global:
             raise ValueError("Для выпуска сертификата требуется публичный IP")
+        if self.identity.is_ip and self.mode is AcmeMode.ZEROSSL:
+            raise ValueError("Для IP используется только Let’s Encrypt")
 
     @property
     def webroot(self) -> Path:
@@ -60,16 +91,15 @@ class AcmePlan:
         return lineage / "fullchain.pem", lineage / "privkey.pem"
 
     def _command(self, action: str) -> list[str]:
-        environment = self.root / self.mode.value
-        return [str(self.executable), action, "--non-interactive", "--no-directory-hooks",
-                "--config-dir", str(self.configuration), "--work-dir", str(environment / "work"),
-                "--logs-dir", str(environment / "logs"), "--server", self.mode.endpoint,
-                "--cert-name", self.identity.slot]
+        argv = acme_command(self.mode, action, self.root, self.executable) + ["--cert-name", self.identity.slot]
+        if self.mode is AcmeMode.ZEROSSL:
+            argv += ["--config", "/dev/null"]
+        return argv
 
     def issue(self, email: str) -> tuple[str, ...]:
-        if not isinstance(email, str) or (email and not _EMAIL.fullmatch(email)):
-            raise ValueError("Укажите корректный контактный email ACME")
-        contact = ["--email", email] if email else ["--register-unsafely-without-email"]
+        contact = acme_contact(email)
+        if self.mode is AcmeMode.ZEROSSL:
+            contact = []  # Аккаунт уже связан через EAB отдельной командой.
         argv = self._command("certonly") + ["--agree-tos", *contact, "--webroot",
                                           "--webroot-path", str(self.webroot), "--keep-until-expiring"]
         if self.identity.is_ip:

@@ -13,8 +13,9 @@
 <section class="panel">
   <h2>{{ item.authority }}</h2>
   <p>{% if result.active_expires_at %}Активен до <time datetime="{{ result.active_expires_at }}">{{ result.active_expires_at }}</time>{% else %}Сертификат не применён{% endif %}</p>
+  {% if result.renewal_provider %}<p>Автопродление: {{ {'public': 'Let’s Encrypt', 'zerossl': 'ZeroSSL', 'import': 'нет (ручной импорт)'}.get(result.renewal_provider, 'нет данных') }}</p>{% endif %}
   {% if result.dns %}<p>DNS: {% if result.dns.status == 'match' %}IP сервера найден{% elif result.dns.status == 'mismatch' %}IP сервера не найден{% elif result.dns.status == 'timeout' %}истекло время ожидания{% else %}проверка недоступна{% endif %}{% if result.dns.addresses %} — {{ result.dns.addresses | join(', ') }}{% endif %}{% if result.dns.truncated %} (список сокращён){% endif %}</p>{% endif %}
-  {% for mode, label in [('public', 'Публичный выпуск'), ('staging', 'Проверочный выпуск'), ('import', 'Импорт сертификата')] %}
+  {% for mode, label in [('public', 'Let’s Encrypt'), ('staging', 'Let’s Encrypt (проверка)'), ('zerossl', 'ZeroSSL'), ('import', 'Импорт сертификата')] %}
     {% set entry = result.get(mode) %}
     {% if entry %}<p>{{ label }}: {{ messages.get(entry.status, 'Ошибка TLS') }}</p>{% endif %}
   {% endfor %}
@@ -27,9 +28,12 @@
   <form method="post" action="{{ url_for('tls_settings') }}">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label>Имя или IP <select name="name" required>{% for item in tls.names %}<option value="{{ item.name }}">{{ item.authority }}</option>{% endfor %}</select></label>
-    <label>Контактный email (необязательно) <input name="email" type="email" maxlength="317"></label>
+    <label>Контактный email для Let’s Encrypt (необязательно) <input name="email" type="email" maxlength="317"></label>
     <p>При выпуске без email восстановление аккаунта ACME может быть затруднено. Следите за сроком действия и автопродлением в портале: Let’s Encrypt не отправляет письма об истечении сертификатов.</p>
-    <label>Режим <select name="mode"><option value="staging">Проверочный</option><option value="public">Публичный</option></select></label>
+    <label>Центр и режим <select name="mode"><option value="public">Let’s Encrypt — публичный</option><option value="staging">Let’s Encrypt — проверочный</option><option value="zerossl"{% if not tls.zerossl_ready %} disabled{% endif %}>ZeroSSL — только DNS-имена</option></select></label>
+    {% if tls.names | rejectattr('is_ip') | list and not tls.zerossl_ready %}
+    <p>Для ZeroSSL один раз получите EAB в кабинете ZeroSSL и выполните по SSH от root: <code>cd /usr/local/lib/kvn-v5 &amp;&amp; python3 -m v5.core.tls.zerossl</code>. После привязки обновите страницу.</p>
+    {% endif %}
     <button type="submit"{% if tls.busy %} disabled{% endif %}>Запустить выпуск</button>
   </form>
   <p><a href="{{ url_for('tls_settings') }}">Обновить статус</a></p>

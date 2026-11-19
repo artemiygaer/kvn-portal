@@ -103,7 +103,7 @@ class HostClient:
                 raise AgentUnavailable
             if response.get("ok") is False:
                 error = response.get("error")
-                if error in ("tls_busy", "tls_unavailable", "site_invalid", "site_unavailable", "invalid_request") or (
+                if error in ("tls_busy", "tls_unavailable", "zerossl_not_configured", "site_invalid", "site_unavailable", "invalid_request") or (
                     method.startswith(("package.", "lifecycle.", "users.", "core.", "ssh.")) and isinstance(error, str)
                     and re.fullmatch("[a-z0-9_]{1,64}", error)
                 ):

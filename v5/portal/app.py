@@ -46,6 +46,7 @@ TLS_MESSAGES = {
     "dns_failed": "DNS не подтвердился. Проверьте A/AAAA и их доступность.",
     "challenge_failed": "Проверка HTTP-01 не прошла. Проверьте TCP/80 и DNS.",
     "rate_limited": "Сработал лимит CA. Повторите позже.", "acme_timeout": "CA не ответил вовремя",
+    "zerossl_not_configured": "Аккаунт ZeroSSL не привязан. Настройте его по SSH.",
     "acme_failed": "Ошибка выпуска ACME", "lineage_invalid": "Недопустимое хранилище Certbot",
     "lineage_missing": "Certbot не сохранил пару", "san_mismatch": "Сертификат выпущен для другого имени или IP",
     "invalid_certificate": "Цепочка сертификатов повреждена или имеет неверный формат",
@@ -312,7 +313,8 @@ def create_app(config=None, *, client=None, login_budget=None, package_client=No
                 backend.tls_issue(request.form.get("name", ""), request.form.get("mode", ""), request.form.get("email", ""))
                 flash("Задача поставлена в очередь. Обновите страницу, чтобы увидеть результат.")
             except AgentRejected as exc:
-                flash({"tls_busy": "Уже выполняется задача TLS.", "invalid_request": "Проверьте имя, режим и email."}
+                flash({"tls_busy": "Уже выполняется задача TLS.", "invalid_request": "Проверьте имя и режим. Для IP доступен только Let’s Encrypt.",
+                       "zerossl_not_configured": TLS_MESSAGES["zerossl_not_configured"]}
                       .get(exc.code, "Служба TLS недоступна."))
             except AgentUnavailable:
                 flash("Служба TLS недоступна.")

@@ -156,6 +156,13 @@ class PortalTests(unittest.TestCase):
                                           headers={'Origin': ORIGIN}).status_code, 303)
         self.assertEqual(self.status.tls_issues[-1], ('portal.example', 'staging', ''))
         self.assertIn('необязательно'.encode(), settings.data)
+        self.assertIn(b'value="zerossl" disabled', settings.data)
+        original = self.status.tls_status
+        self.status.tls_status = lambda: {**original(), "zerossl_ready": True}
+        self.assertIn(b'value="zerossl">ZeroSSL', self.client.get(route, base_url=ORIGIN).data)
+        self.assertEqual(self.client.post(route, base_url=ORIGIN, data={**request, 'mode': 'zerossl', 'email': ''},
+                                          headers={'Origin': ORIGIN}).status_code, 303)
+        self.assertEqual(self.status.tls_issues[-1], ('portal.example', 'zerossl', ''))
 
     def test_import_warns_while_gateway_config_is_not_ready(self):
         credentials = {'login': 'admin', 'password': PASSWORD, 'csrf': self.login_token()}

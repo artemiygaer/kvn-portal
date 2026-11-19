@@ -5,7 +5,7 @@
 дополнительных модулей и Docker нет. Нужные модули устанавливаются, включаются
 и отключаются через панель; конфигурация при отключении сохраняется.
 
-Актуальный выпуск: [**v5.0.7**](https://github.com/artemiygaer/kvn-portal/releases/tag/v5.0.7). Версия v5 устанавливается начисто и не
+Актуальный выпуск: [**v5.0.8**](https://github.com/artemiygaer/kvn-portal/releases/tag/v5.0.8). Версия v5 устанавливается начисто и не
 обновляет существующую установку v4.2. Перенос пользователей между порталами v5
 выполняется через экспорт и импорт `.kvn`.
 
@@ -25,8 +25,8 @@
   work=$(mktemp -d)
   cd "$work"
   curl --disable -fL --proto '=https' --proto-redir '=https' -o portal-v5-installer.tar.gz \
-    https://github.com/artemiygaer/kvn-portal/releases/download/v5.0.7/portal-v5-installer.tar.gz
-  echo '735772a74c03b6a6e1ce4d08d7364e496010877b9971d96fd114af8f6d81f7da  portal-v5-installer.tar.gz' | sha256sum -c -
+    https://github.com/artemiygaer/kvn-portal/releases/download/v5.0.8/portal-v5-installer.tar.gz
+  echo '40307380bdb3ac3f4db40655c6e8564284dad2084d87d297c6f3307a6adbfcc9  portal-v5-installer.tar.gz' | sha256sum -c -
   tar -xzf portal-v5-installer.tar.gz --no-same-owner --no-same-permissions
   bash v5/install/install.sh
 )
@@ -45,6 +45,7 @@
 - [Управление и перенос локальных SSH-пользователей](v5/DEPLOY.md#ssh-пользователи) без назначения sudo.
 - Нейтральная публичная страница на HTTP без редиректа и HTTPS с сертификатом; администрирование по HTTPS на
   выбранном порту (по умолчанию 8443) и пути. Поддерживаются IP и несколько имён с отдельными сертификатами.
+- [Let’s Encrypt или ZeroSSL](v5/core/tls/README.md#подключить-zerossl) для каждого DNS-имени. Для IP — Let’s Encrypt.
 - Управление модулями Xray, WireGuard, AmneziaWG, Hysteria2, Telemt и MTG;
   установка модуля сама по себе не включает сервис и не открывает его порты.
 - Перенос пользователей между порталами v5 через зашифрованный `.kvn`. Интерактивная root-консоль и

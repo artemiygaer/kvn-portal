@@ -69,7 +69,7 @@ def run(*, renew: bool) -> None:
                         imported.save(imports)
                     else:
                         outcome = service.issue(job.identity, job.mode, job.email)
-                        if job.mode is AcmeMode.PUBLIC and outcome.status in ("active", "unchanged"):
+                        if job.mode is not AcmeMode.STAGING and outcome.status in ("active", "unchanged"):
                             imports.pop(job.identity.slot, None)
                             imported.save(imports)
                 except (AcmeError, CertificateError, GatewayApplyError) as exc:
@@ -79,7 +79,7 @@ def run(*, renew: bool) -> None:
                 record(job.identity, "import" if isinstance(job, TLSImportJob) else job.mode, outcome)
             if renew:
                 for identity, outcome in service.renew_due(imports).items():
-                    record(identity, AcmeMode.PUBLIC, outcome)
+                    record(identity, service.renewal_mode(identity), outcome)
                     if outcome.status == "active" and outcome.expires_at is not None:
                         print(f"TLS: сертификат {identity.authority} продлён до {outcome.expires_at.isoformat()}", flush=True)
             try:
@@ -91,6 +91,11 @@ def run(*, renew: bool) -> None:
                     entry = records.setdefault(identity.slot, {})
                     if isinstance(entry, dict):
                         entry["active_expires_at"] = active.get(identity)
+                        generation = gateway.generation(identity)
+                        entry["renewal_provider"] = (
+                            "import" if generation in imports.get(identity.slot, ())
+                            else service.renewal_mode(identity).value
+                        ) if identity in active else None
             queue.record(records)
     except QueueBusy:
         return

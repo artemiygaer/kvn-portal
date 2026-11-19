@@ -7,12 +7,16 @@ from pathlib import Path
 import stat
 import subprocess
 
-from .acme import ACME_ROOT, CERTBOT, AcmeMode, AcmePlan, require_certbot_version
+from . import imported as generations
+from .acme import ACME_ROOT, CERTBOT, AcmeMode, AcmePlan, require_certbot_version, zerossl_ready
 from .certificates import CertificateError, MAX_CHAIN_BYTES, MAX_KEY_BYTES, read_certificate_info
 from .controller import GatewayController
 from .identity import TLSIdentity
 from .probe import check_nginx, reload_nginx, verify_bootstrap, verify_pair
-from .transaction import GatewayApplyError
+from .transaction import GatewayApplyError, _pair_digest
+
+
+ZEROSSL_GENERATIONS = generations.PATH.with_name("zerossl-generations.json")
 
 
 class AcmeError(RuntimeError):
@@ -95,6 +99,8 @@ class CertbotClient:
 
     def issue(self, plan: AcmePlan, email: str) -> tuple[bytes, bytes]:
         argv = plan.issue(email)
+        if plan.mode is AcmeMode.ZEROSSL and not zerossl_ready(self.root):
+            raise AcmeError("zerossl_not_configured")
         self._require_version()
         folder = self.root / plan.mode.value
         folder.mkdir(mode=0o700, exist_ok=True)
@@ -104,17 +110,40 @@ class CertbotClient:
         return self.material(plan)
 
     def renew(self, plan: AcmePlan) -> tuple[bytes, bytes]:
-        if plan.mode is not AcmeMode.PUBLIC:
+        if plan.mode is AcmeMode.STAGING:
             raise AcmeError("lineage_invalid")
+        if plan.mode is AcmeMode.ZEROSSL and not zerossl_ready(self.root):
+            raise AcmeError("zerossl_not_configured")
         self._require_version()
         self._call(plan.renew(), 180)
         return self.material(plan)
 
 
 class AcmeService:
-    def __init__(self, gateway: GatewayController, client: CertbotClient | None = None):
+    def __init__(self, gateway: GatewayController, client: CertbotClient | None = None,
+                 *, zerossl_path: Path = ZEROSSL_GENERATIONS):
         self.gateway = gateway
         self.client = CertbotClient() if client is None else client
+        self.zerossl_path = zerossl_path
+        self.zerossl = generations.load(zerossl_path)
+
+    def renewal_mode(self, identity: TLSIdentity) -> AcmeMode:
+        if not identity.is_ip and self.gateway.generation(identity) in self.zerossl.get(identity.slot, ()):
+            return AcmeMode.ZEROSSL
+        return AcmeMode.PUBLIC
+
+    def _apply_public(self, identity, material, mode):
+        if mode is AcmeMode.ZEROSSL:
+            current = self.gateway.generation(identity)
+            candidate = _pair_digest(*material)
+            previous = self.zerossl.get(identity.slot, ())
+            keep = [current] if current in previous and current != candidate else []
+            # До смены шлюза известны оба допустимых поколения. При сбое старый центр не меняется.
+            if self.zerossl.get(identity.slot) != [*keep, candidate]:
+                updated = {**self.zerossl, identity.slot: [*keep, candidate]}
+                generations.save(updated, self.zerossl_path)
+                self.zerossl = updated
+        return self._activate(identity, material)
 
     def _activate(self, identity: TLSIdentity, material: tuple[bytes, bytes]) -> AcmeResult:
         before = self.gateway.generation(identity)
@@ -131,7 +160,7 @@ class AcmeService:
         if mode is AcmeMode.STAGING:
             info = read_certificate_info(identity, material[0])
             return AcmeResult("staging_issued", info.not_after)
-        return self._activate(identity, material)
+        return self._apply_public(identity, material, mode)
 
     def import_pair(self, identity: TLSIdentity, chain: bytes, key: bytes) -> AcmeResult:
         """Проверить и атомарно применить импортированную пару зарегистрированного имени."""
@@ -146,13 +175,14 @@ class AcmeService:
             if imported and self.gateway.generation(identity) in imported.get(identity.slot, ()):
                 continue
             try:
-                plan = self.client.plan(identity, AcmeMode.PUBLIC)
+                mode = self.renewal_mode(identity)
+                plan = self.client.plan(identity, mode)
             except ValueError:
                 continue
             if not plan.candidate[0].exists():
                 continue
             try:
-                results[identity] = self._activate(identity, self.client.renew(plan))
+                results[identity] = self._apply_public(identity, self.client.renew(plan), mode)
             except (AcmeError, CertificateError, GatewayApplyError) as exc:
                 results[identity] = AcmeResult(exc.code)
             except (ValueError, OSError):

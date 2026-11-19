@@ -23,6 +23,7 @@ from .packages.status import package_status
 from .site.document import MAX_HTML_BYTES, SiteStore, UnsafeDocument
 from .tls.gateway import SITE_ROOT
 from .tls.certificates import MAX_CHAIN_BYTES, MAX_KEY_BYTES
+from .tls.acme import AcmeMode, zerossl_ready
 from .tls.queue import QueueBusy, TLSDNSJob, TLSImportJob, TLSJob, TLSQueue, registry
 from .tls.transaction import read_gateway_config
 
@@ -84,9 +85,13 @@ class AgentApplication:
                     state['import_ready'] = False
                 state["names"] = [{"name": item.name, "authority": item.authority, "slot": item.slot,
                                    "is_ip": item.is_ip} for item in identities]
+                state["zerossl_ready"] = any(not item.is_ip for item in identities) and zerossl_ready()
                 return {"ok": True, "result": state}
             if method == "tls.issue" and body is None:
-                self.tls.submit(TLSJob.parse(params, identities))
+                job = TLSJob.parse(params, identities)
+                if job.mode is AcmeMode.ZEROSSL and not zerossl_ready():
+                    return {"ok": False, "error": "zerossl_not_configured"}
+                self.tls.submit(job)
                 return {"ok": True, "result": {"queued": True}}
             if method == "tls.diagnose" and body is None and set(params) == {"name"}:
                 self.tls.submit_dns(TLSDNSJob.parse({"kind": "dns", "name": params["name"]}, identities))
