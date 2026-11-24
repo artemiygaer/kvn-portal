@@ -66,7 +66,8 @@ class GatewayRenderingTests(unittest.TestCase):
         self.assertEqual(config.count("client_max_body_size 136k;"), len(names) + 1)
         self.assertEqual(config.count("location = /modules/upload {"), len(names) + 1)
         self.assertEqual(config.count("proxy_request_buffering off;"), 3 * (len(names) + 1))
-        self.assertEqual(config.count("location / { return 404; }"), len(names))
+        # Незарегистрированные пути закрыты в каждом HTTPS-vhost и в общем HTTP-входе.
+        self.assertEqual(config.count("location / { return 404; }"), len(names) + 1)
         self.assertIn("sandbox allow-top-navigation-by-user-activation", config)
         self.assertEqual(admin_hosts(names), ["127.0.0.1:8443", "localhost:8443", "portal.example:8443",
                                              "www.portal.example:8443", "192.0.2.8:8443", "[2001:db8::8]:8443"])

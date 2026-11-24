@@ -28,7 +28,8 @@ _BUSY = ("kvn-v5-package@*.service", "kvn-v5-lifecycle@*.service", "kvn-v5-migra
          "kvn-v5-socket-observer@*.service", "kvn-v5-core-update@*.service",
          "kvn-v5-ssh-account.service",
          "kvn-v5-tls.service", "kvn-v5-tls-renew.service", "kvn-v5-module-tls-sync.service",
-         "kvn-v5-provision@*.service", "kvn-v5-forwarding.service")
+         "kvn-v5-provision@*.service", "kvn-v5-forwarding.service", "kvn-v5-system-update.service",
+         "kvn-v5-shell-transition.service")
 
 
 class UpdateError(RuntimeError):

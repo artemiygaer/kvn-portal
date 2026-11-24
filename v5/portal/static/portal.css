@@ -60,6 +60,30 @@ nav, .actions { display: flex; align-items: center; flex-wrap: wrap; gap: .35rem
 nav a { padding: .35rem .55rem; border-radius: .45rem; font-size: .93rem; color: var(--ink); text-decoration: none; }
 nav a:hover { text-decoration: underline; }
 nav a[aria-current="page"] { color: var(--accent); background: var(--active); font-weight: 720; }
+.portal-nav { gap: .4rem; }
+.portal-nav .nav-button {
+  display: inline-flex; align-items: center; gap: .45rem; padding: .38rem .64rem;
+  border: 1px solid var(--line); border-radius: .55rem; background: var(--panel);
+  color: var(--ink); font-size: .9rem; font-weight: 680; line-height: 1.35; cursor: pointer;
+}
+.nav-group { position: relative; }
+.nav-group summary { list-style: none; }
+.nav-group summary::-webkit-details-marker { display: none; }
+.nav-group summary::after { content: ""; width: .4em; height: .4em; border: solid currentColor; border-width: 0 1px 1px 0; transform: rotate(45deg) translateY(-.1em); }
+.nav-group[open] summary::after { transform: rotate(225deg); }
+.portal-nav .nav-button:hover, .nav-group[open] .nav-button, .nav-group.is-current .nav-button,
+.portal-nav .nav-button[aria-current="page"] { background: var(--active); color: var(--accent); }
+.portal-nav .shell-link { font-family: ui-monospace, monospace; }
+.nav-panel {
+  position: absolute; z-index: 10; top: calc(100% + .4rem); min-width: 14rem;
+  padding: .35rem; border: 1px solid var(--line); border-radius: .65rem; background: var(--panel);
+  box-shadow: 0 .55rem 1.5rem #0003;
+}
+.nav-panel a { display: block; padding: .45rem .55rem; font-weight: 680; }
+.nav-panel a:hover, .nav-panel a:focus-visible { background: var(--active); }
+.nav-panel small { display: block; font-size: .76rem; font-weight: 400; margin-top: .1rem; }
+.update-banner { margin-bottom: .85rem; border-inline-start: .25rem solid var(--accent); }
+.update-banner p { margin-bottom: 0; }
 .topbar-logout { margin: 0; }
 .skip-link { position: absolute; top: .55rem; left: .75rem; z-index: 2; transform: translateY(-180%); background: var(--panel); padding: .55rem .7rem; }
 .skip-link:focus { transform: none; }
@@ -124,6 +148,9 @@ th, td { text-align: left; padding: .42rem; border-bottom: 1px solid var(--line)
   nav { grid-column: 1 / -1; grid-row: 2; }
   .topbar-logout { grid-column: 2; grid-row: 1; }
   table { display: block; overflow-x: auto; }
+  .portal-nav { position: relative; }
+  .nav-group { position: static; }
+  .nav-panel { left: 0; right: 0; min-width: 0; }
 }
 
 @media (max-width: 35rem) {

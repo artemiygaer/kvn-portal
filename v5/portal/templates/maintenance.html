@@ -3,13 +3,11 @@
 {% block body %}
 <h1>Обслуживание</h1>
 <p>Ядро {{ 'v' ~ version if version else 'v5 без метки выпуска' }} · версия API {{ core_api }}</p>
-{% if console_available %}
 <section class="panel" aria-labelledby="console-title">
-  <h2 id="console-title">Консоль root</h2>
-  <p>Консоль открывается отдельно после ввода системного пароля root.</p>
-  <a class="button" href="{{ url_for('console_page') }}">Открыть консоль</a>
+  <h2 id="console-title">Shell</h2>
+  <p>{% if console_available %}Для запуска нужен системный пароль root.{% else %}Консоль выключена или требуется повторный вход. На странице Shell показано, что делать.{% endif %}</p>
+  <a class="button" href="{{ url_for('console_page') }}">Открыть Shell</a>
 </section>
-{% endif %}
 <section class="panel" aria-labelledby="backup-title">
   <h2 id="backup-title">Приватная копия ядра</h2>
   <p>Через SSH от root. В копии есть закрытые данные, поэтому панель не может её скачать. Пользовательские данные переносите отдельно через «Импорт и экспорт .kvn».</p>

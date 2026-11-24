@@ -29,6 +29,7 @@ from .rpc import AgentRejected, AgentUnavailable, CoreUpdateClient, HostClient, 
 from .core_update_routes import register_core_update
 from .console_client import ConsoleClient
 from .console_routes import SID as CONSOLE_SID, install_console_routes
+from .system_update_routes import register_system_updates, snapshot as system_snapshot
 from .migration_client import MigrationClient
 from .migration_routes import register_migration
 from .log_routes import register_logs
@@ -301,7 +302,7 @@ def create_app(config=None, *, client=None, login_budget=None, package_client=No
             pass
         return render_template("dashboard.html", status=cache.get(), csrf=csrf_token(),
                                modules_total=len(MODULE_IDS), installed=installed, package_error=status_error,
-                               ssh_rows=ssh_rows, ssh_partial=ssh_partial)
+                               ssh_rows=ssh_rows, ssh_partial=ssh_partial, system=system_snapshot(core_updates))
 
     @app.route("/settings/tls", methods=["GET", "POST"])
     def tls_settings():
@@ -637,6 +638,8 @@ def create_app(config=None, *, client=None, login_budget=None, package_client=No
     register_logs(app, backend)
     register_observability(app, backend, lifecycle, csrf_token, require_csrf)
     register_core_update(app, core_updates, csrf_token, require_csrf, PORTAL_CSP)
+    register_system_updates(app, core_updates, csrf_token, require_csrf, verify_ssh_admin)
     register_ssh_accounts(app, core_updates, csrf_token, require_csrf, verify_ssh_admin)
-    install_console_routes(app, console, csrf_token, require_csrf, PORTAL_CSP)
+    install_console_routes(app, console, csrf_token, require_csrf, PORTAL_CSP,
+                           controls=core_updates, verify_admin=verify_ssh_admin)
     return app

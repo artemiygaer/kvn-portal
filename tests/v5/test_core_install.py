@@ -68,7 +68,8 @@ class InstallerPreflightTests(unittest.TestCase):
     def test_web_service_reports_ready_after_application_preload(self):
         unit = (Path(__file__).resolve().parents[2] / 'v5/install/systemd/kvn-v5-web.service').read_text()
         self.assertIn('Type=notify\n', unit)
-        self.assertIn('gunicorn --preload --workers 1 --threads 2', unit)
+        self.assertIn('gunicorn --workers 1 --threads 2', unit)
+        self.assertNotIn('--preload', unit)
         self.assertIn('User=kvn-v5-web\n', unit)
         self.assertIn('InaccessiblePaths=-/run/docker.sock', unit)
 

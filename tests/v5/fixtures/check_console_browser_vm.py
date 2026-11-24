@@ -47,8 +47,14 @@ def main():
                     connection.request("GET", path, headers={"Cookie": COOKIE + "=" + signed,
                                                              "Origin": "https://127.0.0.1:8443",
                                                              "Upgrade": "websocket", "Connection": "upgrade"})
-                    assert connection.getresponse().status == 404, path
-            print("HTTPS: страница и WebSocket закрыты, сокетов/служб консоли нет.")
+                    response = connection.getresponse()
+                    if path.endswith("/ws"):
+                        assert response.status == 404, path
+                    else:
+                        body = response.read()
+                        assert response.status == 200 and b"systemctl start kvn-v5-console-web.socket" in body, path
+                        assert b"xterm.js" not in body
+            print("HTTPS: справка доступна, WebSocket закрыт, фоновые службы консоли не запущены.")
         else:
             raise ValueError("Неизвестная операция теста")
 

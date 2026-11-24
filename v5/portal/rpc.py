@@ -136,6 +136,15 @@ class PackageClient(HostClient):
 
 
 class CoreUpdateClient(HostClient):
+    def shell_control(self, action: str) -> dict:
+        return self._request("core.shell_control", {"action": action, "confirm": "yes"}, timeout=8)
+
+    def system_status(self) -> dict:
+        return self._request("core.system_status", {}, timeout=4)
+
+    def system_action(self, action, **params) -> dict:
+        return self._request(f"core.system_{action}", params, timeout=11)
+
     def ssh_accounts(self, action, **params):
         return self._request(f"ssh.{action}", params, timeout=115 if action in ("import", "export") else 27)
 

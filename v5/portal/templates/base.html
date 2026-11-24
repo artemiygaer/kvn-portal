@@ -12,17 +12,40 @@
     <div class="topbar-inner">
       <a class="brand" href="{{ url_for('dashboard') }}">Панель управления</a>
       {% if session.get('admin') is sameas true %}
-      <nav aria-label="Основная навигация">
+      <nav class="portal-nav" aria-label="Основная навигация">
         {% set view = request.endpoint or '' %}
-        <a href="{{ url_for('dashboard') }}"{% if view == 'dashboard' %} aria-current="page"{% endif %}>Обзор</a>
-        <a href="{{ url_for('modules_page') }}"{% if view in ('modules_page', 'module_action') %} aria-current="page"{% endif %}>Модули</a>
-        <a href="{{ url_for('vpn_users.index') }}"{% if view.startswith(('vpn_users.', 'migration.')) %} aria-current="page"{% endif %}>Пользователи</a>
-        <a href="{{ url_for('tls_settings') }}"{% if view == 'tls_settings' %} aria-current="page"{% endif %}>HTTPS</a>
-        <a href="{{ url_for('site_settings') }}"{% if view.startswith('site_') %} aria-current="page"{% endif %}>Публичная страница</a>
-        <a href="{{ url_for('logs') }}"{% if view == 'logs' %} aria-current="page"{% endif %}>Журнал</a>
-        <a href="{{ url_for('ssh_accounts') }}"{% if view == 'ssh_accounts' %} aria-current="page"{% endif %}>SSH-пользователи</a>
-        <a href="{{ url_for('observability') }}"{% if view in ('observability', 'observation_history') %} aria-current="page"{% endif %}>SSH и процессы</a>
-        <a href="{{ url_for('maintenance') }}"{% if view == 'maintenance' %} aria-current="page"{% endif %}>Обслуживание</a>
+        <a class="nav-button" href="{{ url_for('dashboard') }}"{% if view == 'dashboard' %} aria-current="page"{% endif %}>Обзор</a>
+        <details name="portal-navigation" class="nav-group{% if view in ('logs', 'observability', 'observation_history') %} is-current{% endif %}">
+          <summary class="nav-button">Сервер</summary>
+          <div class="nav-panel">
+            <a href="{{ url_for('observability') }}"{% if view in ('observability', 'observation_history') %} aria-current="page"{% endif %}>Сеансы SSH и процессы<small>Подключения, нагрузка и история</small></a>
+            <a href="{{ url_for('logs') }}"{% if view == 'logs' %} aria-current="page"{% endif %}>Журнал событий<small>Операции панели и системные события</small></a>
+          </div>
+        </details>
+        <details name="portal-navigation" class="nav-group{% if view in ('tls_settings', 'ssh_accounts') or view.startswith(('vpn_users.', 'migration.')) %} is-current{% endif %}">
+          <summary class="nav-button">Доступ</summary>
+          <div class="nav-panel">
+            <a href="{{ url_for('ssh_accounts') }}"{% if view == 'ssh_accounts' %} aria-current="page"{% endif %}>Учётные записи SSH<small>Вход на сервер и ключи</small></a>
+            <a href="{{ url_for('vpn_users.index') }}"{% if view.startswith(('vpn_users.', 'migration.')) %} aria-current="page"{% endif %}>Пользователи VPN<small>Карточки, права и конфигурации</small></a>
+            <a href="{{ url_for('tls_settings') }}"{% if view == 'tls_settings' %} aria-current="page"{% endif %}>Сертификаты HTTPS<small>Выпуск, импорт и продление</small></a>
+          </div>
+        </details>
+        <details name="portal-navigation" class="nav-group{% if view in ('modules_page', 'module_action') or view.startswith('site_') %} is-current{% endif %}">
+          <summary class="nav-button">Сервисы</summary>
+          <div class="nav-panel">
+            <a href="{{ url_for('modules_page') }}"{% if view in ('modules_page', 'module_action') %} aria-current="page"{% endif %}>Модули VPN<small>Каталог и управление сервисами</small></a>
+            <a href="{{ url_for('site_settings') }}"{% if view.startswith('site_') %} aria-current="page"{% endif %}>Публичная страница<small>Что видят посетители по HTTP/HTTPS</small></a>
+          </div>
+        </details>
+        <details name="portal-navigation" class="nav-group{% if view == 'maintenance' or view.startswith(('core_update_', 'system_update_')) %} is-current{% endif %}">
+          <summary class="nav-button">Обслуживание</summary>
+          <div class="nav-panel">
+            <a href="{{ url_for('system_update_page') }}"{% if view == 'system_update_page' %} aria-current="page"{% endif %}>Обновления Debian<small>Пакеты сервера и ядро ОС</small></a>
+            <a href="{{ url_for('core_update_page') }}"{% if view == 'core_update_page' %} aria-current="page"{% endif %}>Обновление портала<small>GitHub и подписанные архивы панели</small></a>
+            <a href="{{ url_for('maintenance') }}"{% if view == 'maintenance' %} aria-current="page"{% endif %}>Копии и восстановление<small>Резервная копия и аварийный доступ</small></a>
+          </div>
+        </details>
+        <a class="nav-button shell-link" href="{{ url_for('console_page') }}"{% if view == 'console_page' %} aria-current="page"{% endif %}>Shell</a>
       </nav>
       {% if session.get('csrf') %}
       <form class="topbar-logout" action="{{ url_for('logout') }}" method="post"><input type="hidden" name="csrf" value="{{ session['csrf'] }}"><button class="secondary" type="submit">Выйти</button></form>
@@ -32,6 +55,7 @@
     </div>
   </header>
   <main id="main" tabindex="-1">{% block body %}{% endblock %}</main>
+  {% if session.get('admin') is sameas true %}<script defer src="{{ url_for('static', filename='navigation.js') }}"></script>{% endif %}
   {% block scripts %}{% endblock %}
 </body>
 </html>

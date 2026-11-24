@@ -8,6 +8,7 @@ import socket
 import socketserver
 import sqlite3
 import struct
+from threading import Thread
 import time
 from subprocess import SubprocessError
 
@@ -266,6 +267,31 @@ def _refresh_public_site(site, tls, gateway_file):
         pass
 
 
+def _schedule_maintenance():
+    # Не задерживать запуск web: старый обновлятор проверяет его с жёстким тайм-аутом.
+    from .console.upgrade import is_transition, schedule_transition
+
+    try:
+        transition = is_transition()
+    except (OSError, ValueError):
+        transition = False
+    deadline = time.monotonic() + 90
+    while not Path("/run/kvn-v5-web/http.sock").is_socket() and time.monotonic() < deadline:
+        time.sleep(1)
+    time.sleep(35)
+    if transition:
+        try:
+            schedule_transition()
+        except (OSError, SubprocessError):
+            audit.record("maintenance.shell", False)
+    from .maintenance.release_poll import schedule
+
+    try:
+        schedule()
+    except (OSError, SubprocessError):
+        audit.record("maintenance.release_check", False)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--socket", type=Path, required=True)
@@ -276,6 +302,7 @@ def main():
     with AgentServer(options.socket, AgentApplication(options.web_uid, tls=tls, site=site,
                                                      packages=package_status, journal=audit.recent,
                                                      observer=Observer(), history=History(OBSERVATION_DIRECTORY))) as server:
+        Thread(target=_schedule_maintenance, name="maintenance-scheduler", daemon=True).start()
         server.serve_forever()
 
 

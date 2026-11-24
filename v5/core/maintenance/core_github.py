@@ -28,7 +28,7 @@ class GitHubCore:
     def __init__(self, transport=None):
         self.transport = transport if transport is not None else GitHubPackages()
 
-    def prepare(self, store, tag=None):
+    def _metadata(self, tag=None):
         if tag is not None and not _release_tag(tag):
             raise UpdateStoreError("core_github_tag")
         suffix = f"tags/{tag}" if tag is not None else "latest"
@@ -61,7 +61,14 @@ class GitHubCore:
                 or type(size) is not int or not 0 < size <= MAX_BUNDLE or not isinstance(digest, str)
                 or not digest.startswith("sha256:") or SHA256.fullmatch(digest[7:]) is None):
             raise UpdateStoreError("core_github_metadata")
+        return release["tag_name"], asset_id, size, digest[7:]
+
+    def latest(self):
+        """Прочитать только метаданные; пакет всё равно проверяется при явной загрузке."""
+        return self._metadata()[0]
+
+    def prepare(self, store, tag=None):
+        version, asset_id, size, digest = self._metadata(tag)
         with self.transport._open(f"{_API}{_REPO}/releases/assets/{asset_id}", binary=True) as response:
             source = _Download(response, size, time.monotonic() + 180)
-            return store.prepare(_VerifiedDownload(source, digest[7:]), size,
-                                 expected_version=release["tag_name"][1:])
+            return store.prepare(_VerifiedDownload(source, digest), size, expected_version=version[1:])

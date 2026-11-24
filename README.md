@@ -5,7 +5,7 @@
 дополнительных модулей и Docker нет. Нужные модули устанавливаются, включаются
 и отключаются через панель; конфигурация при отключении сохраняется.
 
-Актуальный выпуск: [**v5.0.8**](https://github.com/artemiygaer/kvn-portal/releases/tag/v5.0.8). Версия v5 устанавливается начисто и не
+Актуальный выпуск: [**v5.0.9**](https://github.com/artemiygaer/kvn-portal/releases/tag/v5.0.9). Версия v5 устанавливается начисто и не
 обновляет существующую установку v4.2. Перенос пользователей между порталами v5
 выполняется через экспорт и импорт `.kvn`.
 
@@ -25,8 +25,8 @@
   work=$(mktemp -d)
   cd "$work"
   curl --disable -fL --proto '=https' --proto-redir '=https' -o portal-v5-installer.tar.gz \
-    https://github.com/artemiygaer/kvn-portal/releases/download/v5.0.8/portal-v5-installer.tar.gz
-  echo '40307380bdb3ac3f4db40655c6e8564284dad2084d87d297c6f3307a6adbfcc9  portal-v5-installer.tar.gz' | sha256sum -c -
+    https://github.com/artemiygaer/kvn-portal/releases/download/v5.0.9/portal-v5-installer.tar.gz
+  echo '02ac4475585906ad4bd605fc4acf6e693f509fe207b838523fe674e71cbb9297  portal-v5-installer.tar.gz' | sha256sum -c -
   tar -xzf portal-v5-installer.tar.gz --no-same-owner --no-same-permissions
   bash v5/install/install.sh
 )
@@ -34,14 +34,17 @@
 
 Если `curl` отсутствует, сначала установите пакеты `curl` и `ca-certificates`.
 
-Обновление с предыдущих v5: «Обслуживание → Обновление ядра». Загрузите
+Обновление с предыдущих v5: «Обслуживание → Обновление портала». Загрузите
 релиз из GitHub или вручную выберите `portal-v5-update.tar`, затем
 подтвердите применение. [Аварийное обновление по SSH](v5/install/README.md#обновление-ядра-v5).
+Фоновая проверка GitHub уведомляет о новой версии в обзоре; сама она ничего не устанавливает.
 
 ## Возможности
 
 - Мониторинг сервера, SSH-сеансов и процессов. В обзоре видны IP, время
   подключения и длительность активных SSH-сеансов.
+- [Shell](v5/install/README.md#временная-root-консоль), [обновления Debian](v5/install/README.md#обновления-debian)
+  и перезагрузка с отдельным подтверждением.
 - [Управление и перенос локальных SSH-пользователей](v5/DEPLOY.md#ssh-пользователи) без назначения sudo.
 - Нейтральная публичная страница на HTTP без редиректа и HTTPS с сертификатом; администрирование по HTTPS на
   выбранном порту (по умолчанию 8443) и пути. Поддерживаются IP и несколько имён с отдельными сертификатами.

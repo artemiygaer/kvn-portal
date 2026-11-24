@@ -1,11 +1,43 @@
 {% extends 'base.html' %}
-{% block title %}Консоль root{% endblock %}
+{% block title %}Shell · Консоль root{% endblock %}
 {% block body %}
+{% if available and authenticated %}
 <link rel="stylesheet" href="{{ url_for('static', filename='vendor/xterm/xterm.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='console.css') }}">
-<h1>Консоль root</h1>
-<p>До 10 минут на сеанс. Выход из панели закроет консоль. Для аварийного доступа используйте SSH.</p>
+{% endif %}
+<h1>Shell</h1>
+<p>Интерактивная консоль сервера. До 10 минут на сеанс; при уходе со страницы терминал закрывается.</p>
+{% for category, text in get_flashed_messages(with_categories=true) %}
+<p role="status" class="{{ 'alert' if category == 'error' else 'badge badge-ok' }}">{{ text }}</p>
+{% endfor %}
+{% if authenticated %}
 <section class="panel">
+  <details{% if not available %} open{% endif %}>
+    <summary>{{ 'Отключить root-консоль' if available else 'Включить root-консоль' }}</summary>
+    <p>{% if available %}Все активные сеансы Shell закроются.{% else %}Консоль будет доступна администраторам до отключения или перезагрузки. Для входа нужен системный пароль root.{% endif %}</p>
+    <form method="post" action="{{ url_for('console_control') }}">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="action" value="{{ 'disable' if available else 'enable' }}">
+      <label>Пароль администратора панели <input type="password" name="admin_password" required autocomplete="current-password"></label>
+      <label><input type="checkbox" name="confirm" value="yes" required> Подтверждаю изменение доступа к Shell</label>
+      <button type="submit">{{ 'Отключить Shell' if available else 'Включить Shell' }}</button>
+    </form>
+  </details>
+</section>
+{% endif %}
+{% if not available %}
+<section class="panel">
+  <h2>Консоль выключена</h2>
+  <p>Воспользуйтесь формой выше. Если включить из панели не получилось, выполните по SSH от root:</p>
+  <pre><code>apt-get install --no-install-recommends python3-websockets
+systemctl start kvn-v5-console-web.socket</code></pre>
+  <p>Затем обновите страницу. Для отключения выполните <code>systemctl stop kvn-v5-console-web.socket</code>.</p>
+  <p>Если системный пароль root не задан или заблокирован, пользуйтесь SSH. Включать парольный вход по SSH не нужно.</p>
+</section>
+{% elif not authenticated %}
+<section class="panel"><p>Выйдите из панели и войдите заново, чтобы получить доступ к консоли.</p></section>
+{% else %}
+<section class="panel" id="console-workspace">
   <form id="console-auth" method="post" action="{{ url_for('console_authorize') }}" autocomplete="off">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label>Системный пароль root <input type="password" name="root_password" required maxlength="1024"></label>
@@ -13,12 +45,41 @@
   </form>
   <noscript><p>Для работы терминала нужен JavaScript.</p></noscript>
   <p id="console-status" role="status">Терминал не подключён.</p>
+  <div id="console-tools" hidden>
+    <div class="console-buttons" role="group" aria-label="Управление терминалом">
+      <button type="button" class="secondary" data-font="-1" aria-label="Уменьшить шрифт">A−</button>
+      <button type="button" class="secondary" data-font="1" aria-label="Увеличить шрифт">A+</button>
+      <button type="button" class="secondary" id="console-fullscreen" aria-pressed="false">На весь экран</button>
+      <button type="button" class="secondary" id="console-copy">Копировать</button>
+      <button type="button" class="secondary" id="console-paste">Вставить</button>
+      <button type="button" class="secondary" id="console-close">Закрыть терминал</button>
+    </div>
+    <details>
+      <summary>Клавиши для <code>mc</code>, <code>htop</code> и других программ</summary>
+      <div class="console-buttons" role="group" aria-label="Функциональные клавиши">
+        {% for key in ('Esc', 'Ctrl+C', 'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12') %}
+        <button type="button" class="secondary" data-key="{{ key }}">{{ key }}</button>
+        {% endfor %}
+      </div>
+      <p>Экранные клавиши отправляются в терминал, даже если их перехватывает браузер. Для копирования — Ctrl+Insert или Ctrl+Shift+C, для вставки — Shift+Insert или Ctrl+Shift+V.</p>
+    </details>
+    <form id="console-paste-form" hidden>
+      <label>Текст для вставки <textarea id="console-paste-text" rows="3"></textarea></label>
+      <div class="console-buttons">
+        <button type="submit">Вставить в терминал</button>
+        <button type="button" class="secondary" id="console-paste-cancel">Отмена</button>
+      </div>
+    </form>
+    <p id="console-notice" role="status" hidden></p>
+  </div>
   <div id="console-terminal" hidden aria-label="Терминал root"></div>
-  <button id="console-close" type="button" class="secondary" hidden>Закрыть терминал</button>
 </section>
+{% endif %}
 {% endblock %}
 {% block scripts %}
+{% if available and authenticated %}
 <script defer src="{{ url_for('static', filename='vendor/xterm/xterm.js') }}"></script>
 <script defer src="{{ url_for('static', filename='vendor/xterm/addon-fit.js') }}"></script>
 <script defer src="{{ url_for('static', filename='console.js') }}"></script>
+{% endif %}
 {% endblock %}

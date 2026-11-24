@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
-{% block title %}Обновление ядра{% endblock %}
+{% block title %}Обновление портала{% endblock %}
 {% block body %}
-<h1>Обновление ядра</h1>
+<h1>Обновление портала</h1>
 <p>Сначала загрузите и проверьте подписанный пакет. Применение запускается отдельно; настройки и модули сохраняются.</p>
 <p><a href="{{ url_for('maintenance') }}">К обслуживанию</a></p>
 {% for category, message in get_flashed_messages(with_categories=true) %}<p class="{{ 'alert' if category == 'error' else 'badge' }}" role="{{ 'alert' if category == 'error' else 'status' }}">{{ message }}</p>{% endfor %}
@@ -11,9 +11,17 @@
 <section class="panel">
   <h2>GitHub Releases</h2>
   <p>Источник закреплён за artemiygaer/kvn-portal. Пустой тег означает последний стабильный выпуск v5.</p>
+  {% set release = status.portal_release %}
+  {% if release and release.status == 'available' %}
+  <p role="status" class="badge badge-ok">Доступен {{ release.tag }}. Подготовьте пакет и отдельно подтвердите установку.</p>
+  {% elif release and release.status == 'current' %}
+  <p role="status">Последняя фоновая проверка не нашла более новой версии.</p>
+  {% elif release and release.status == 'unavailable' %}
+  <p role="status">Фоновая проверка не получила данные GitHub. Ручная загрузка доступна.</p>
+  {% else %}<p>Портал периодически проверяет релизы. Пока можно скачать и проверить пакет вручную.</p>{% endif %}
   <form method="post" action="{{ url_for('core_update_action', action='github') }}" data-core-github>
     <input type="hidden" name="csrf" value="{{ csrf }}">
-    <label>Тег выпуска <input name="tag" placeholder="v5.0.0" maxlength="30"></label>
+    <label>Тег выпуска <input name="tag" value="{{ release.tag if release and release.status == 'available' else '' }}" placeholder="v5.0.0" maxlength="30"></label>
     <button type="submit">Скачать и проверить</button>
   </form>
   <div data-core-github-progress hidden><p role="status">Загрузка с GitHub и проверка выполняются. Дождитесь результата.</p><progress aria-label="Подготовка с GitHub"></progress></div>

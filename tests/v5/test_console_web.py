@@ -30,6 +30,26 @@ class Headers(dict):
 
 
 class ConsoleWebTests(TestCase):
+    def test_disabled_console_is_discoverable_without_enabling_root_access(self):
+        gateway = Mock()
+        gateway.available.return_value = False
+        app = create_app(CONFIG, client=Mock(), console_client=gateway)
+        browser = app.test_client()
+        route = "/maintenance/console"
+        self.assertNotIn(b">Shell</a>", browser.get("/login", base_url=ORIGIN).data)
+        self.assertEqual(browser.get(route, base_url=ORIGIN).status_code, 404)
+        with browser.session_transaction(base_url=ORIGIN) as session:
+            session.update(admin=True, console_sid=SID, csrf="fixture-csrf")
+        page = browser.get(route, base_url=ORIGIN)
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(b">Shell</a>", page.data)
+        self.assertIn(b"systemctl start kvn-v5-console-web.socket", page.data)
+        self.assertNotIn(b"xterm.js", page.data)
+        self.assertNotIn("'unsafe-inline'", page.headers["Content-Security-Policy"])
+        self.assertEqual(browser.post(route + "/authorize", base_url=ORIGIN, headers={"Origin": ORIGIN},
+                                      data={"csrf": "fixture-csrf", "root_password": "fixture"}).status_code, 404)
+        gateway.authorize.assert_not_called()
+
     def test_ws_origin_cookie_and_path_match_without_tickets_in_url(self):
         gate = BrowserGate(CONFIG)
         cookie = COOKIE + "=" + gate.serializer.dumps({"admin": True, "console_sid": SID})
@@ -55,6 +75,8 @@ class ConsoleWebTests(TestCase):
         page = browser.get("/maintenance/console", base_url=ORIGIN)
         self.assertEqual(page.status_code, 200)
         self.assertIn(b"xterm.js", page.data)
+        self.assertIn(b'id="console-fullscreen"', page.data)
+        self.assertIn(b'data-key="F10"', page.data)
         self.assertIn("connect-src 'self'", page.headers["Content-Security-Policy"])
         self.assertIn("style-src 'self' 'unsafe-inline';", page.headers["Content-Security-Policy"])
         self.assertIn("script-src 'self';", page.headers["Content-Security-Policy"])

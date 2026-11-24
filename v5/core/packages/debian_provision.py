@@ -91,17 +91,10 @@ def package_plan(module: object, *, docker_present: bool, wg_present: bool, nft_
     raise ProvisionError('invalid_provision_request')
 
 
-def apt_commands(stage: Path, packages: tuple[str, ...]) -> tuple[tuple[str, ...], ...]:
-    """Сформировать ограниченные argv; подготовка каталога и запуск выполняются отдельно."""
+def apt_base(stage: Path) -> tuple[str, ...]:
     if (not isinstance(stage, Path) or stage.parent != WORK_ROOT
             or not re.fullmatch(r'apt-[a-f0-9]{32}', stage.name, re.ASCII)):
         raise ProvisionError('invalid_provision_stage')
-    allowed = {'docker.io', 'docker-cli', 'wireguard-tools', 'nftables'}
-    if (not isinstance(packages, tuple) or not packages
-            or any(not isinstance(name, str) or name not in allowed for name in packages)
-            or len(packages) != len(set(packages))
-            or (set(packages) & {'docker.io', 'docker-cli'} and set(packages) - {'docker.io', 'docker-cli'})):
-        raise ProvisionError('invalid_provision_request')
     options = ('-o', f'Dir::Etc::sourcelist={stage / "sources.list"}',
                '-o', f'Dir::Etc::sourceparts={stage / "empty"}', '-o', f'Dir::State::lists={stage / "lists"}',
                '-o', 'Dir::Etc::preferences=-', '-o', f'Dir::Etc::preferencesparts={stage / "empty"}',
@@ -110,7 +103,19 @@ def apt_commands(stage: Path, packages: tuple[str, ...]) -> tuple[tuple[str, ...
                '-o', 'APT::Get::AllowUnauthenticated=false', '-o', 'Acquire::AllowInsecureRepositories=false',
                '-o', 'Acquire::http::Timeout=30', '-o', 'Acquire::https::Timeout=30',
                '-o', 'Acquire::Retries=1', '-o', 'DPkg::Lock::Timeout=15')
-    apt = ('/usr/bin/apt-get', *options)
+    return ('/usr/bin/apt-get', *options)
+
+
+def apt_commands(stage: Path, packages: tuple[str, ...]) -> tuple[tuple[str, ...], ...]:
+    """Сформировать ограниченные argv; подготовка каталога и запуск выполняются отдельно."""
+    apt = apt_base(stage)
+    allowed = {'docker.io', 'docker-cli', 'wireguard-tools', 'nftables', 'python3-websockets'}
+    if (not isinstance(packages, tuple) or not packages
+            or any(not isinstance(name, str) or name not in allowed for name in packages)
+            or len(packages) != len(set(packages))
+            or (set(packages) & {'docker.io', 'docker-cli'} and set(packages) - {'docker.io', 'docker-cli'})
+            or ('python3-websockets' in packages and packages != ('python3-websockets',))):
+        raise ProvisionError('invalid_provision_request')
     return (apt + ('update', '--error-on=any'),
             apt + ('install', '-y', '--no-install-recommends', '--no-remove', '--no-upgrade', *packages))
 

@@ -5,6 +5,29 @@
   <div><p class="eyebrow">Ядро v5</p><h1>Обзор сервера</h1><p>Снимок обновляется при открытии страницы. История настраивается отдельно.</p></div>
   {% if status %}<span class="badge badge-ok">Агент доступен</span>{% endif %}
 </div>
+{% if system and system.portal_release and system.portal_release.status == 'available' %}
+<section class="panel update-banner">
+  <div class="section-heading"><div><h2>Доступен портал {{ system.portal_release.tag }}</h2>
+    <p>GitHub опубликовал новый стабильный выпуск. Пакет проверяется перед установкой.</p></div>
+    <a class="button" href="{{ url_for('core_update_page') }}">Посмотреть обновление портала</a>
+  </div>
+</section>
+{% endif %}
+{% if system %}
+<section class="panel update-banner">
+  <div class="section-heading">
+    <div><h2>Обновления Debian</h2>
+    {% if system.needs_reboot %}<p>Требуется перезагрузка сервера.</p>
+    {% elif system.phase in ('checking', 'installing', 'rebooting') %}<p>Системная операция выполняется.</p>
+    {% elif system.phase == 'unchecked' %}<p>Пакеты и ядро ещё не проверялись.</p>
+    {% elif system.phase == 'failed' %}<p>Предыдущая операция не завершилась.</p>
+    {% elif system.stale %}<p>Результат устарел. Проверьте обновления снова.</p>
+    {% elif system.total %}<p>Доступно обновлений: {{ system.total }}.</p>
+    {% else %}<p>Обновлений не найдено.</p>{% endif %}</div>
+    <a class="button" href="{{ url_for('system_update_page') }}">Открыть обновления</a>
+  </div>
+</section>
+{% endif %}
 {% if status %}
 <dl class="metrics">
   <div class="panel"><dt>CPU</dt><dd>{{ ('%.1f'|format(status.cpu_percent)) ~ ' %' if status.cpu_percent is not none else 'Нет второй выборки' }}</dd></div>

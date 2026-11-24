@@ -9,7 +9,9 @@ User=kvn-v5-web
 Group=kvn-v5-web
 WorkingDirectory=/usr/local/lib/kvn-v5
 Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStart=/usr/bin/gunicorn --preload --workers 1 --threads 2 --umask 7 --bind unix:/run/kvn-v5-web/http.sock v5.portal.app:create_app()
+# Один worker загружает приложение сам: запуск master не блокирует импорт Flask.
+# Обновлятор отдельно проверяет готовность страницы входа и локальный RPC.
+ExecStart=/usr/bin/gunicorn --workers 1 --threads 2 --umask 7 --bind unix:/run/kvn-v5-web/http.sock v5.portal.app:create_app()
 RuntimeDirectory=kvn-v5-web
 RuntimeDirectoryMode=0770
 UMask=0007

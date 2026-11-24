@@ -10,6 +10,7 @@ import tarfile
 
 from v5.core.contracts import CORE_API_VERSION
 from v5.core import audit
+from v5.core.console.upgrade import control as console_control
 from v5.core.lifecycle.controller import LifecycleError
 from v5.core.packages.manifest import PackageError, json_object
 from v5.core.packages.debian_provision import ProvisionError
@@ -19,6 +20,7 @@ from v5.core.release import installed_version, stable_version
 from .core_github import GitHubCore
 from .portal_store import LIFETIME, PortalUpdateStore, TICKET, UpdateStoreError
 from .ssh_accounts import MAX_REQUEST as SSH_MAX_REQUEST, SCHEMAS as SSH_SCHEMAS
+from . import release_poll, system_updates
 
 SOCKET = "/run/kvn-v5-core-update.sock"
 _PEER = struct.Struct("3i")
@@ -28,6 +30,9 @@ _METHODS = {"core.status": frozenset(), "core.upload": frozenset({"size"}),
             "core.provision_status": frozenset(), "core.provision_start": frozenset({"module"}),
             "core.forwarding_status": frozenset(), "core.forwarding_enable": frozenset({"module"})}
 _METHODS.update({f"ssh.{action}": fields for action, fields in SSH_SCHEMAS.items()})
+_METHODS.update({"core.system_status": frozenset(), "core.system_check": frozenset(),
+                 "core.system_install": frozenset({"plan", "confirm"}), "core.system_reboot": frozenset({"confirm"})})
+_METHODS["core.shell_control"] = frozenset({"action", "confirm"})
 
 
 def _ssh_accounts(action, params):
@@ -188,6 +193,12 @@ class PortalUpdateApplication:
         method, params = request["method"], request["params"]
         if method != "core.upload" and stream.read(1):
             raise UpdateStoreError("invalid_request")
+        if method == "core.system_status":
+            return {**system_updates.status(), "portal_release": release_poll.snapshot(installed_version(self.store.live))}
+        if method == "core.shell_control":
+            return console_control(**params)
+        if method.startswith("core.system_"):
+            return system_updates.launch(method.removeprefix("core.system_"), params)
         if method.startswith("ssh."):
             ok = False
             try:
@@ -207,7 +218,7 @@ class PortalUpdateApplication:
                     record["status"] = "obsolete"
                 elif record["status"] in ("queued", "running"):
                     record["job_active"] = self.probe(record["ticket"])
-            return {"current": current, "records": records}
+            return {"current": current, "records": records, "portal_release": release_poll.snapshot(current)}
         if method == "core.upload":
             return self.store.prepare(stream, params["size"])
         if method == "core.forwarding_status":

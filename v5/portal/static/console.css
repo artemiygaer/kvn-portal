@@ -2,9 +2,32 @@
     background: #111820;
     border: 1px solid #6b7788;
     border-radius: .35rem;
-    height: clamp(16rem, 60vh, 44rem);
+    height: clamp(18rem, 64dvh, 64rem);
     min-width: 0;
     padding: .45rem;
 }
-#console-close { margin-top: .65rem; }
-#console-auth[hidden], #console-terminal[hidden], #console-close[hidden] { display: none; }
+
+#console-workspace [hidden] { display: none; }
+#console-tools { margin-bottom: .5rem; }
+#console-tools details { margin-top: .35rem; }
+#console-tools summary { cursor: pointer; }
+#console-tools details .console-buttons { margin-top: .35rem; }
+#console-tools p { margin: .45rem 0; }
+.console-buttons { display: flex; flex-wrap: wrap; align-items: baseline; gap: .35rem; }
+.console-buttons button { padding: .35rem .6rem; }
+#console-paste-form { margin-top: .5rem; }
+#console-paste-form textarea { width: min(36rem, 75vw); }
+
+#console-workspace:fullscreen {
+    display: flex;
+    flex-direction: column;
+    border-radius: 0;
+    border: 0;
+    background: var(--panel);
+    color: var(--ink);
+    overflow: auto;
+}
+#console-workspace:fullscreen #console-terminal {
+    flex: 1 0 8rem;
+    height: auto;
+}

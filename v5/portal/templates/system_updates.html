@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Обновления Debian{% endblock %}
+{% block body %}
+<div class="page-heading"><div><p class="eyebrow">Обслуживание</p><h1>Обновления Debian</h1>
+<p>Установленные пакеты и ядро из официальных репозиториев текущего выпуска. Обновление не удаляет пакеты и не меняет выпуск Debian.</p></div></div>
+{% for category, text in get_flashed_messages(with_categories=true) %}
+<p role="status" class="{{ 'alert' if category == 'error' else 'badge badge-ok' }}">{{ text }}</p>
+{% endfor %}
+{% if system %}
+{% set busy = system.phase in ('checking', 'installing', 'rebooting') %}
+<section class="panel">
+  <div class="section-heading"><h2>Пакеты и ядро</h2><a class="button secondary" href="{{ url_for('system_update_page') }}">Обновить состояние</a></div>
+  {% if system.phase == 'checking' %}<p role="status">Проверка обновлений выполняется.</p>
+  {% elif system.phase == 'installing' %}<p role="status">Пакеты устанавливаются. Не закрывайте доступ к серверу по SSH.</p>
+  {% elif system.phase == 'rebooting' %}<p role="status">Сервер перезагружается.</p>
+  {% elif system.phase == 'failed' %}<p role="alert">{{ messages.get(system.code, 'Операция не завершена. Проверьте системный журнал.') }}</p>
+  {% elif system.phase == 'plan_changed' %}<p role="alert">Список пакетов изменился. Установка не запущена — проверьте снова.</p>
+  {% elif system.phase == 'done' %}<p role="status">Установка завершена.</p>
+  {% elif system.phase == 'unchecked' %}<p>Проверка ещё не выполнялась.</p>
+  {% elif system.stale %}<p>Результат проверки устарел. Обновите список перед установкой.</p>
+  {% elif not system.total %}<p>Доступных обновлений нет.</p>
+  {% endif %}
+  {% if system.total %}
+  <details open><summary>В списке: {{ system.total }}</summary>
+    <ul>{% for name, version in system.packages %}<li><code>{{ name }}</code> — {{ version }}</li>{% endfor %}</ul>
+    {% if system.total > system.packages | length %}<p>Показаны первые {{ system.packages | length }} пакетов.</p>{% endif %}
+  </details>
+  {% endif %}
+  {% if not busy %}
+  <form method="post" action="{{ url_for('system_update_action', action='check') }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><button>Проверить обновления</button>
+  </form>
+  {% if system.phase == 'ready' and not system.stale and system.total %}
+  <form method="post" action="{{ url_for('system_update_action', action='install') }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="plan" value="{{ system.plan }}">
+    <label><input type="checkbox" name="confirm" value="yes" required> Подтверждаю установку. Сервисы могут кратковременно прерваться.</label>
+    <button>Установить пакеты</button>
+  </form>
+  {% endif %}
+  {% endif %}
+</section>
+{% if system.needs_reboot and not busy %}
+<section class="panel">
+  <h2>Требуется перезагрузка</h2><p>Перезагрузите сервер в удобное время. Текущие подключения будут закрыты.</p>
+  <form method="post" action="{{ url_for('system_update_action', action='reboot') }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Пароль администратора портала <input type="password" name="admin_password" required autocomplete="current-password"></label>
+    <label><input type="checkbox" name="confirm" value="yes" required> Подтверждаю перезагрузку сервера</label>
+    <button>Перезагрузить сервер</button>
+  </form>
+</section>
+{% endif %}
+{% else %}<p role="alert" class="alert">Служба обновлений Debian недоступна.</p>{% endif %}
+<p><a href="{{ url_for('core_update_page') }}">Обновление самого портала</a></p>
+{% endblock %}
